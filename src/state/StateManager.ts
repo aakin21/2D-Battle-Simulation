@@ -107,7 +107,7 @@ export class StateManager {
     hero.position = heroPositions[0];
     this.battlefield.units.push(hero);
 
-    this.battlefield.stats.totalSpawned = 21;
+    this.battlefield.stats.totalSpawned = this.battlefield.units.length;
   }
 
   private createUnit(type: UnitType, faction: Faction): IUnit {
@@ -125,6 +125,7 @@ export class StateManager {
       sight:          stats.sight,
       baseSpeed:      stats.speed,
       damage:         stats.damage,
+      path:           [],
       target:         null,
       attackCooldown: 0,
     };

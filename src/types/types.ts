@@ -40,6 +40,7 @@ export interface IUnit {
   sight: number;
   baseSpeed: number;
   damage: number;
+  path: Position[];            // A* path to follow — empty when idle or in combat
   target: string | null;       // ID of the unit being attacked (null = no target)
   attackCooldown: number;      // seconds until next attack (0 = ready)
 }
