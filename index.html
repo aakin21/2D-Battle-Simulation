@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>2D Battle Simulation</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      background: #1a1a1a;
+      color: #e0e0e0;
+      font-family: monospace;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+    }
+
+    #control-bar {
+      width: 900px;
+      height: 40px;
+      background: #2a2a2a;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 0 12px;
+      border-bottom: 1px solid #444;
+      flex-shrink: 0;
+    }
+
+    #control-bar button {
+      background: #3a3a3a;
+      color: #e0e0e0;
+      border: 1px solid #555;
+      padding: 4px 10px;
+      cursor: pointer;
+      font-family: monospace;
+      font-size: 13px;
+    }
+
+    #control-bar button:hover {
+      background: #4a4a4a;
+    }
+
+    #speed-display {
+      font-size: 13px;
+      color: #aaa;
+    }
+
+    #wave-counter {
+      font-size: 13px;
+      color: #aaa;
+      margin-left: auto;
+    }
+
+    #unit-count {
+      font-size: 13px;
+      color: #aaa;
+    }
+
+    #canvas-area {
+      display: flex;
+      gap: 0;
+      position: relative;
+    }
+
+    #battleCanvas {
+      display: block;
+      background: #000;
+      cursor: crosshair;
+    }
+
+    #minimapCanvas {
+      display: block;
+      background: #000;
+      border-left: 1px solid #444;
+    }
+
+    #info-panel {
+      width: 900px;
+      height: 50px;
+      background: #2a2a2a;
+      display: flex;
+      align-items: center;
+      padding: 0 12px;
+      gap: 20px;
+      border-top: 1px solid #444;
+      font-size: 13px;
+      color: #aaa;
+      flex-shrink: 0;
+    }
+
+    #unit-hp, #unit-courage, #unit-state, #unit-type {
+      color: #ccc;
+    }
+
+    #hotkeys {
+      margin-left: auto;
+      font-size: 11px;
+      color: #666;
+    }
+  </style>
+</head>
+<body>
+  <div id="control-bar">
+    <button id="btn-pause">Pause</button>
+    <button id="btn-slower">−</button>
+    <span id="speed-display">1x</span>
+    <button id="btn-faster">+</button>
+    <button id="btn-restart">Restart</button>
+    <span id="wave-counter">Wave: 0</span>
+    <span id="unit-count">Units: 0</span>
+  </div>
+
+  <div id="canvas-area">
+    <canvas id="battleCanvas" width="750" height="750"></canvas>
+    <canvas id="minimapCanvas" width="150" height="150" style="align-self: flex-start;"></canvas>
+  </div>
+
+  <div id="info-panel">
+    <span>Selected Unit:</span>
+    <span id="unit-type">—</span>
+    <span>HP: <span id="unit-hp">—</span></span>
+    <span>Courage: <span id="unit-courage">—</span></span>
+    <span>State: <span id="unit-state">—</span></span>
+    <span id="hotkeys">SPACE: pause &nbsp;|&nbsp; +/−: speed &nbsp;|&nbsp; R: restart &nbsp;|&nbsp; Right-click: hero target</span>
+  </div>
+
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

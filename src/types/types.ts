@@ -1,0 +1,99 @@
+export enum TerrainType {
+  OPEN,
+  FOREST,
+  SWAMP,
+  MOUNTAIN,
+}
+
+export enum UnitType {
+  WARRIOR,
+  HERO,
+  BERSERKER,
+}
+
+export enum Faction {
+  FRIENDLY,
+  ENEMY,
+}
+
+export enum BehaviorState {
+  IDLE,
+  ATTACK,
+  FLEE,
+  REST,
+}
+
+export interface Position {
+  x: number;
+  y: number;
+}
+
+export interface IUnit {
+  id: string;
+  position: Position;
+  hp: number;
+  maxHp: number;
+  courage: number;
+  unitType: UnitType;
+  faction: Faction;
+  state: BehaviorState;
+  sight: number;
+  baseSpeed: number;
+  damage: number;
+  target: string | null;       // ID of the unit being attacked (null = no target)
+  attackCooldown: number;      // seconds until next attack (0 = ready)
+}
+
+export interface IHero extends IUnit {
+  taskPoint: Position | null;
+  charismaRadius: number;
+  charismaBonus: number;
+}
+
+export interface IBattlefield {
+  grid: TerrainType[][];
+  units: IUnit[];
+  elapsedTime: number;
+  waveNumber: number;
+  nextWaveTime: number;        // simulation seconds at which the next wave spawns
+  stats: {
+    totalSpawned: number;
+    casualties: number;
+  };
+}
+
+// Rendering camera — shared between Renderer and MinimapRenderer
+export interface Camera {
+  x: number;
+  y: number;
+  zoom: number; // pixels per tile
+}
+
+export const UNIT_STATS = {
+  WARRIOR:   { hp: 110, courage: 70,  sight: 10, speed: 2.0, damage: 20 },
+  HERO:      { hp: 200, courage: 100, sight: 15, speed: 3.0, damage: 40 },
+  BERSERKER: { hp: 80,  courage: 100, sight: 12, speed: 2.5, damage: 25 },
+};
+
+export const TERRAIN_SPEED: Record<string, number> = {
+  OPEN: 1.0,
+  FOREST: 0.7,
+  SWAMP: 0.5,
+  MOUNTAIN: 0,
+};
+
+export const TERRAIN_COLORS: Record<string, string> = {
+  OPEN: '#5a8a3c',
+  FOREST: '#1f5e1f',
+  SWAMP: '#4a6b3a',
+  MOUNTAIN: '#6b6b6b',
+};
+
+export const UNIT_COLORS: Record<string, string> = {
+  WARRIOR: '#FFD700',
+  HERO:    '#FF4444',
+  BERSERKER: '#4169E1',
+};
+
+export const GRID_SIZE = 150;
+export const TILE_SIZE = 5;   // pixels per tile at base zoom (offscreen terrain canvas)
