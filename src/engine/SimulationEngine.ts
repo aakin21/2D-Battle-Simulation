@@ -6,7 +6,7 @@ import { IUnit, IHero, UnitType, BehaviorState, TerrainType, TERRAIN_SPEED, Posi
 
 // Warriors stop when within this many tiles of the hero
 const WARRIOR_ARRIVE_RADIUS = 2;
-// A waypoint is considered occupied if another unit is within this many tiles of its center
+// A waypoint is blocked if a moving unit is within this many tiles of its center
 const COLLISION_RADIUS = 0.6;
 
 export class SimulationEngine {
@@ -115,8 +115,8 @@ export class SimulationEngine {
       return;
     }
 
-    // Warriors stop when close enough to the hero's current position
-    if (unit.unitType === UnitType.WARRIOR && hero) {
+    // Warriors stop when close enough to the hero — only checked when hero is stationary
+    if (unit.unitType === UnitType.WARRIOR && hero && hero.path.length === 0) {
       const dx = hero.position.x - unit.position.x;
       const dy = hero.position.y - unit.position.y;
       if (dx * dx + dy * dy <= WARRIOR_ARRIVE_RADIUS * WARRIOR_ARRIVE_RADIUS) {
@@ -147,10 +147,11 @@ export class SimulationEngine {
     const wpx = waypoint.x + 0.5;
     const wpy = waypoint.y + 0.5;
 
-    // Basic collision: don't enter a waypoint already occupied by another unit
+    // Basic collision: don't enter a waypoint occupied by another moving unit
     const blocked = allUnits.some(
       u =>
         u.id !== unit.id &&
+        u.path.length > 0 &&
         Math.abs(u.position.x - wpx) < COLLISION_RADIUS &&
         Math.abs(u.position.y - wpy) < COLLISION_RADIUS,
     );
@@ -180,12 +181,12 @@ export class SimulationEngine {
       return (unit as IHero).taskPoint ?? null;
     }
     if (unit.unitType === UnitType.WARRIOR) {
-      if (!hero || !hero.taskPoint) return null;
+      if (!hero) return null;
       // Only warriors within the hero's sight range (15 tiles) get the task point.
       const dx = hero.position.x - unit.position.x;
       const dy = hero.position.y - unit.position.y;
       if (dx * dx + dy * dy > hero.sight * hero.sight) return null;
-      return hero.taskPoint;
+      return hero.taskPoint ?? hero.position;
     }
     return null; // BERSERKER — Week 7
   }
