@@ -84,17 +84,17 @@ export const TERRAIN_SPEED: Record<string, number> = {
 };
 
 export const TERRAIN_COLORS: Record<string, string> = {
-  OPEN: '#5a8a3c',
-  FOREST: '#1f5e1f',
-  SWAMP: '#4a6b3a',
-  MOUNTAIN: '#6b6b6b',
+  OPEN: '#90EE90',
+  FOREST: '#228B22',
+  SWAMP: '#8FBC8F',
+  MOUNTAIN: '#808080',
 };
 
 export const UNIT_COLORS: Record<string, string> = {
   WARRIOR: '#FFD700',
-  HERO:    '#FF4444',
+  HERO:    '#FF0000',
   BERSERKER: '#4169E1',
 };
 
 export const GRID_SIZE = 150;
-export const TILE_SIZE = 5;   // pixels per tile at base zoom (offscreen terrain canvas)
+export const TILE_SIZE = 5;   // pixels per tile at base zoom (offscreen terrain canvas = 750×750)

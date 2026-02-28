@@ -166,22 +166,11 @@ export class StateManager {
     return positions;
   }
 
-  // Returns true if the tile and all 4 cardinal neighbors are non-mountain
-  // (used for spawn placement and movement validity checks)
   public isClearTile(x: number, y: number): boolean {
     const dirs = [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]];
     return dirs.every(([dx, dy]) =>
       this.battlefield.grid[y + dy]?.[x + dx] !== TerrainType.MOUNTAIN
     );
-  }
-
-  getTerrainAt(x: number, y: number): TerrainType {
-    const xi = Math.floor(x);
-    const yi = Math.floor(y);
-    if (xi < 0 || xi >= GRID_SIZE || yi < 0 || yi >= GRID_SIZE) {
-      return TerrainType.MOUNTAIN;
-    }
-    return this.battlefield.grid[yi][xi];
   }
 
   getUnitsInRadius(cx: number, cy: number, radius: number): IUnit[] {

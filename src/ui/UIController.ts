@@ -142,7 +142,10 @@ export class UIController {
     this.elUnitType.textContent    = UnitType[unit.unitType];
     this.elUnitHp.textContent      = `${Math.ceil(unit.hp)} / ${unit.maxHp}`;
     this.elUnitCourage.textContent = Math.round(unit.courage).toString();
-    this.elUnitState.textContent   = BehaviorState[unit.state];
+    this.elUnitState.textContent   =
+      unit.state === BehaviorState.IDLE && unit.path.length > 0
+        ? 'MOVING'
+        : BehaviorState[unit.state];
   }
 
   private updateControlBar(): void {
