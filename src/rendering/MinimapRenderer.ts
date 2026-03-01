@@ -12,7 +12,7 @@ export class MinimapRenderer {
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
 
-  private mainCanvasWidth:  number;
+  private mainCanvasWidth: number;
   private mainCanvasHeight: number;
 
   // Reused ImageData — allocated once, updated each frame
@@ -23,10 +23,10 @@ export class MinimapRenderer {
 
   constructor(canvasId: string, mainCanvasWidth = 750, mainCanvasHeight = 750) {
     this.canvas = document.getElementById(canvasId) as HTMLCanvasElement;
-    this.canvas.width  = GRID_SIZE;
+    this.canvas.width = GRID_SIZE;
     this.canvas.height = GRID_SIZE;
     this.ctx = this.canvas.getContext('2d')!;
-    this.mainCanvasWidth  = mainCanvasWidth;
+    this.mainCanvasWidth = mainCanvasWidth;
     this.mainCanvasHeight = mainCanvasHeight;
   }
 
@@ -44,7 +44,7 @@ export class MinimapRenderer {
           const type = battlefield.grid[y][x];
           const [r, g, b] = hexToRgb(TERRAIN_COLORS[TerrainType[type]] ?? '#000000');
           const i = (y * GRID_SIZE + x) * 4;
-          this.terrainPixels[i]     = r;
+          this.terrainPixels[i] = r;
           this.terrainPixels[i + 1] = g;
           this.terrainPixels[i + 2] = b;
           this.terrainPixels[i + 3] = 255;
@@ -62,7 +62,7 @@ export class MinimapRenderer {
       if (x < 0 || x >= GRID_SIZE || y < 0 || y >= GRID_SIZE) continue;
       const [r, g, b] = hexToRgb(UNIT_COLORS[UnitType[unit.unitType]] ?? '#ffffff');
       const i = (y * GRID_SIZE + x) * 4;
-      this.imageData.data[i]     = r;
+      this.imageData.data[i] = r;
       this.imageData.data[i + 1] = g;
       this.imageData.data[i + 2] = b;
       this.imageData.data[i + 3] = 255;
@@ -71,10 +71,10 @@ export class MinimapRenderer {
     this.ctx.putImageData(this.imageData, 0, 0);
 
     // Draw viewport rectangle showing the main canvas's visible area
-    const visW = this.mainCanvasWidth  / camera.zoom;
+    const visW = this.mainCanvasWidth / camera.zoom;
     const visH = this.mainCanvasHeight / camera.zoom;
     this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
-    this.ctx.lineWidth   = 1;
+    this.ctx.lineWidth = 1;
     this.ctx.strokeRect(camera.x, camera.y, visW, visH);
   }
 

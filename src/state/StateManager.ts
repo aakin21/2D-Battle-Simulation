@@ -27,9 +27,9 @@ export class StateManager {
     // Blob-based procedural generation — no gaps, irregular shapes
     // Target: 50% OPEN, 25% FOREST, 15% SWAMP, 10% MOUNTAIN
     const totalTiles = GRID_SIZE * GRID_SIZE;
-    this.placeBlobClusters(grid, TerrainType.FOREST,   Math.floor(totalTiles * 0.25), 4, 12);
-    this.placeBlobClusters(grid, TerrainType.SWAMP,    Math.floor(totalTiles * 0.15), 3,  8);
-    this.placeBlobClusters(grid, TerrainType.MOUNTAIN, Math.floor(totalTiles * 0.10), 2,  6);
+    this.placeBlobClusters(grid, TerrainType.FOREST, Math.floor(totalTiles * 0.25), 4, 12);
+    this.placeBlobClusters(grid, TerrainType.SWAMP, Math.floor(totalTiles * 0.15), 3, 8);
+    this.placeBlobClusters(grid, TerrainType.MOUNTAIN, Math.floor(totalTiles * 0.1), 2, 6);
 
     this.battlefield.grid = grid;
   }
@@ -47,11 +47,16 @@ export class StateManager {
 
     for (let c = 0; c < numClusters && totalPlaced < targetCount; c++) {
       // Find a random OPEN seed tile
-      let sx = 0, sy = 0, found = false;
+      let sx = 0,
+        sy = 0,
+        found = false;
       for (let attempt = 0; attempt < 300; attempt++) {
         sx = Math.floor(Math.random() * GRID_SIZE);
         sy = Math.floor(Math.random() * GRID_SIZE);
-        if (grid[sy][sx] === TerrainType.OPEN) { found = true; break; }
+        if (grid[sy][sx] === TerrainType.OPEN) {
+          found = true;
+          break;
+        }
       }
       if (!found) continue;
 
@@ -78,9 +83,15 @@ export class StateManager {
         clusterPlaced++;
 
         // Add 4-directional OPEN neighbors to frontier
-        const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+        const dirs = [
+          [1, 0],
+          [-1, 0],
+          [0, 1],
+          [0, -1],
+        ];
         for (const [dx, dy] of dirs) {
-          const nx = x + dx, ny = y + dy;
+          const nx = x + dx,
+            ny = y + dy;
           if (nx < 0 || nx >= GRID_SIZE || ny < 0 || ny >= GRID_SIZE) continue;
           const nk = ny * GRID_SIZE + nx;
           if (!inFrontier.has(nk) && grid[ny][nx] === TerrainType.OPEN) {
@@ -107,7 +118,7 @@ export class StateManager {
     hero.position = heroPositions[0];
     this.battlefield.units.push(hero);
 
-    // Temporary test enemies — stationary, no behavior, removed in Week 7
+    // placeholder enemies for testing — replaced by wave spawning later
     const testEnemyPositions = this.getShuffledPositions(90, 145, 10, 140);
     for (let i = 0; i < 10; i++) {
       const unit = this.createUnit(UnitType.BERSERKER, Faction.ENEMY);
@@ -122,19 +133,19 @@ export class StateManager {
     const key = UnitType[type] as keyof typeof UNIT_STATS;
     const stats = UNIT_STATS[key];
     return {
-      id:             `unit_${this.nextId++}`,
-      position:       { x: 0, y: 0 },
-      hp:             stats.hp,
-      maxHp:          stats.hp,
-      courage:        stats.courage,
-      unitType:       type,
+      id: `unit_${this.nextId++}`,
+      position: { x: 0, y: 0 },
+      hp: stats.hp,
+      maxHp: stats.hp,
+      courage: stats.courage,
+      unitType: type,
       faction,
-      state:          BehaviorState.IDLE,
-      sight:          stats.sight,
-      baseSpeed:      stats.speed,
-      damage:         stats.damage,
-      path:           [],
-      target:         null,
+      state: BehaviorState.IDLE,
+      sight: stats.sight,
+      baseSpeed: stats.speed,
+      damage: stats.damage,
+      path: [],
+      target: null,
       attackCooldown: 0,
     };
   }
@@ -143,19 +154,14 @@ export class StateManager {
     const base = this.createUnit(UnitType.HERO, Faction.FRIENDLY);
     return {
       ...base,
-      taskPoint:      null,
+      taskPoint: null,
       charismaRadius: 10,
-      charismaBonus:  20,
+      charismaBonus: 20,
     };
   }
 
   // Fisher-Yates shuffle
-  getShuffledPositions(
-    xMin: number,
-    xMax: number,
-    yMin: number,
-    yMax: number
-  ): Position[] {
+  getShuffledPositions(xMin: number, xMax: number, yMin: number, yMax: number): Position[] {
     const positions: Position[] = [];
 
     for (let y = yMin; y < yMax; y++) {
@@ -175,15 +181,21 @@ export class StateManager {
   }
 
   public isClearTile(x: number, y: number): boolean {
-    const dirs = [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]];
-    return dirs.every(([dx, dy]) =>
-      this.battlefield.grid[y + dy]?.[x + dx] !== TerrainType.MOUNTAIN
+    const dirs = [
+      [0, 0],
+      [1, 0],
+      [-1, 0],
+      [0, 1],
+      [0, -1],
+    ];
+    return dirs.every(
+      ([dx, dy]) => this.battlefield.grid[y + dy]?.[x + dx] !== TerrainType.MOUNTAIN
     );
   }
 
   getUnitsInRadius(cx: number, cy: number, radius: number): IUnit[] {
     const r2 = radius * radius;
-    return this.battlefield.units.filter(u => {
+    return this.battlefield.units.filter((u) => {
       const dx = u.position.x - cx;
       const dy = u.position.y - cy;
       return dx * dx + dy * dy <= r2;
@@ -191,7 +203,7 @@ export class StateManager {
   }
 
   getHero(): IHero | undefined {
-    return this.battlefield.units.find(u => u.unitType === UnitType.HERO) as IHero | undefined;
+    return this.battlefield.units.find((u) => u.unitType === UnitType.HERO) as IHero | undefined;
   }
 
   addUnit(unit: IUnit): void {
@@ -201,7 +213,7 @@ export class StateManager {
 
   removeUnit(id: string): void {
     const units = this.battlefield.units;
-    const idx = units.findIndex(u => u.id === id);
+    const idx = units.findIndex((u) => u.id === id);
     if (idx === -1) return;
     // O(1) swap-and-pop instead of O(n) splice
     units[idx] = units[units.length - 1];
@@ -214,7 +226,7 @@ export class StateManager {
   }
 
   getUnitById(id: string): IUnit | undefined {
-    return this.battlefield.units.find(u => u.id === id);
+    return this.battlefield.units.find((u) => u.id === id);
   }
 
   reset(): void {
@@ -226,12 +238,12 @@ export class StateManager {
 
   private emptyBattlefield(): IBattlefield {
     return {
-      grid:         [],
-      units:        [],
-      elapsedTime:  0,
-      waveNumber:   0,
-      nextWaveTime: 30,   // first wave at 30 simulation seconds
-      stats:        { totalSpawned: 0, casualties: 0 },
+      grid: [],
+      units: [],
+      elapsedTime: 0,
+      waveNumber: 0,
+      nextWaveTime: 30, // first wave at 30 simulation seconds
+      stats: { totalSpawned: 0, casualties: 0 },
     };
   }
 }

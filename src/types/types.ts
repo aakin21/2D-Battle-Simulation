@@ -40,9 +40,9 @@ export interface IUnit {
   sight: number;
   baseSpeed: number;
   damage: number;
-  path: Position[];            // A* path to follow — empty when idle or in combat
-  target: string | null;       // ID of the unit being attacked (null = no target)
-  attackCooldown: number;      // seconds until next attack (0 = ready)
+  path: Position[]; // A* path to follow — empty when idle or in combat
+  target: string | null; // ID of the unit being attacked (null = no target)
+  attackCooldown: number; // seconds until next attack (0 = ready)
 }
 
 export interface IHero extends IUnit {
@@ -56,7 +56,7 @@ export interface IBattlefield {
   units: IUnit[];
   elapsedTime: number;
   waveNumber: number;
-  nextWaveTime: number;        // simulation seconds at which the next wave spawns
+  nextWaveTime: number; // simulation seconds at which the next wave spawns
   stats: {
     totalSpawned: number;
     casualties: number;
@@ -71,9 +71,9 @@ export interface Camera {
 }
 
 export const UNIT_STATS = {
-  WARRIOR:   { hp: 110, courage: 70,  sight: 10, speed: 2.0, damage: 20 },
-  HERO:      { hp: 200, courage: 100, sight: 15, speed: 3.0, damage: 40 },
-  BERSERKER: { hp: 80,  courage: 100, sight: 12, speed: 2.5, damage: 25 },
+  WARRIOR: { hp: 110, courage: 70, sight: 10, speed: 2.0, damage: 20 },
+  HERO: { hp: 200, courage: 100, sight: 15, speed: 3.0, damage: 40 },
+  BERSERKER: { hp: 80, courage: 100, sight: 12, speed: 2.5, damage: 25 },
 };
 
 export const TERRAIN_SPEED: Record<string, number> = {
@@ -92,9 +92,9 @@ export const TERRAIN_COLORS: Record<string, string> = {
 
 export const UNIT_COLORS: Record<string, string> = {
   WARRIOR: '#FFD700',
-  HERO:    '#FF0000',
+  HERO: '#FF0000',
   BERSERKER: '#4169E1',
 };
 
 export const GRID_SIZE = 150;
-export const TILE_SIZE = 5;   // pixels per tile at base zoom (offscreen terrain canvas = 750×750)
+export const TILE_SIZE = 5; // pixels per tile at base zoom (offscreen terrain canvas = 750×750)

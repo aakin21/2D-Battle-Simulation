@@ -2,15 +2,21 @@ import { StateManager } from '../state/StateManager';
 import { Renderer } from '../rendering/Renderer';
 import { MinimapRenderer } from '../rendering/MinimapRenderer';
 import { Pathfinder } from './Pathfinder';
-import { IUnit, IHero, UnitType, BehaviorState, TerrainType, TERRAIN_SPEED, Position } from '../types/types';
+import {
+  IUnit,
+  IHero,
+  UnitType,
+  Faction,
+  BehaviorState,
+  TerrainType,
+  TERRAIN_SPEED,
+  UNIT_STATS,
+  Position,
+} from '../types/types';
 
-// Warriors stop when within this many tiles of the hero
 const WARRIOR_ARRIVE_RADIUS = 2;
-// A waypoint is blocked if a moving unit is within this many tiles of its center
 const COLLISION_RADIUS = 0.6;
-// Units enter ATTACK state when an enemy is within this many tiles
 const COMBAT_RANGE = 2;
-// Seconds between attacks
 const ATTACK_INTERVAL = 1.0;
 
 export class SimulationEngine {
@@ -23,11 +29,7 @@ export class SimulationEngine {
   private lastTime: number = 0;
   private rafId: number = 0;
 
-  constructor(
-    stateManager: StateManager,
-    renderer: Renderer,
-    minimapRenderer: MinimapRenderer
-  ) {
+  constructor(stateManager: StateManager, renderer: Renderer, minimapRenderer: MinimapRenderer) {
     this.stateManager = stateManager;
     this.renderer = renderer;
     this.minimapRenderer = minimapRenderer;
@@ -91,29 +93,66 @@ export class SimulationEngine {
     const { units, grid } = this.stateManager.getBattlefield();
     const hero = this.stateManager.getHero();
 
-    // 1. Determine behavior states (target selection, IDLE ↔ ATTACK transitions)
+    for (const unit of units) {
+      this.updateCourage(unit, units, hero);
+    }
+
     for (const unit of units) {
       this.updateBehavior(unit, units);
     }
 
-    // 2. Move IDLE units
     for (const unit of units) {
       this.moveUnit(unit, deltaTime, hero, units, grid);
     }
 
-    // 3. Process combat — damage is accumulated then applied simultaneously
     this.processCombat(units, deltaTime);
-
-    // 4. Remove units with HP ≤ 0
     this.removeDeadUnits();
-
-    // Week 4+: courage calculation
-    // Week 5+: flee and rest behavior
-    // Week 6+: hero control and charisma
-    // Week 7+: wave spawning
   }
 
-  // Returns the nearest enemy within sight range, or null if none.
+  private updateCourage(unit: IUnit, allUnits: IUnit[], hero: IHero | undefined): void {
+    if (unit.unitType === UnitType.BERSERKER) return;
+    if (unit.unitType === UnitType.HERO) return;
+
+    const base = UNIT_STATS[UnitType[unit.unitType] as keyof typeof UNIT_STATS].courage;
+
+    // Lose 10 courage for each 20% of max HP that is missing.
+    const hpLostFraction = 1 - unit.hp / unit.maxHp;
+    const woundedPenalty = -Math.floor(hpLostFraction / 0.2) * 10;
+
+    const sight2 = unit.sight * unit.sight;
+    let allies = 0;
+    let enemies = 0;
+    for (const other of allUnits) {
+      if (other.id === unit.id || other.hp <= 0) continue;
+      const dx = other.position.x - unit.position.x;
+      const dy = other.position.y - unit.position.y;
+      if (dx * dx + dy * dy > sight2) continue;
+      if (other.faction === unit.faction) allies++;
+      else enemies++;
+    }
+
+    let ratioModifier = 0;
+    const total = allies + enemies;
+    if (total > 0) {
+      const ratio = allies / total;
+      if (ratio > 0.6) ratioModifier = 15;
+      else if (ratio < 0.2) ratioModifier = -30;
+      else if (ratio < 0.4) ratioModifier = -15;
+      // 0.4–0.6: no change
+    }
+
+    let heroBonus = 0;
+    if (unit.faction === Faction.FRIENDLY && hero && hero.hp > 0 && hero.id !== unit.id) {
+      const dx = hero.position.x - unit.position.x;
+      const dy = hero.position.y - unit.position.y;
+      if (dx * dx + dy * dy <= hero.charismaRadius * hero.charismaRadius) {
+        heroBonus = hero.charismaBonus;
+      }
+    }
+
+    unit.courage = Math.max(0, Math.min(100, base + woundedPenalty + ratioModifier + heroBonus));
+  }
+
   private findNearestEnemy(unit: IUnit, allUnits: IUnit[]): IUnit | null {
     const sight2 = unit.sight * unit.sight;
     let nearest: IUnit | null = null;
@@ -132,14 +171,8 @@ export class SimulationEngine {
     return nearest;
   }
 
-  // Sets unit.state and unit.target based on enemy proximity.
-  // ATTACK: enemy within COMBAT_RANGE — unit stops and fights.
-  // IDLE (with target): enemy in sight but not yet in range — unit approaches.
-  // IDLE (no target): no enemy in sight — unit follows hero/taskPoint as before.
   private updateBehavior(unit: IUnit, allUnits: IUnit[]): void {
-    // BERSERKER targeting handled in Week 7
     if (unit.unitType === UnitType.BERSERKER) return;
-    // FLEE and REST states managed in Week 5
     if (unit.state === BehaviorState.FLEE || unit.state === BehaviorState.REST) return;
 
     const enemy = this.findNearestEnemy(unit, allUnits);
@@ -157,15 +190,13 @@ export class SimulationEngine {
     if (dist2 <= COMBAT_RANGE * COMBAT_RANGE) {
       unit.state = BehaviorState.ATTACK;
       unit.target = enemy.id;
-      unit.path = [];  // stop pathing when entering melee range
+      unit.path = [];
     } else {
-      // Enemy visible but outside attack range — approach
       unit.state = BehaviorState.IDLE;
       unit.target = enemy.id;
     }
   }
 
-  // Accumulates damage for all ATTACK units and applies it simultaneously.
   private processCombat(units: IUnit[], deltaTime: number): void {
     const pendingDamage = new Map<string, number>();
 
@@ -186,7 +217,7 @@ export class SimulationEngine {
       unit.attackCooldown = ATTACK_INTERVAL;
     }
 
-    // Apply all damage at once so both sides of a fight take damage in the same tick
+    // apply simultaneously
     for (const [id, damage] of pendingDamage) {
       const target = this.stateManager.getUnitById(id);
       if (target) target.hp = Math.max(0, target.hp - damage);
@@ -208,11 +239,9 @@ export class SimulationEngine {
     deltaTime: number,
     hero: IHero | undefined,
     allUnits: IUnit[],
-    grid: TerrainType[][],
+    grid: TerrainType[][]
   ): void {
-    // Only IDLE units move — ATTACK/FLEE/REST handled separately
     if (unit.state !== BehaviorState.IDLE) return;
-    // Berserker movement in Week 7
     if (unit.unitType === UnitType.BERSERKER) return;
 
     const dest = this.getDestination(unit, hero);
@@ -221,8 +250,7 @@ export class SimulationEngine {
       return;
     }
 
-    // Warriors stop when close enough to the hero — only when not chasing an enemy
-    // and only when hero is stationary
+    // stop near hero when not in combat and hero is stationary
     if (
       unit.unitType === UnitType.WARRIOR &&
       unit.target === null &&
@@ -254,18 +282,17 @@ export class SimulationEngine {
 
     if (unit.path.length === 0) return;
 
-    // Move toward center of next waypoint tile
     const waypoint = unit.path[0];
     const wpx = waypoint.x + 0.5;
     const wpy = waypoint.y + 0.5;
 
     // Basic collision: don't enter a waypoint occupied by another moving unit
     const blocked = allUnits.some(
-      u =>
+      (u) =>
         u.id !== unit.id &&
         u.path.length > 0 &&
         Math.abs(u.position.x - wpx) < COLLISION_RADIUS &&
-        Math.abs(u.position.y - wpy) < COLLISION_RADIUS,
+        Math.abs(u.position.y - wpy) < COLLISION_RADIUS
     );
     if (blocked) return;
 
@@ -278,7 +305,6 @@ export class SimulationEngine {
     const step = speed * deltaTime;
 
     if (dist <= step) {
-      // Snap to waypoint center and advance path
       unit.position.x = wpx;
       unit.position.y = wpy;
       unit.path.shift();
@@ -289,7 +315,7 @@ export class SimulationEngine {
   }
 
   private getDestination(unit: IUnit, hero: IHero | undefined): Position | null {
-    // Enemy in sight range — approach them (takes priority over hero/taskPoint)
+    // chase enemy if in sight
     if (unit.target !== null) {
       const target = this.stateManager.getUnitById(unit.target);
       if (target && target.hp > 0) return target.position;
@@ -300,13 +326,13 @@ export class SimulationEngine {
     }
     if (unit.unitType === UnitType.WARRIOR) {
       if (!hero) return null;
-      // Only warriors within the hero's sight range (15 tiles) get the task point.
+      // only warriors within hero's sight range follow the task point
       const dx = hero.position.x - unit.position.x;
       const dy = hero.position.y - unit.position.y;
       if (dx * dx + dy * dy > hero.sight * hero.sight) return null;
       return hero.taskPoint ?? hero.position;
     }
-    return null; // BERSERKER — Week 7
+    return null;
   }
 
   private computeSpeed(unit: IUnit, grid: TerrainType[][]): number {
@@ -322,7 +348,7 @@ export class SimulationEngine {
     const rawDelta = (timestamp - this.lastTime) / 1000;
     this.lastTime = timestamp;
 
-    // Cap delta to avoid large jumps when tab was inactive
+    // cap delta to avoid jumps when tab was inactive
     const deltaTime = Math.min(rawDelta, 0.1) * this.speedMultiplier;
 
     if (!this.paused) {

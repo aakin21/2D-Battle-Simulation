@@ -4,10 +4,10 @@ import { MinimapRenderer } from './rendering/MinimapRenderer';
 import { SimulationEngine } from './engine/SimulationEngine';
 import { UIController } from './ui/UIController';
 
-const stateManager    = new StateManager();
-const renderer        = new Renderer('battleCanvas');
+const stateManager = new StateManager();
+const renderer = new Renderer('battleCanvas');
 const minimapRenderer = new MinimapRenderer('minimapCanvas', 750, 750);
-const engine          = new SimulationEngine(stateManager, renderer, minimapRenderer);
+const engine = new SimulationEngine(stateManager, renderer, minimapRenderer);
 new UIController(engine, stateManager, renderer, minimapRenderer);
 
 stateManager.initGrid();

@@ -10,11 +10,7 @@ interface AStarNode {
 }
 
 export class Pathfinder {
-  static findPath(
-    grid: TerrainType[][],
-    start: Position,
-    end: Position,
-  ): Position[] {
+  static findPath(grid: TerrainType[][], start: Position, end: Position): Position[] {
     const sx = Math.floor(start.x);
     const sy = Math.floor(start.y);
     const ex = Math.floor(end.x);
@@ -36,7 +32,12 @@ export class Pathfinder {
     open.push(startNode);
     map.set(key(sx, sy), startNode);
 
-    const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]] as const;
+    const DIRS = [
+      [1, 0],
+      [-1, 0],
+      [0, 1],
+      [0, -1],
+    ] as const;
 
     while (open.length > 0) {
       // linear scan for min f — fast enough at current unit counts
@@ -99,11 +100,7 @@ export class Pathfinder {
 
   // Greedy forward scan — skip waypoints reachable in a straight line.
   // LOS uses tile centers (x+0.5, y+0.5) to match movement targets.
-  private static smoothPath(
-    grid: TerrainType[][],
-    start: Position,
-    path: Position[],
-  ): Position[] {
+  private static smoothPath(grid: TerrainType[][], start: Position, path: Position[]): Position[] {
     if (path.length <= 1) return path;
 
     const result: Position[] = [];
@@ -133,8 +130,10 @@ export class Pathfinder {
   // True if the line from (ax,ay) to (bx,by) passes no blocked tiles.
   private static hasLOS(
     grid: TerrainType[][],
-    ax: number, ay: number,
-    bx: number, by: number,
+    ax: number,
+    ay: number,
+    bx: number,
+    by: number
   ): boolean {
     const dx = bx - ax;
     const dy = by - ay;
