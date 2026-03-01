@@ -107,6 +107,14 @@ export class StateManager {
     hero.position = heroPositions[0];
     this.battlefield.units.push(hero);
 
+    // Temporary test enemies — stationary, no behavior, removed in Week 7
+    const testEnemyPositions = this.getShuffledPositions(90, 145, 10, 140);
+    for (let i = 0; i < 10; i++) {
+      const unit = this.createUnit(UnitType.BERSERKER, Faction.ENEMY);
+      unit.position = testEnemyPositions[i];
+      this.battlefield.units.push(unit);
+    }
+
     this.battlefield.stats.totalSpawned = this.battlefield.units.length;
   }
 
