@@ -18,6 +18,10 @@ const WARRIOR_ARRIVE_RADIUS = 2;
 const COLLISION_RADIUS = 0.6;
 const COMBAT_RANGE = 2;
 const ATTACK_INTERVAL = 1.0;
+const FLEE_THRESHOLD = 25;
+const FLEE_SPEED_MULT = 1.5;
+const REST_TRIGGER_HP = 50;
+const REST_END_HP = 100;
 
 export class SimulationEngine {
   private stateManager: StateManager;
@@ -105,6 +109,7 @@ export class SimulationEngine {
       this.moveUnit(unit, deltaTime, hero, units, grid);
     }
 
+    this.processRest(units, deltaTime);
     this.processCombat(units, deltaTime);
     this.removeDeadUnits();
   }
@@ -173,10 +178,45 @@ export class SimulationEngine {
 
   private updateBehavior(unit: IUnit, allUnits: IUnit[]): void {
     if (unit.unitType === UnitType.BERSERKER) return;
-    if (unit.state === BehaviorState.FLEE || unit.state === BehaviorState.REST) return;
 
     const enemy = this.findNearestEnemy(unit, allUnits);
 
+    // --- FLEE state: courage recovered or no enemies → back to IDLE ---
+    if (unit.state === BehaviorState.FLEE) {
+      if (!enemy || unit.courage > FLEE_THRESHOLD) {
+        unit.state = BehaviorState.IDLE;
+        unit.target = null;
+        unit.path = [];
+      }
+      return;
+    }
+
+    // --- REST state: enemy appeared or HP recovered → back to IDLE ---
+    if (unit.state === BehaviorState.REST) {
+      if (enemy || unit.hp >= REST_END_HP) {
+        unit.state = BehaviorState.IDLE;
+        unit.target = null;
+      }
+      return;
+    }
+
+    // --- FLEE entry: warriors only ---
+    if (unit.unitType === UnitType.WARRIOR && enemy && unit.courage <= FLEE_THRESHOLD) {
+      unit.state = BehaviorState.FLEE;
+      unit.target = null;
+      unit.path = [];
+      return;
+    }
+
+    // --- REST entry: warriors only ---
+    if (unit.unitType === UnitType.WARRIOR && unit.hp < REST_TRIGGER_HP && !enemy) {
+      unit.state = BehaviorState.REST;
+      unit.target = null;
+      unit.path = [];
+      return;
+    }
+
+    // --- Normal IDLE / ATTACK ---
     if (!enemy) {
       unit.state = BehaviorState.IDLE;
       unit.target = null;
@@ -194,6 +234,40 @@ export class SimulationEngine {
     } else {
       unit.state = BehaviorState.IDLE;
       unit.target = enemy.id;
+    }
+  }
+
+  private moveFlee(unit: IUnit, deltaTime: number, allUnits: IUnit[], grid: TerrainType[][]): void {
+    const enemy = this.findNearestEnemy(unit, allUnits);
+    if (!enemy) return;
+
+    const dx = unit.position.x - enemy.position.x;
+    const dy = unit.position.y - enemy.position.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist === 0) return;
+
+    const speed = this.computeSpeed(unit, grid) * FLEE_SPEED_MULT;
+    const step = speed * deltaTime;
+    const baseAngle = Math.atan2(dy, dx);
+
+    // Try direct flee direction, then angular variations to get around mountains
+    const offsets = [0, Math.PI / 8, -Math.PI / 8, Math.PI / 4, -Math.PI / 4, Math.PI / 2, -Math.PI / 2];
+    for (const offset of offsets) {
+      const angle = baseAngle + offset;
+      const newX = Math.max(0.5, Math.min(149.5, unit.position.x + Math.cos(angle) * step));
+      const newY = Math.max(0.5, Math.min(149.5, unit.position.y + Math.sin(angle) * step));
+      if (grid[Math.floor(newY)]?.[Math.floor(newX)] !== TerrainType.MOUNTAIN) {
+        unit.position.x = newX;
+        unit.position.y = newY;
+        return;
+      }
+    }
+  }
+
+  private processRest(units: IUnit[], deltaTime: number): void {
+    for (const unit of units) {
+      if (unit.state !== BehaviorState.REST) continue;
+      unit.hp = Math.min(unit.maxHp, unit.hp + 10 * deltaTime);
     }
   }
 
@@ -241,6 +315,11 @@ export class SimulationEngine {
     allUnits: IUnit[],
     grid: TerrainType[][]
   ): void {
+    if (unit.state === BehaviorState.FLEE) {
+      this.moveFlee(unit, deltaTime, allUnits, grid);
+      return;
+    }
+
     if (unit.state !== BehaviorState.IDLE) return;
     if (unit.unitType === UnitType.BERSERKER) return;
 
