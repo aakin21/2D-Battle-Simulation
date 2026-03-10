@@ -21,7 +21,6 @@ const ATTACK_INTERVAL = 1.0;
 const FLEE_THRESHOLD = 25;
 const FLEE_SPEED_MULT = 1.5;
 const REST_TRIGGER_HP = 50;
-const REST_END_HP = 100;
 
 export class SimulationEngine {
   private stateManager: StateManager;
@@ -191,9 +190,9 @@ export class SimulationEngine {
       return;
     }
 
-    // --- REST state: enemy appeared or HP recovered → back to IDLE ---
+    // --- REST state: enemy appeared or HP fully recovered → back to IDLE ---
     if (unit.state === BehaviorState.REST) {
-      if (enemy || unit.hp >= REST_END_HP) {
+      if (enemy || unit.hp >= unit.maxHp) {
         unit.state = BehaviorState.IDLE;
         unit.target = null;
       }
@@ -216,7 +215,24 @@ export class SimulationEngine {
       return;
     }
 
-    // --- Normal IDLE / ATTACK ---
+    // --- Hero: only fights enemies already in combat range, never chases ---
+    if (unit.unitType === UnitType.HERO) {
+      if (enemy) {
+        const dx = enemy.position.x - unit.position.x;
+        const dy = enemy.position.y - unit.position.y;
+        if (dx * dx + dy * dy <= COMBAT_RANGE * COMBAT_RANGE) {
+          unit.state = BehaviorState.ATTACK;
+          unit.target = enemy.id;
+          unit.path = [];
+          return;
+        }
+      }
+      unit.state = BehaviorState.IDLE;
+      unit.target = null;
+      return;
+    }
+
+    // --- Warrior: IDLE / ATTACK ---
     if (!enemy) {
       unit.state = BehaviorState.IDLE;
       unit.target = null;
