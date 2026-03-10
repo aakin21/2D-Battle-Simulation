@@ -112,6 +112,7 @@ export class UIController {
       const nearby = this.stateManager.getUnitsInRadius(grid.x, grid.y, 2);
       const clicked = nearby[0] ?? null;
       this.selectedUnitId = clicked?.id ?? null;
+      this.renderer.setSelectedUnit(this.selectedUnitId);
       this.updateInfoPanel(clicked);
     });
 
@@ -125,6 +126,7 @@ export class UIController {
 
   private doRestart(): void {
     this.selectedUnitId = null;
+    this.renderer.setSelectedUnit(null);
     this.updateInfoPanel(null);
     this.renderer.clearTerrainCache();
     this.minimapRenderer.clearTerrainCache();

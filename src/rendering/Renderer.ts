@@ -1,6 +1,7 @@
 import {
   IBattlefield,
   IUnit,
+  IHero,
   UnitType,
   TerrainType,
   Camera,
@@ -22,6 +23,7 @@ export class Renderer {
   private offscreenTerrain: HTMLCanvasElement | null = null;
 
   private camera: Camera = { x: 0, y: 0, zoom: ZOOM_MIN };
+  private selectedUnitId: string | null = null;
 
   constructor(canvasId: string) {
     this.canvas = document.getElementById(canvasId) as HTMLCanvasElement;
@@ -36,8 +38,14 @@ export class Renderer {
     }
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
     this.drawTerrain();
+    this.drawCharismaRadius(battlefield.units);
     this.drawUnits(battlefield.units);
     this.drawHPBars(battlefield.units);
+    this.drawTaskPoint(battlefield.units);
+  }
+
+  setSelectedUnit(id: string | null): void {
+    this.selectedUnitId = id;
   }
 
   // --- Camera controls ---
@@ -78,6 +86,7 @@ export class Renderer {
   clearTerrainCache(): void {
     this.offscreenTerrain = null;
     this.camera = { x: 0, y: 0, zoom: ZOOM_MIN };
+    this.selectedUnitId = null;
   }
 
   // --- Private helpers ---
@@ -167,5 +176,50 @@ export class Renderer {
       this.ctx.fillStyle = '#00cc44';
       this.ctx.fillRect(sx, sy, Math.max(0, barW * ratio), barH);
     }
+  }
+
+  // Draws a transparent circle showing the hero's influence area (sight range: 15 tiles).
+  // Only visible while the hero unit is selected.
+  private drawCharismaRadius(units: IUnit[]): void {
+    if (!this.selectedUnitId) return;
+    const hero = units.find(
+      (u) => u.unitType === UnitType.HERO && u.id === this.selectedUnitId
+    ) as IHero | undefined;
+    if (!hero) return;
+
+    const { x: camX, y: camY, zoom } = this.camera;
+    const sx = (hero.position.x - camX) * zoom;
+    const sy = (hero.position.y - camY) * zoom;
+
+    this.ctx.beginPath();
+    this.ctx.arc(sx, sy, hero.sight * zoom, 0, Math.PI * 2);
+    this.ctx.fillStyle = 'rgba(255, 0, 0, 0.08)';
+    this.ctx.fill();
+    this.ctx.strokeStyle = 'rgba(255, 0, 0, 0.4)';
+    this.ctx.lineWidth = 1;
+    this.ctx.stroke();
+  }
+
+  // Draws an X marker at the hero's current task point.
+  private drawTaskPoint(units: IUnit[]): void {
+    const hero = units.find((u) => u.unitType === UnitType.HERO) as IHero | undefined;
+    if (!hero?.taskPoint) return;
+
+    const { x: camX, y: camY, zoom } = this.camera;
+    const sx = (hero.taskPoint.x - camX) * zoom;
+    const sy = (hero.taskPoint.y - camY) * zoom;
+
+    if (sx < -20 || sx > this.canvas.width + 20) return;
+    if (sy < -20 || sy > this.canvas.height + 20) return;
+
+    const half = Math.max(5, zoom * 0.7);
+    this.ctx.strokeStyle = '#FF0000';
+    this.ctx.lineWidth = Math.max(1, zoom * 0.2);
+    this.ctx.beginPath();
+    this.ctx.moveTo(sx - half, sy - half);
+    this.ctx.lineTo(sx + half, sy + half);
+    this.ctx.moveTo(sx + half, sy - half);
+    this.ctx.lineTo(sx - half, sy + half);
+    this.ctx.stroke();
   }
 }
