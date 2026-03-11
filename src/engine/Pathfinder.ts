@@ -17,7 +17,9 @@ export class Pathfinder {
     const ey = Math.floor(end.y);
 
     if (sx === ex && sy === ey) return [];
-    if (Pathfinder.isBlocked(grid, sx, sy)) return [];
+    // Start tile is not checked — unit is already standing there, so it's reachable
+    // by definition. Checking it would cause A* to return [] when the unit is
+    // adjacent to a mountain, permanently locking it in place.
     if (Pathfinder.isBlocked(grid, ex, ey)) return [];
 
     const key = (x: number, y: number): number => y * GRID_SIZE + x;

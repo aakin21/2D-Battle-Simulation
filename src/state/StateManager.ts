@@ -10,10 +10,16 @@ import {
   UNIT_STATS,
   GRID_SIZE,
 } from '../types/types';
+import { Pathfinder } from '../engine/Pathfinder';
 
 export class StateManager {
   private battlefield: IBattlefield;
   private nextId: number = 0;
+  private stressMode: boolean = false;
+
+  setStressMode(on: boolean): void {
+    this.stressMode = on;
+  }
 
   constructor() {
     this.battlefield = this.emptyBattlefield();
@@ -106,7 +112,7 @@ export class StateManager {
   spawnInitialUnits(): void {
     // Warriors: left half of the map
     const warriorPositions = this.getShuffledPositions(5, 60, 10, 140);
-    for (let i = 0; i < 20; i++) {
+    for (let i = 0; i < 100; i++) {
       const unit = this.createUnit(UnitType.WARRIOR, Faction.FRIENDLY);
       unit.position = warriorPositions[i];
       this.battlefield.units.push(unit);
@@ -118,12 +124,26 @@ export class StateManager {
     hero.position = heroPositions[0];
     this.battlefield.units.push(hero);
 
-    // placeholder enemies for testing — replaced by wave spawning later
-    const testEnemyPositions = this.getShuffledPositions(90, 145, 10, 140);
-    for (let i = 0; i < 10; i++) {
-      const unit = this.createUnit(UnitType.BERSERKER, Faction.ENEMY);
-      unit.position = testEnemyPositions[i];
-      this.battlefield.units.push(unit);
+    if (this.stressMode) {
+      // Stress mode: spawn extra 900 warriors (total 1000)
+      const extraWarriorPositions = this.getShuffledPositions(5, 60, 10, 140);
+      for (let i = 0; i < 900; i++) {
+        const unit = this.createUnit(UnitType.WARRIOR, Faction.FRIENDLY);
+        unit.position = extraWarriorPositions[i];
+        this.battlefield.units.push(unit);
+      }
+    }
+
+    if (this.stressMode) {
+      const berserkerPositions = this.getShuffledPositions(90, 145, 10, 140);
+      const rallyPoint: Position = { x: 30, y: 75 };
+      for (let i = 0; i < 1000; i++) {
+        const unit = this.createUnit(UnitType.BERSERKER, Faction.ENEMY);
+        unit.position = berserkerPositions[i];
+        unit.groupId = 'stress_all';
+        unit.path = Pathfinder.findPath(this.battlefield.grid, berserkerPositions[i], rallyPoint);
+        this.battlefield.units.push(unit);
+      }
     }
 
     this.battlefield.stats.totalSpawned = this.battlefield.units.length;
@@ -147,6 +167,7 @@ export class StateManager {
       path: [],
       target: null,
       attackCooldown: 0,
+      groupId: '',
     };
   }
 
@@ -204,6 +225,14 @@ export class StateManager {
 
   getHero(): IHero | undefined {
     return this.battlefield.units.find((u) => u.unitType === UnitType.HERO) as IHero | undefined;
+  }
+
+  spawnBerserker(x: number, y: number, groupId: string, initialPath: Position[] = []): void {
+    const unit = this.createUnit(UnitType.BERSERKER, Faction.ENEMY);
+    unit.position = { x, y };
+    unit.path = initialPath;
+    unit.groupId = groupId;
+    this.addUnit(unit);
   }
 
   addUnit(unit: IUnit): void {

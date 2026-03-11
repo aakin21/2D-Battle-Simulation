@@ -5,6 +5,7 @@ import { Pathfinder } from './Pathfinder';
 import {
   IUnit,
   IHero,
+  IBattlefield,
   UnitType,
   Faction,
   BehaviorState,
@@ -15,7 +16,6 @@ import {
 } from '../types/types';
 
 const WARRIOR_ARRIVE_RADIUS = 2;
-const COLLISION_RADIUS = 0.6;
 const COMBAT_RANGE = 2;
 const ATTACK_INTERVAL = 1.0;
 const FLEE_THRESHOLD = 25;
@@ -26,6 +26,9 @@ export class SimulationEngine {
   private stateManager: StateManager;
   private renderer: Renderer;
   private minimapRenderer: MinimapRenderer;
+
+  // Per-group patrol destination for berserkers — refreshed every 15–30 sim seconds
+  private groupPatrol = new Map<string, { dest: Position; expiry: number }>();
 
   private paused: boolean = false;
   private speedMultiplier: number = 1;
@@ -86,7 +89,19 @@ export class SimulationEngine {
 
   restart(): void {
     this.stop();
+    this.stateManager.setStressMode(false);
     this.stateManager.reset();
+    this.groupPatrol.clear();
+    this.paused = false;
+    this.speedMultiplier = 1;
+    this.start();
+  }
+
+  restartStressTest(): void {
+    this.stop();
+    this.stateManager.setStressMode(true);
+    this.stateManager.reset();
+    this.groupPatrol.clear();
     this.paused = false;
     this.speedMultiplier = 1;
     this.start();
@@ -111,6 +126,7 @@ export class SimulationEngine {
     this.processRest(units, deltaTime);
     this.processCombat(units, deltaTime);
     this.removeDeadUnits();
+    this.updateWaveSpawner(this.stateManager.getBattlefield());
   }
 
   private updateCourage(unit: IUnit, allUnits: IUnit[], hero: IHero | undefined): void {
@@ -127,11 +143,11 @@ export class SimulationEngine {
     let allies = 0;
     let enemies = 0;
     for (const other of allUnits) {
-      if (other.id === unit.id || other.hp <= 0) continue;
+      if (other.hp <= 0) continue;
       const dx = other.position.x - unit.position.x;
       const dy = other.position.y - unit.position.y;
       if (dx * dx + dy * dy > sight2) continue;
-      if (other.faction === unit.faction) allies++;
+      if (other.faction === unit.faction) allies++; // includes self
       else enemies++;
     }
 
@@ -176,7 +192,27 @@ export class SimulationEngine {
   }
 
   private updateBehavior(unit: IUnit, allUnits: IUnit[]): void {
-    if (unit.unitType === UnitType.BERSERKER) return;
+    if (unit.unitType === UnitType.BERSERKER) {
+      const enemy = this.findNearestEnemy(unit, allUnits);
+      if (enemy) {
+        const dx = enemy.position.x - unit.position.x;
+        const dy = enemy.position.y - unit.position.y;
+        if (dx * dx + dy * dy <= COMBAT_RANGE * COMBAT_RANGE) {
+          unit.state = BehaviorState.ATTACK;
+          unit.target = enemy.id;
+          unit.path = [];
+        } else {
+          unit.state = BehaviorState.IDLE;
+          unit.target = enemy.id;
+          // path NOT cleared — moveUnit recalculates A* only when target moves to a new tile
+        }
+      } else {
+        unit.state = BehaviorState.IDLE;
+        unit.target = null;
+        // path preserved — patrol destination stored in path[0]
+      }
+      return;
+    }
 
     const enemy = this.findNearestEnemy(unit, allUnits);
 
@@ -207,8 +243,8 @@ export class SimulationEngine {
       return;
     }
 
-    // --- REST entry: warriors only ---
-    if (unit.unitType === UnitType.WARRIOR && unit.hp < REST_TRIGGER_HP && !enemy) {
+    // --- REST entry: warriors and hero ---
+    if ((unit.unitType === UnitType.WARRIOR || unit.unitType === UnitType.HERO) && unit.hp < REST_TRIGGER_HP && !enemy) {
       unit.state = BehaviorState.REST;
       unit.target = null;
       unit.path = [];
@@ -262,22 +298,152 @@ export class SimulationEngine {
     const dist = Math.sqrt(dx * dx + dy * dy);
     if (dist === 0) return;
 
-    const speed = this.computeSpeed(unit, grid) * FLEE_SPEED_MULT;
+    // Flee speed uses base speed, not current speed — HP penalty ignored.
+    // A wounded warrior fleeing at 20% HP would otherwise be slower than a
+    // full-health berserker and could never escape. Adrenaline negates the wound
+    // penalty during flight.
+    const xi = Math.floor(unit.position.x);
+    const yi = Math.floor(unit.position.y);
+    const terrain = grid[yi]?.[xi] ?? TerrainType.MOUNTAIN;
+    const terrainMult = TERRAIN_SPEED[TerrainType[terrain]];
+    const speed = unit.baseSpeed * terrainMult * FLEE_SPEED_MULT;
     const step = speed * deltaTime;
     const baseAngle = Math.atan2(dy, dx);
 
-    // Try direct flee direction, then angular variations to get around mountains
+    // Try direct flee direction, then angular variations to get around mountains.
+    // Uses isClearTile (tile + 4 neighbors non-mountain) so warriors don't flee into
+    // tiles that A* considers blocked — berserkers would be unable to follow there.
     const offsets = [0, Math.PI / 8, -Math.PI / 8, Math.PI / 4, -Math.PI / 4, Math.PI / 2, -Math.PI / 2];
     for (const offset of offsets) {
       const angle = baseAngle + offset;
       const newX = Math.max(0.5, Math.min(149.5, unit.position.x + Math.cos(angle) * step));
       const newY = Math.max(0.5, Math.min(149.5, unit.position.y + Math.sin(angle) * step));
-      if (grid[Math.floor(newY)]?.[Math.floor(newX)] !== TerrainType.MOUNTAIN) {
+      if (this.stateManager.isClearTile(Math.floor(newX), Math.floor(newY))) {
         unit.position.x = newX;
         unit.position.y = newY;
         return;
       }
     }
+  }
+
+  private updateWaveSpawner(bf: IBattlefield): void {
+    const { elapsedTime, waveNumber } = bf;
+
+    if (waveNumber < 3) {
+      // Phase 1: fixed schedule — nextWaveTime starts at 30, then 90, then 180
+      if (elapsedTime < bf.nextWaveTime) return;
+
+      const sizes = [100, 150, 200];
+      const nextTimes = [90, 180, 210];
+
+      this.spawnBerserkerWave(sizes[waveNumber]);
+
+      bf.nextWaveTime = nextTimes[waveNumber];
+      bf.waveNumber++;
+    } else {
+      // Phase 2: sustained waves
+      if (elapsedTime < bf.nextWaveTime) return;
+
+      const size = 40 + Math.floor(Math.random() * 21); // 40–60
+      this.spawnBerserkerWave(size);
+
+      bf.nextWaveTime = elapsedTime + 20 + Math.random() * 20; // 20–40s until next
+      bf.waveNumber++;
+    }
+  }
+
+  private spawnBerserkerWave(count: number): void {
+    const bf = this.stateManager.getBattlefield();
+    const points = this.generateSpawnPoints(count);
+
+    // Compute one shared A* path per spawn point — all berserkers from the same
+    // point get a copy of it so they move as a group toward the same initial target.
+    const sharedPaths: Position[][] = points.map((origin) => {
+      const angle = Math.random() * Math.PI * 2;
+      const d = 20 + Math.random() * 20; // 20–40 tiles into the map
+      const px = Math.round(Math.max(5, Math.min(144, origin.x + Math.cos(angle) * d)));
+      const py = Math.round(Math.max(5, Math.min(144, origin.y + Math.sin(angle) * d)));
+      return Pathfinder.findPath(bf.grid, { x: origin.x, y: origin.y }, { x: px, y: py });
+    });
+
+    const waveNum = bf.waveNumber;
+
+    for (let i = 0; i < count; i++) {
+      const idx = i % points.length;
+      const origin = points[idx];
+      let x = Math.round(origin.x + (Math.random() * 6 - 3));
+      let y = Math.round(origin.y + (Math.random() * 6 - 3));
+      x = Math.max(1, Math.min(148, x));
+      y = Math.max(1, Math.min(148, y));
+
+      if (bf.grid[y]?.[x] === TerrainType.MOUNTAIN) {
+        x = origin.x;
+        y = origin.y;
+      }
+
+      const groupId = `w${waveNum}_p${idx}`;
+      this.stateManager.spawnBerserker(x, y, groupId, sharedPaths[idx].slice());
+    }
+  }
+
+  private generateSpawnPoints(count: number): Position[] {
+    const bf = this.stateManager.getBattlefield();
+    const numPoints = Math.max(1, Math.min(8, Math.ceil(count / 20)));
+    const points: Position[] = [];
+    let attempts = 0;
+
+    while (points.length < numPoints && attempts < 200) {
+      attempts++;
+
+      // Choose a random edge and an inset of 5–25 tiles from that border
+      const edge = Math.floor(Math.random() * 4); // 0=top 1=bottom 2=left 3=right
+      const inset = 5 + Math.floor(Math.random() * 21);
+      let x: number;
+      let y: number;
+
+      if (edge === 0) {
+        x = 5 + Math.floor(Math.random() * 140);
+        y = inset;
+      } else if (edge === 1) {
+        x = 5 + Math.floor(Math.random() * 140);
+        y = 149 - inset;
+      } else if (edge === 2) {
+        x = inset;
+        y = 5 + Math.floor(Math.random() * 140);
+      } else {
+        x = 149 - inset;
+        y = 5 + Math.floor(Math.random() * 140);
+      }
+
+      // Minimum 20-tile separation between spawn points
+      const tooClose = points.some((p) => {
+        const dx = p.x - x;
+        const dy = p.y - y;
+        return dx * dx + dy * dy < 20 * 20;
+      });
+
+      if (!tooClose && this.stateManager.isClearTile(x, y)) {
+        points.push({ x, y });
+      }
+    }
+
+    if (points.length === 0) points.push({ x: 5, y: 5 });
+    return points;
+  }
+
+  private getGroupPatrolDest(groupId: string, pos: Position, elapsed: number): Position {
+    const entry = this.groupPatrol.get(groupId);
+    if (entry && elapsed < entry.expiry) return entry.dest;
+
+    // Destination expired or not set — pick a new one for the whole group
+    const angle = Math.random() * Math.PI * 2;
+    const d = 20 + Math.random() * 30; // 20–50 tiles
+    const dest: Position = {
+      x: Math.round(Math.max(5, Math.min(144, pos.x + Math.cos(angle) * d))),
+      y: Math.round(Math.max(5, Math.min(144, pos.y + Math.sin(angle) * d))),
+    };
+    this.groupPatrol.set(groupId, { dest, expiry: elapsed + 15 + Math.random() * 15 });
+    return dest;
   }
 
   private processRest(units: IUnit[], deltaTime: number): void {
@@ -336,8 +502,64 @@ export class SimulationEngine {
       return;
     }
 
+    if (unit.unitType === UnitType.BERSERKER) {
+      if (unit.state !== BehaviorState.IDLE) return;
+
+      if (unit.target !== null) {
+        // Chase: A* to visible enemy, recalculate when enemy moves to a new tile
+        const target = this.stateManager.getUnitById(unit.target);
+        if (target && target.hp > 0) {
+          const dtx = Math.floor(target.position.x);
+          const dty = Math.floor(target.position.y);
+          const pe = unit.path.length > 0 ? unit.path[unit.path.length - 1] : null;
+          if (!pe || pe.x !== dtx || pe.y !== dty) {
+            const st = { x: Math.floor(unit.position.x), y: Math.floor(unit.position.y) };
+            unit.path = Pathfinder.findPath(grid, st, { x: dtx, y: dty });
+          }
+        } else {
+          unit.target = null;
+          unit.path = [];
+        }
+      } else if (unit.path.length === 0) {
+        // No target, no path — use group patrol destination so the whole group
+        // moves together rather than each berserker picking a random direction.
+        const elapsed = this.stateManager.getBattlefield().elapsedTime;
+        const dest = this.getGroupPatrolDest(unit.groupId, unit.position, elapsed);
+        const dtx = Math.floor(dest.x);
+        const dty = Math.floor(dest.y);
+        if (Math.floor(unit.position.x) !== dtx || Math.floor(unit.position.y) !== dty) {
+          const st = { x: Math.floor(unit.position.x), y: Math.floor(unit.position.y) };
+          unit.path = Pathfinder.findPath(grid, st, { x: dtx, y: dty });
+          // If A* can't reach the cached destination, force a new one next tick
+          if (unit.path.length === 0) this.groupPatrol.delete(unit.groupId);
+        }
+      }
+
+      if (unit.path.length === 0) return;
+
+      const bWp = unit.path[0];
+      const bWpx = bWp.x + 0.5;
+      const bWpy = bWp.y + 0.5;
+      const bSpeed = this.computeSpeed(unit, grid);
+      if (bSpeed === 0) return;
+
+      const bDx = bWpx - unit.position.x;
+      const bDy = bWpy - unit.position.y;
+      const bDist = Math.sqrt(bDx * bDx + bDy * bDy);
+      const bStep = bSpeed * deltaTime;
+
+      if (bDist <= bStep) {
+        unit.position.x = bWpx;
+        unit.position.y = bWpy;
+        unit.path.shift();
+      } else {
+        unit.position.x += (bDx / bDist) * bStep;
+        unit.position.y += (bDy / bDist) * bStep;
+      }
+      return;
+    }
+
     if (unit.state !== BehaviorState.IDLE) return;
-    if (unit.unitType === UnitType.BERSERKER) return;
 
     const dest = this.getDestination(unit, hero);
     if (!dest) {
@@ -381,16 +603,6 @@ export class SimulationEngine {
     const wpx = waypoint.x + 0.5;
     const wpy = waypoint.y + 0.5;
 
-    // Basic collision: don't enter a waypoint occupied by another moving unit
-    const blocked = allUnits.some(
-      (u) =>
-        u.id !== unit.id &&
-        u.path.length > 0 &&
-        Math.abs(u.position.x - wpx) < COLLISION_RADIUS &&
-        Math.abs(u.position.y - wpy) < COLLISION_RADIUS
-    );
-    if (blocked) return;
-
     const speed = this.computeSpeed(unit, grid);
     if (speed === 0) return;
 
@@ -420,12 +632,12 @@ export class SimulationEngine {
       return (unit as IHero).taskPoint ?? null;
     }
     if (unit.unitType === UnitType.WARRIOR) {
-      if (!hero) return null;
+      if (!hero || !hero.taskPoint) return null;
       // only warriors within hero's sight range follow the task point
       const dx = hero.position.x - unit.position.x;
       const dy = hero.position.y - unit.position.y;
       if (dx * dx + dy * dy > hero.sight * hero.sight) return null;
-      return hero.taskPoint ?? hero.position;
+      return hero.taskPoint;
     }
     return null;
   }

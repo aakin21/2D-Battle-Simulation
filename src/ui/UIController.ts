@@ -17,6 +17,7 @@ export class UIController {
   private elBtnFaster: HTMLButtonElement;
   private elBtnSlower: HTMLButtonElement;
   private elBtnRestart: HTMLButtonElement;
+  private elBtnStress: HTMLButtonElement;
   private elSpeedDisplay: HTMLElement;
   private elWaveCounter: HTMLElement;
   private elUnitCount: HTMLElement;
@@ -41,6 +42,7 @@ export class UIController {
     this.elBtnFaster = document.getElementById('btn-faster') as HTMLButtonElement;
     this.elBtnSlower = document.getElementById('btn-slower') as HTMLButtonElement;
     this.elBtnRestart = document.getElementById('btn-restart') as HTMLButtonElement;
+    this.elBtnStress = document.getElementById('btn-stress') as HTMLButtonElement;
     this.elSpeedDisplay = document.getElementById('speed-display')!;
     this.elWaveCounter = document.getElementById('wave-counter')!;
     this.elUnitCount = document.getElementById('unit-count')!;
@@ -71,6 +73,7 @@ export class UIController {
     });
 
     this.elBtnRestart.addEventListener('click', () => this.doRestart());
+    this.elBtnStress.addEventListener('click', () => this.doStressTest());
   }
 
   private wireInputEvents(): void {
@@ -106,8 +109,10 @@ export class UIController {
       this.renderer.pan(dx, dy);
     });
 
-    // Left click → select unit (uses camera-aware coordinate conversion)
+    // Left click → clear task point + select unit
     this.inputHandler.onLeftClick((cx, cy) => {
+      const hero = this.stateManager.getHero();
+      if (hero) hero.taskPoint = null;
       const grid = this.renderer.canvasToGrid(cx, cy);
       const nearby = this.stateManager.getUnitsInRadius(grid.x, grid.y, 2);
       const clicked = nearby[0] ?? null;
@@ -131,6 +136,17 @@ export class UIController {
     this.renderer.clearTerrainCache();
     this.minimapRenderer.clearTerrainCache();
     this.engine.restart();
+    this.elBtnPause.textContent = 'Pause';
+    this.updateSpeedDisplay();
+  }
+
+  private doStressTest(): void {
+    this.selectedUnitId = null;
+    this.renderer.setSelectedUnit(null);
+    this.updateInfoPanel(null);
+    this.renderer.clearTerrainCache();
+    this.minimapRenderer.clearTerrainCache();
+    this.engine.restartStressTest();
     this.elBtnPause.textContent = 'Pause';
     this.updateSpeedDisplay();
   }
