@@ -9,6 +9,9 @@ import {
   Position,
   UNIT_STATS,
   GRID_SIZE,
+  SimConfig,
+  TerrainDensity,
+  DEFAULT_CONFIG,
 } from '../types/types';
 import { Pathfinder } from '../engine/Pathfinder';
 
@@ -25,17 +28,21 @@ export class StateManager {
     this.battlefield = this.emptyBattlefield();
   }
 
-  initGrid(): void {
+  initGrid(density: TerrainDensity = 'normal'): void {
     const grid: TerrainType[][] = Array.from({ length: GRID_SIZE }, () =>
       new Array(GRID_SIZE).fill(TerrainType.OPEN)
     );
 
-    // Blob-based procedural generation — no gaps, irregular shapes
-    // Target: 50% OPEN, 25% FOREST, 15% SWAMP, 10% MOUNTAIN
+    const presets: Record<TerrainDensity, { forest: number; swamp: number; mountain: number }> = {
+      light:  { forest: 0.15, swamp: 0.08, mountain: 0.05 },
+      normal: { forest: 0.25, swamp: 0.15, mountain: 0.10 },
+      dense:  { forest: 0.32, swamp: 0.20, mountain: 0.14 },
+    };
+    const p = presets[density];
     const totalTiles = GRID_SIZE * GRID_SIZE;
-    this.placeBlobClusters(grid, TerrainType.FOREST, Math.floor(totalTiles * 0.25), 4, 12);
-    this.placeBlobClusters(grid, TerrainType.SWAMP, Math.floor(totalTiles * 0.15), 3, 8);
-    this.placeBlobClusters(grid, TerrainType.MOUNTAIN, Math.floor(totalTiles * 0.1), 2, 6);
+    this.placeBlobClusters(grid, TerrainType.FOREST,   Math.floor(totalTiles * p.forest),   4, 12);
+    this.placeBlobClusters(grid, TerrainType.SWAMP,    Math.floor(totalTiles * p.swamp),    3, 8);
+    this.placeBlobClusters(grid, TerrainType.MOUNTAIN, Math.floor(totalTiles * p.mountain), 2, 6);
 
     this.battlefield.grid = grid;
   }
@@ -109,10 +116,11 @@ export class StateManager {
     }
   }
 
-  spawnInitialUnits(): void {
-    // Warriors: left half of the map
-    const warriorPositions = this.getShuffledPositions(5, 60, 10, 140);
-    for (let i = 0; i < 100; i++) {
+  spawnInitialUnits(warriorCount: number = 100): void {
+    // Warriors: left half of the map — wider area to fit large counts
+    const warriorPositions = this.getShuffledPositions(5, 74, 5, 145);
+    const count = Math.min(warriorCount, warriorPositions.length);
+    for (let i = 0; i < count; i++) {
       const unit = this.createUnit(UnitType.WARRIOR, Faction.FRIENDLY);
       unit.position = warriorPositions[i];
       this.battlefield.units.push(unit);
@@ -258,11 +266,11 @@ export class StateManager {
     return this.battlefield.units.find((u) => u.id === id);
   }
 
-  reset(): void {
+  reset(config: SimConfig = DEFAULT_CONFIG): void {
     this.nextId = 0;
     this.battlefield = this.emptyBattlefield();
-    this.initGrid();
-    this.spawnInitialUnits();
+    this.initGrid(config.terrainDensity);
+    this.spawnInitialUnits(config.warriorCount);
   }
 
   private emptyBattlefield(): IBattlefield {

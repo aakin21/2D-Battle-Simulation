@@ -13,6 +13,8 @@ import {
   TERRAIN_SPEED,
   UNIT_STATS,
   Position,
+  SimConfig,
+  DEFAULT_CONFIG,
 } from '../types/types';
 
 const WARRIOR_ARRIVE_RADIUS = 2;
@@ -32,6 +34,8 @@ export class SimulationEngine {
 
   private paused: boolean = false;
   private speedMultiplier: number = 1;
+  private waveMultiplier: number = 1;
+  private lastConfig: SimConfig = DEFAULT_CONFIG;
   private lastTime: number = 0;
   private rafId: number = 0;
 
@@ -87,10 +91,15 @@ export class SimulationEngine {
     if (idx > 0) this.speedMultiplier = steps[idx - 1];
   }
 
+  applyConfig(config: SimConfig): void {
+    this.lastConfig = config;
+    this.waveMultiplier = config.waveMultiplier;
+  }
+
   restart(): void {
     this.stop();
     this.stateManager.setStressMode(false);
-    this.stateManager.reset();
+    this.stateManager.reset(this.lastConfig);
     this.groupPatrol.clear();
     this.paused = false;
     this.speedMultiplier = 1;
@@ -336,7 +345,7 @@ export class SimulationEngine {
       const sizes = [100, 150, 200];
       const nextTimes = [90, 180, 210];
 
-      this.spawnBerserkerWave(sizes[waveNumber]);
+      this.spawnBerserkerWave(Math.round(sizes[waveNumber] * this.waveMultiplier));
 
       bf.nextWaveTime = nextTimes[waveNumber];
       bf.waveNumber++;
@@ -344,7 +353,7 @@ export class SimulationEngine {
       // Phase 2: sustained waves
       if (elapsedTime < bf.nextWaveTime) return;
 
-      const size = 40 + Math.floor(Math.random() * 21); // 40–60
+      const size = Math.round((40 + Math.floor(Math.random() * 21)) * this.waveMultiplier);
       this.spawnBerserkerWave(size);
 
       bf.nextWaveTime = elapsedTime + 20 + Math.random() * 20; // 20–40s until next
@@ -506,15 +515,25 @@ export class SimulationEngine {
       if (unit.state !== BehaviorState.IDLE) return;
 
       if (unit.target !== null) {
-        // Chase: A* to visible enemy, recalculate when enemy moves to a new tile
+        // Chase: path to a position around the enemy rather than the exact tile.
+        // Each berserker gets a deterministic offset based on its ID so they
+        // spread into a ring around the target instead of stacking on one tile.
         const target = this.stateManager.getUnitById(unit.target);
         if (target && target.hp > 0) {
           const dtx = Math.floor(target.position.x);
           const dty = Math.floor(target.position.y);
+
+          const idNum = parseInt(unit.id.replace('unit_', '')) || 0;
+          const angle = (idNum * 2.399963) % (Math.PI * 2); // golden angle spread
+          const r = 1.0 + (idNum % 3) * 0.4; // 1.0 / 1.4 / 1.8 tiles
+          let aimX = Math.max(1, Math.min(148, dtx + Math.round(Math.cos(angle) * r)));
+          let aimY = Math.max(1, Math.min(148, dty + Math.round(Math.sin(angle) * r)));
+          if (!this.stateManager.isClearTile(aimX, aimY)) { aimX = dtx; aimY = dty; }
+
           const pe = unit.path.length > 0 ? unit.path[unit.path.length - 1] : null;
-          if (!pe || pe.x !== dtx || pe.y !== dty) {
+          if (!pe || pe.x !== aimX || pe.y !== aimY) {
             const st = { x: Math.floor(unit.position.x), y: Math.floor(unit.position.y) };
-            unit.path = Pathfinder.findPath(grid, st, { x: dtx, y: dty });
+            unit.path = Pathfinder.findPath(grid, st, { x: aimX, y: aimY });
           }
         } else {
           unit.target = null;

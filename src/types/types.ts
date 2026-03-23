@@ -99,3 +99,17 @@ export const UNIT_COLORS: Record<string, string> = {
 
 export const GRID_SIZE = 150;
 export const TILE_SIZE = 5; // pixels per tile at base zoom (offscreen terrain canvas = 750×750)
+
+export type TerrainDensity = 'light' | 'normal' | 'dense';
+
+export interface SimConfig {
+  warriorCount: number;
+  waveMultiplier: number;
+  terrainDensity: TerrainDensity;
+}
+
+export const DEFAULT_CONFIG: SimConfig = {
+  warriorCount: 300,
+  waveMultiplier: 1,
+  terrainDensity: 'normal',
+};
