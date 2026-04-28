@@ -9,6 +9,52 @@ interface AStarNode {
   parent: AStarNode | null;
 }
 
+class MinHeap {
+  private data: AStarNode[] = [];
+
+  push(node: AStarNode): void {
+    this.data.push(node);
+    this.up(this.data.length - 1);
+  }
+
+  pop(): AStarNode {
+    const top = this.data[0];
+    const last = this.data.pop()!;
+    if (this.data.length > 0) {
+      this.data[0] = last;
+      this.down(0);
+    }
+    return top;
+  }
+
+  get size(): number {
+    return this.data.length;
+  }
+
+  private up(i: number): void {
+    while (i > 0) {
+      const p = (i - 1) >> 1;
+      if (this.data[p].f <= this.data[i].f) break;
+      [this.data[p], this.data[i]] = [this.data[i], this.data[p]];
+      i = p;
+    }
+  }
+
+  private down(i: number): void {
+    const n = this.data.length;
+    for (;;) {
+      let s = i;
+      const l = 2 * i + 1;
+      const r = l + 1;
+      if (l < n && this.data[l].f < this.data[s].f) s = l;
+      if (r < n && this.data[r].f < this.data[s].f) s = r;
+      if (s === i) break;
+      [this.data[s], this.data[i]] = [this.data[i], this.data[s]];
+      i = s;
+    }
+  }
+}
+
 export class Pathfinder {
   static findPath(grid: TerrainType[][], start: Position, end: Position): Position[] {
     const sx = Math.floor(start.x);
@@ -25,14 +71,13 @@ export class Pathfinder {
     const key = (x: number, y: number): number => y * GRID_SIZE + x;
     const heuristic = (x: number, y: number): number => Math.abs(x - ex) + Math.abs(y - ey);
 
-    const open: AStarNode[] = [];
+    const heap = new MinHeap();
     const closed = new Set<number>();
-    const map = new Map<number, AStarNode>();
+    const gScore = new Map<number, number>();
 
     const sh = heuristic(sx, sy);
-    const startNode: AStarNode = { x: sx, y: sy, g: 0, h: sh, f: sh, parent: null };
-    open.push(startNode);
-    map.set(key(sx, sy), startNode);
+    heap.push({ x: sx, y: sy, g: 0, h: sh, f: sh, parent: null });
+    gScore.set(key(sx, sy), 0);
 
     const DIRS = [
       [1, 0],
@@ -41,16 +86,8 @@ export class Pathfinder {
       [0, -1],
     ] as const;
 
-    while (open.length > 0) {
-      // linear scan for min f — fast enough at current unit counts
-      let li = 0;
-      for (let i = 1; i < open.length; i++) {
-        if (open[i].f < open[li].f) li = i;
-      }
-      const cur = open[li];
-      // O(1) remove via swap-and-pop
-      open[li] = open[open.length - 1];
-      open.pop();
+    while (heap.size > 0) {
+      const cur = heap.pop();
 
       const ck = key(cur.x, cur.y);
       if (closed.has(ck)) continue;
@@ -71,16 +108,11 @@ export class Pathfinder {
         if (closed.has(nk)) continue;
 
         const ng = cur.g + 1;
-        const existing = map.get(nk);
-        if (!existing) {
+        const prevG = gScore.get(nk);
+        if (prevG === undefined || ng < prevG) {
+          gScore.set(nk, ng);
           const nh = heuristic(nx, ny);
-          const node: AStarNode = { x: nx, y: ny, g: ng, h: nh, f: ng + nh, parent: cur };
-          open.push(node);
-          map.set(nk, node);
-        } else if (ng < existing.g) {
-          existing.g = ng;
-          existing.f = ng + existing.h;
-          existing.parent = cur;
+          heap.push({ x: nx, y: ny, g: ng, h: nh, f: ng + nh, parent: cur });
         }
       }
     }
