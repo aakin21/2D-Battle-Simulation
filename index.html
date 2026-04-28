@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>2D Battle Simulation</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      background: #1a1a1a;
+      color: #e0e0e0;
+      font-family: monospace;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+    }
+
+    #control-bar {
+      width: 900px;
+      height: 40px;
+      background: #2a2a2a;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 0 12px;
+      border-bottom: 1px solid #444;
+      flex-shrink: 0;
+    }
+
+    #control-bar button {
+      background: #3a3a3a;
+      color: #e0e0e0;
+      border: 1px solid #555;
+      padding: 4px 10px;
+      cursor: pointer;
+      font-family: monospace;
+      font-size: 13px;
+    }
+
+    #control-bar button:hover {
+      background: #4a4a4a;
+    }
+
+    #speed-display {
+      font-size: 13px;
+      color: #aaa;
+    }
+
+    #wave-counter {
+      font-size: 13px;
+      color: #aaa;
+      margin-left: auto;
+    }
+
+    #unit-count {
+      font-size: 13px;
+      color: #aaa;
+    }
+
+    #canvas-area {
+      display: flex;
+      gap: 0;
+      position: relative;
+    }
+
+    #battleCanvas {
+      display: block;
+      background: #000;
+      cursor: crosshair;
+    }
+
+    #right-panel {
+      display: flex;
+      flex-direction: column;
+      width: 150px;
+      border-left: 1px solid #444;
+    }
+
+    #minimapCanvas {
+      display: block;
+      background: #000;
+      cursor: crosshair;
+    }
+
+    #area-stats {
+      flex: 1;
+      background: #1a1a1a;
+      border-top: 1px solid #333;
+      padding: 8px 10px;
+      font-size: 11px;
+      color: #666;
+      line-height: 1.8;
+    }
+
+    #area-stats .stat-title {
+      color: #555;
+      margin-bottom: 4px;
+      border-bottom: 1px solid #2a2a2a;
+      padding-bottom: 3px;
+    }
+
+    #area-stats .stat-w { color: #FFD700; }
+    #area-stats .stat-b { color: #4169E1; }
+    #area-stats .stat-h { color: #FF0000; }
+    #area-stats .stat-total { color: #888; margin-top: 4px; }
+
+    #info-panel {
+      width: 900px;
+      height: 50px;
+      background: #2a2a2a;
+      display: flex;
+      align-items: center;
+      padding: 0 12px;
+      gap: 20px;
+      border-top: 1px solid #444;
+      font-size: 13px;
+      color: #aaa;
+      flex-shrink: 0;
+    }
+
+    #unit-hp, #unit-courage, #unit-state, #unit-type {
+      color: #ccc;
+    }
+
+    #hotkeys {
+      margin-left: auto;
+      font-size: 11px;
+      color: #666;
+    }
+
+    /* Tooltip */
+    #tooltip {
+      display: none;
+      position: absolute;
+      background: rgba(0, 0, 0, 0.85);
+      color: #ddd;
+      font-size: 11px;
+      padding: 4px 7px;
+      pointer-events: none;
+      white-space: nowrap;
+      border: 1px solid #555;
+      line-height: 1.6;
+      z-index: 10;
+    }
+
+    /* Drag-select rectangle */
+    #select-overlay {
+      display: none;
+      position: absolute;
+      border: 1px dashed #fff;
+      background: rgba(255, 255, 255, 0.06);
+      pointer-events: none;
+      z-index: 10;
+    }
+
+    /* Main menu overlay */
+    #main-menu {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.88);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      z-index: 100;
+    }
+
+    #main-menu h1 {
+      font-size: 26px;
+      color: #e0e0e0;
+      letter-spacing: 2px;
+      margin-bottom: 4px;
+    }
+
+    /* Mode tabs */
+    #menu-tabs {
+      display: flex;
+      gap: 0;
+      border: 1px solid #555;
+    }
+
+    #menu-tabs button {
+      background: #2a2a2a;
+      color: #888;
+      border: none;
+      padding: 6px 28px;
+      cursor: pointer;
+      font-family: monospace;
+      font-size: 13px;
+    }
+
+    #menu-tabs button.active {
+      background: #3a3a3a;
+      color: #e0e0e0;
+    }
+
+    #menu-tabs button:hover:not(.active) {
+      background: #333;
+    }
+
+    /* Config form */
+    #menu-config {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      width: 340px;
+      padding: 14px 16px;
+      background: #1e1e1e;
+      border: 1px solid #333;
+    }
+
+    #menu-config.locked {
+      opacity: 0.45;
+      pointer-events: none;
+    }
+
+    .cfg-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 12px;
+    }
+
+    .cfg-row label {
+      color: #888;
+      width: 72px;
+      flex-shrink: 0;
+    }
+
+    .cfg-row input[type=range] {
+      flex: 1;
+      accent-color: #FFD700;
+    }
+
+    .cfg-val {
+      color: #ccc;
+      width: 36px;
+      text-align: right;
+      font-size: 12px;
+    }
+
+    .cfg-opts {
+      display: flex;
+      gap: 4px;
+    }
+
+    .cfg-opts button {
+      background: #2a2a2a;
+      color: #777;
+      border: 1px solid #444;
+      padding: 3px 10px;
+      cursor: pointer;
+      font-family: monospace;
+      font-size: 12px;
+    }
+
+    .cfg-opts button.active {
+      background: #3a3a3a;
+      color: #e0e0e0;
+      border-color: #888;
+    }
+
+    .cfg-opts button:hover:not(.active) {
+      background: #333;
+    }
+
+    /* Start / Instructions buttons */
+    #menu-start {
+      background: #3a3a3a;
+      color: #e0e0e0;
+      border: 1px solid #666;
+      padding: 9px 0;
+      cursor: pointer;
+      font-family: monospace;
+      font-size: 14px;
+      width: 340px;
+    }
+
+    #menu-start:hover { background: #4a4a4a; }
+
+    #menu-instructions-btn {
+      background: none;
+      color: #555;
+      border: none;
+      cursor: pointer;
+      font-family: monospace;
+      font-size: 12px;
+      padding: 2px 0;
+    }
+
+    #menu-instructions-btn:hover { color: #888; }
+
+    /* Instructions overlay */
+    #instructions-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.92);
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 14px;
+      z-index: 110;
+    }
+
+    #instructions-overlay h2 {
+      font-size: 18px;
+      color: #ccc;
+      margin-bottom: 6px;
+    }
+
+    #instructions-overlay table {
+      border-collapse: collapse;
+      font-size: 13px;
+      color: #aaa;
+    }
+
+    #instructions-overlay td {
+      padding: 5px 18px;
+    }
+
+    #instructions-overlay td:first-child {
+      color: #e0e0e0;
+      text-align: right;
+    }
+
+    #instructions-overlay button {
+      background: #3a3a3a;
+      color: #e0e0e0;
+      border: 1px solid #555;
+      padding: 8px 24px;
+      cursor: pointer;
+      font-family: monospace;
+      font-size: 13px;
+      margin-top: 10px;
+    }
+
+    #instructions-overlay button:hover {
+      background: #4a4a4a;
+    }
+  </style>
+  <script type="module" crossorigin src="./assets/index-Dg8m9Y7I.js"></script>
+</head>
+<body>
+
+  <!-- Main menu -->
+  <div id="main-menu">
+    <h1>2D Battle Simulation</h1>
+
+    <div id="menu-tabs">
+      <button id="tab-default" class="active">Default</button>
+      <button id="tab-custom">Custom</button>
+    </div>
+
+    <div id="menu-config" class="locked">
+      <div class="cfg-row">
+        <label>Warriors</label>
+        <input type="range" id="cfg-warriors" min="0" max="1000" step="50" value="300">
+        <span class="cfg-val" id="cfg-warriors-val">300</span>
+      </div>
+      <div class="cfg-row">
+        <label>Wave size</label>
+        <div class="cfg-opts" id="cfg-wave">
+          <button data-val="0.5">0.5×</button>
+          <button data-val="1" class="active">1×</button>
+          <button data-val="2">2×</button>
+        </div>
+      </div>
+      <div class="cfg-row">
+        <label>Terrain</label>
+        <div class="cfg-opts" id="cfg-terrain">
+          <button data-val="light">Light</button>
+          <button data-val="normal" class="active">Normal</button>
+          <button data-val="dense">Dense</button>
+        </div>
+      </div>
+    </div>
+
+    <button id="menu-start">Start Simulation</button>
+    <button id="menu-instructions">Instructions</button>
+  </div>
+
+  <!-- Instructions -->
+  <div id="instructions-overlay">
+    <h2>Controls</h2>
+    <table>
+      <tr><td>Left click</td><td>Select unit</td></tr>
+      <tr><td>Right click</td><td>Set hero target point</td></tr>
+      <tr><td>Drag</td><td>Show area unit counts</td></tr>
+      <tr><td>Shift + drag</td><td>Pan camera</td></tr>
+      <tr><td>Scroll</td><td>Zoom</td></tr>
+      <tr><td>Space</td><td>Pause / Resume</td></tr>
+      <tr><td>+  /  −</td><td>Increase / Decrease speed</td></tr>
+      <tr><td>R</td><td>Restart simulation</td></tr>
+    </table>
+    <button id="btn-close-instructions">Close</button>
+  </div>
+
+  <div id="control-bar">
+    <button id="btn-pause">Pause</button>
+    <button id="btn-slower">−</button>
+    <span id="speed-display">1x</span>
+    <button id="btn-faster">+</button>
+    <button id="btn-restart">Restart</button>
+    <button id="btn-stress" style="color:#f90;">Stress Test</button>
+    <button id="btn-debug">Debug</button>
+    <span id="wave-counter">Wave: 0</span>
+    <span id="warrior-count" style="color:#FFD700;">W: 0</span>
+    <span id="berserker-count" style="color:#4169E1;">B: 0</span>
+    <span id="elapsed-time" style="color:#aaa;">T: 0s</span>
+  </div>
+
+  <div id="canvas-area">
+    <canvas id="battleCanvas" width="750" height="750"></canvas>
+    <div id="right-panel">
+      <canvas id="minimapCanvas" width="150" height="150"></canvas>
+      <div id="area-stats">
+        <div class="stat-title">Area Selection</div>
+        <div id="stat-content" style="color:#444;">drag to select</div>
+      </div>
+    </div>
+    <div id="tooltip"></div>
+    <div id="select-overlay"></div>
+  </div>
+
+  <div id="info-panel">
+    <span>Selected:</span>
+    <span id="unit-type">—</span>
+    <span>HP: <span id="unit-hp">—</span></span>
+    <span>Courage: <span id="unit-courage">—</span></span>
+    <span>State: <span id="unit-state">—</span></span>
+    <span id="hotkeys">SPACE: pause &nbsp;|&nbsp; +/−: speed &nbsp;|&nbsp; R: restart &nbsp;|&nbsp; Right-click: hero target &nbsp;|&nbsp; Drag: area stats &nbsp;|&nbsp; Shift+drag: pan</span>
+  </div>
+
+</body>
+</html>
