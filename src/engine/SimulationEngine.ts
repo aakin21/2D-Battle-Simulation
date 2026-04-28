@@ -11,6 +11,7 @@ import {
   BehaviorState,
   TerrainType,
   TERRAIN_SPEED,
+  TERRAIN_SIGHT,
   UNIT_STATS,
   Position,
   SimConfig,
@@ -140,6 +141,14 @@ export class SimulationEngine {
     this.updateWaveSpawner(this.stateManager.getBattlefield());
   }
 
+  private effectiveSight(unit: IUnit): number {
+    const { grid } = this.stateManager.getBattlefield();
+    const tx = Math.floor(unit.position.x);
+    const ty = Math.floor(unit.position.y);
+    const terrain = grid[ty]?.[tx] ?? TerrainType.OPEN;
+    return unit.sight * (TERRAIN_SIGHT[TerrainType[terrain]] ?? 1.0);
+  }
+
   private updateCourage(unit: IUnit, hero: IHero | undefined): void {
     if (unit.unitType === UnitType.BERSERKER) return;
     if (unit.unitType === UnitType.HERO) return;
@@ -149,9 +158,10 @@ export class SimulationEngine {
     const hpLostFraction = 1 - unit.hp / unit.maxHp;
     const woundedPenalty = -Math.floor(hpLostFraction / 0.2) * 10;
 
+    const sight = this.effectiveSight(unit);
     let allies = 0;
     let enemies = 0;
-    this.stateManager.forEachInRadius(unit.position.x, unit.position.y, unit.sight, (other) => {
+    this.stateManager.forEachInRadius(unit.position.x, unit.position.y, sight, (other) => {
       if (other.hp <= 0) return;
       if (other.faction === unit.faction) allies++;
       else enemies++;
@@ -181,8 +191,9 @@ export class SimulationEngine {
   private findNearestEnemy(unit: IUnit): IUnit | null {
     let nearest: IUnit | null = null;
     let minDist2 = Infinity;
+    const sight = this.effectiveSight(unit);
 
-    this.stateManager.forEachInRadius(unit.position.x, unit.position.y, unit.sight, (other) => {
+    this.stateManager.forEachInRadius(unit.position.x, unit.position.y, sight, (other) => {
       if (other.faction === unit.faction || other.hp <= 0) return;
       const dx = other.position.x - unit.position.x;
       const dy = other.position.y - unit.position.y;
