@@ -23,6 +23,8 @@ export class StateManager {
   private stressMode: boolean = false;
   private spatialGrid = new SpatialGrid();
   private berserkerPool = new BerserkerPool();
+  private unitMap = new Map<string, IUnit>();
+  private heroRef: IHero | undefined;
 
   setStressMode(on: boolean): void {
     this.stressMode = on;
@@ -213,7 +215,7 @@ export class StateManager {
   }
 
   getHero(): IHero | undefined {
-    return this.battlefield.units.find((u) => u.unitType === UnitType.HERO) as IHero | undefined;
+    return this.heroRef;
   }
 
   spawnBerserker(x: number, y: number, groupId: string, initialPath: Position[] = []): void {
@@ -225,6 +227,8 @@ export class StateManager {
   addUnit(unit: IUnit): void {
     this.battlefield.units.push(unit);
     this.spatialGrid.insert(unit);
+    this.unitMap.set(unit.id, unit);
+    if (unit.unitType === UnitType.HERO) this.heroRef = unit as IHero;
     this.battlefield.stats.totalSpawned++;
   }
 
@@ -237,6 +241,8 @@ export class StateManager {
     units.pop();
     this.battlefield.stats.casualties++;
     this.spatialGrid.remove(unit);
+    this.unitMap.delete(id);
+    if (unit.unitType === UnitType.HERO) this.heroRef = undefined;
     if (unit.unitType === UnitType.BERSERKER) this.berserkerPool.release(unit);
   }
 
@@ -245,7 +251,7 @@ export class StateManager {
   }
 
   getUnitById(id: string): IUnit | undefined {
-    return this.battlefield.units.find((u) => u.id === id);
+    return this.unitMap.get(id);
   }
 
   reset(config: SimConfig = DEFAULT_CONFIG): void {
@@ -253,6 +259,8 @@ export class StateManager {
     this.battlefield = this.emptyBattlefield();
     this.spatialGrid.clear();
     this.berserkerPool.reset();
+    this.unitMap.clear();
+    this.heroRef = undefined;
     this.initGrid(config.terrainDensity);
     this.spawnInitialUnits(config.warriorCount);
   }
