@@ -9,27 +9,46 @@ import {
   Position,
   UNIT_STATS,
   GRID_SIZE,
+  SimConfig,
+  TerrainDensity,
+  DEFAULT_CONFIG,
 } from '../types/types';
+import { Pathfinder } from '../engine/Pathfinder';
+import { SpatialGrid } from '../engine/SpatialGrid';
+import { BerserkerPool } from '../engine/BerserkerPool';
 
 export class StateManager {
   private battlefield: IBattlefield;
   private nextId: number = 0;
+  private stressMode: boolean = false;
+  private spatialGrid = new SpatialGrid();
+  private berserkerPool = new BerserkerPool();
+  private unitMap = new Map<string, IUnit>();
+  private heroRef: IHero | undefined;
+
+  setStressMode(on: boolean): void {
+    this.stressMode = on;
+  }
 
   constructor() {
     this.battlefield = this.emptyBattlefield();
   }
 
-  initGrid(): void {
+  initGrid(density: TerrainDensity = 'normal'): void {
     const grid: TerrainType[][] = Array.from({ length: GRID_SIZE }, () =>
       new Array(GRID_SIZE).fill(TerrainType.OPEN)
     );
 
-    // Blob-based procedural generation — no gaps, irregular shapes
-    // Target: 50% OPEN, 25% FOREST, 15% SWAMP, 10% MOUNTAIN
+    const presets: Record<TerrainDensity, { forest: number; swamp: number; mountain: number }> = {
+      light:  { forest: 0.15, swamp: 0.08, mountain: 0.05 },
+      normal: { forest: 0.25, swamp: 0.15, mountain: 0.10 },
+      dense:  { forest: 0.32, swamp: 0.20, mountain: 0.14 },
+    };
+    const p = presets[density];
     const totalTiles = GRID_SIZE * GRID_SIZE;
-    this.placeBlobClusters(grid, TerrainType.FOREST, Math.floor(totalTiles * 0.25), 4, 12);
-    this.placeBlobClusters(grid, TerrainType.SWAMP, Math.floor(totalTiles * 0.15), 3, 8);
-    this.placeBlobClusters(grid, TerrainType.MOUNTAIN, Math.floor(totalTiles * 0.1), 2, 6);
+    this.placeBlobClusters(grid, TerrainType.FOREST,   Math.floor(totalTiles * p.forest),   4, 12);
+    this.placeBlobClusters(grid, TerrainType.SWAMP,    Math.floor(totalTiles * p.swamp),    3, 8);
+    this.placeBlobClusters(grid, TerrainType.MOUNTAIN, Math.floor(totalTiles * p.mountain), 2, 6);
 
     this.battlefield.grid = grid;
   }
@@ -46,28 +65,20 @@ export class StateManager {
     let totalPlaced = 0;
 
     for (let c = 0; c < numClusters && totalPlaced < targetCount; c++) {
-      // Find a random OPEN seed tile
-      let sx = 0,
-        sy = 0,
-        found = false;
+      let sx = 0, sy = 0, found = false;
       for (let attempt = 0; attempt < 300; attempt++) {
         sx = Math.floor(Math.random() * GRID_SIZE);
         sy = Math.floor(Math.random() * GRID_SIZE);
-        if (grid[sy][sx] === TerrainType.OPEN) {
-          found = true;
-          break;
-        }
+        if (grid[sy][sx] === TerrainType.OPEN) { found = true; break; }
       }
       if (!found) continue;
 
-      // Grow blob from seed: pick random tile from frontier each step
       const frontier: number[] = [sy * GRID_SIZE + sx];
       const inFrontier = new Set<number>(frontier);
       const clusterTarget = Math.min(tilesPerCluster, targetCount - totalPlaced);
       let clusterPlaced = 0;
 
       while (frontier.length > 0 && clusterPlaced < clusterTarget) {
-        // O(1) random removal: swap picked with last, then pop
         const idx = Math.floor(Math.random() * frontier.length);
         const key = frontier[idx];
         frontier[idx] = frontier[frontier.length - 1];
@@ -82,16 +93,9 @@ export class StateManager {
         totalPlaced++;
         clusterPlaced++;
 
-        // Add 4-directional OPEN neighbors to frontier
-        const dirs = [
-          [1, 0],
-          [-1, 0],
-          [0, 1],
-          [0, -1],
-        ];
+        const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]];
         for (const [dx, dy] of dirs) {
-          const nx = x + dx,
-            ny = y + dy;
+          const nx = x + dx, ny = y + dy;
           if (nx < 0 || nx >= GRID_SIZE || ny < 0 || ny >= GRID_SIZE) continue;
           const nk = ny * GRID_SIZE + nx;
           if (!inFrontier.has(nk) && grid[ny][nx] === TerrainType.OPEN) {
@@ -103,30 +107,40 @@ export class StateManager {
     }
   }
 
-  spawnInitialUnits(): void {
-    // Warriors: left half of the map
-    const warriorPositions = this.getShuffledPositions(5, 60, 10, 140);
-    for (let i = 0; i < 20; i++) {
+  spawnInitialUnits(warriorCount: number = 100): void {
+    const warriorPositions = this.getShuffledPositions(5, 74, 5, 145);
+    const count = Math.min(warriorCount, warriorPositions.length);
+    for (let i = 0; i < count; i++) {
       const unit = this.createUnit(UnitType.WARRIOR, Faction.FRIENDLY);
       unit.position = warriorPositions[i];
-      this.battlefield.units.push(unit);
+      this.addUnit(unit);
     }
 
-    // Hero: center-left area
     const heroPositions = this.getShuffledPositions(10, 50, 60, 90);
     const hero = this.createHero();
     hero.position = heroPositions[0];
-    this.battlefield.units.push(hero);
+    this.addUnit(hero);
 
-    // placeholder enemies for testing — replaced by wave spawning later
-    const testEnemyPositions = this.getShuffledPositions(90, 145, 10, 140);
-    for (let i = 0; i < 10; i++) {
-      const unit = this.createUnit(UnitType.BERSERKER, Faction.ENEMY);
-      unit.position = testEnemyPositions[i];
-      this.battlefield.units.push(unit);
+    if (this.stressMode) {
+      const extraWarriorPositions = this.getShuffledPositions(5, 60, 10, 140);
+      for (let i = 0; i < 900; i++) {
+        const unit = this.createUnit(UnitType.WARRIOR, Faction.FRIENDLY);
+        unit.position = extraWarriorPositions[i];
+        this.addUnit(unit);
+      }
     }
 
-    this.battlefield.stats.totalSpawned = this.battlefield.units.length;
+    if (this.stressMode) {
+      const berserkerPositions = this.getShuffledPositions(90, 145, 10, 140);
+      const rallyPoint: Position = { x: 30, y: 75 };
+      for (let i = 0; i < 1000; i++) {
+        const unit = this.createUnit(UnitType.BERSERKER, Faction.ENEMY);
+        unit.position = berserkerPositions[i];
+        unit.groupId = 'stress_all';
+        unit.path = Pathfinder.findPath(this.battlefield.grid, berserkerPositions[i], rallyPoint);
+        this.addUnit(unit);
+      }
+    }
   }
 
   private createUnit(type: UnitType, faction: Faction): IUnit {
@@ -147,6 +161,7 @@ export class StateManager {
       path: [],
       target: null,
       attackCooldown: 0,
+      groupId: '',
     };
   }
 
@@ -160,15 +175,12 @@ export class StateManager {
     };
   }
 
-  // Fisher-Yates shuffle
   getShuffledPositions(xMin: number, xMax: number, yMin: number, yMax: number): Position[] {
     const positions: Position[] = [];
 
     for (let y = yMin; y < yMax; y++) {
       for (let x = xMin; x < xMax; x++) {
-        if (this.isClearTile(x, y)) {
-          positions.push({ x, y });
-        }
+        if (this.isClearTile(x, y)) positions.push({ x, y });
       }
     }
 
@@ -181,33 +193,42 @@ export class StateManager {
   }
 
   public isClearTile(x: number, y: number): boolean {
-    const dirs = [
-      [0, 0],
-      [1, 0],
-      [-1, 0],
-      [0, 1],
-      [0, -1],
-    ];
+    const dirs = [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]];
     return dirs.every(
       ([dx, dy]) => this.battlefield.grid[y + dy]?.[x + dx] !== TerrainType.MOUNTAIN
     );
   }
 
+  // Hot path: no array allocation — calls cb for each unit within radius.
+  forEachInRadius(cx: number, cy: number, radius: number, cb: (unit: IUnit) => void): void {
+    this.spatialGrid.forEach(cx, cy, radius, cb);
+  }
+
+  // Returns array — used by UIController for click selection and hover tooltip.
   getUnitsInRadius(cx: number, cy: number, radius: number): IUnit[] {
-    const r2 = radius * radius;
-    return this.battlefield.units.filter((u) => {
-      const dx = u.position.x - cx;
-      const dy = u.position.y - cy;
-      return dx * dx + dy * dy <= r2;
-    });
+    return this.spatialGrid.query(cx, cy, radius);
+  }
+
+  // Called by SimulationEngine after moving a unit to keep the grid in sync.
+  syncPosition(unit: IUnit, oldX: number, oldY: number): void {
+    this.spatialGrid.move(unit, { x: oldX, y: oldY });
   }
 
   getHero(): IHero | undefined {
-    return this.battlefield.units.find((u) => u.unitType === UnitType.HERO) as IHero | undefined;
+    return this.heroRef;
+  }
+
+  spawnBerserker(x: number, y: number, groupId: string, initialPath: Position[] = []): void {
+    const id = `unit_${this.nextId++}`;
+    const unit = this.berserkerPool.acquire(id, x, y, groupId, initialPath);
+    this.addUnit(unit);
   }
 
   addUnit(unit: IUnit): void {
     this.battlefield.units.push(unit);
+    this.spatialGrid.insert(unit);
+    this.unitMap.set(unit.id, unit);
+    if (unit.unitType === UnitType.HERO) this.heroRef = unit as IHero;
     this.battlefield.stats.totalSpawned++;
   }
 
@@ -215,10 +236,14 @@ export class StateManager {
     const units = this.battlefield.units;
     const idx = units.findIndex((u) => u.id === id);
     if (idx === -1) return;
-    // O(1) swap-and-pop instead of O(n) splice
+    const unit = units[idx];
     units[idx] = units[units.length - 1];
     units.pop();
     this.battlefield.stats.casualties++;
+    this.spatialGrid.remove(unit);
+    this.unitMap.delete(id);
+    if (unit.unitType === UnitType.HERO) this.heroRef = undefined;
+    if (unit.unitType === UnitType.BERSERKER) this.berserkerPool.release(unit);
   }
 
   getBattlefield(): IBattlefield {
@@ -226,14 +251,18 @@ export class StateManager {
   }
 
   getUnitById(id: string): IUnit | undefined {
-    return this.battlefield.units.find((u) => u.id === id);
+    return this.unitMap.get(id);
   }
 
-  reset(): void {
+  reset(config: SimConfig = DEFAULT_CONFIG): void {
     this.nextId = 0;
     this.battlefield = this.emptyBattlefield();
-    this.initGrid();
-    this.spawnInitialUnits();
+    this.spatialGrid.clear();
+    this.berserkerPool.reset();
+    this.unitMap.clear();
+    this.heroRef = undefined;
+    this.initGrid(config.terrainDensity);
+    this.spawnInitialUnits(config.warriorCount);
   }
 
   private emptyBattlefield(): IBattlefield {
@@ -242,7 +271,7 @@ export class StateManager {
       units: [],
       elapsedTime: 0,
       waveNumber: 0,
-      nextWaveTime: 30, // first wave at 30 simulation seconds
+      nextWaveTime: 30,
       stats: { totalSpawned: 0, casualties: 0 },
     };
   }

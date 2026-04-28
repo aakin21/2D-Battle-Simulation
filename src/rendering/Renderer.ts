@@ -25,6 +25,11 @@ export class Renderer {
   private camera: Camera = { x: 0, y: 0, zoom: ZOOM_MIN };
   private selectedUnitId: string | null = null;
 
+  private debugMode: boolean = false;
+  private fps: number = 0;
+  private fpsFrameCount: number = 0;
+  private fpsLastTime: number = 0;
+
   constructor(canvasId: string) {
     this.canvas = document.getElementById(canvasId) as HTMLCanvasElement;
     this.ctx = this.canvas.getContext('2d')!;
@@ -36,16 +41,22 @@ export class Renderer {
     if (!this.offscreenTerrain) {
       this.buildTerrainCanvas(battlefield.grid);
     }
+    this.updateFps();
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
     this.drawTerrain();
     this.drawCharismaRadius(battlefield.units);
     this.drawUnits(battlefield.units);
-    this.drawHPBars(battlefield.units);
+    this.drawBars(battlefield.units);
     this.drawTaskPoint(battlefield.units);
+    if (this.debugMode) this.drawDebugInfo(battlefield);
   }
 
   setSelectedUnit(id: string | null): void {
     this.selectedUnitId = id;
+  }
+
+  setDebugMode(on: boolean): void {
+    this.debugMode = on;
   }
 
   // --- Camera controls ---
@@ -80,6 +91,18 @@ export class Renderer {
 
   getCamera(): Camera {
     return { ...this.camera };
+  }
+
+  isZoomed(): boolean {
+    return this.camera.zoom > ZOOM_MIN;
+  }
+
+  centerOn(tileX: number, tileY: number): void {
+    const visW = this.canvas.width / this.camera.zoom;
+    const visH = this.canvas.height / this.camera.zoom;
+    this.camera.x = tileX - visW / 2;
+    this.camera.y = tileY - visH / 2;
+    this.clampCamera();
   }
 
   // Call on reset — clears terrain and returns camera to default
@@ -157,25 +180,65 @@ export class Renderer {
     }
   }
 
-  private drawHPBars(units: IUnit[]): void {
+  // Draws HP bar above every unit. Warriors also get a courage bar below the HP bar.
+  private drawBars(units: IUnit[]): void {
     const { x: camX, y: camY, zoom } = this.camera;
     const barW = Math.max(6, zoom * 2);
-    const barH = Math.max(1, Math.floor(zoom * 0.4));
-    const yOff = -(zoom + barH);
+    const hpH = Math.max(1, Math.floor(zoom * 0.4));
+    const cH = Math.max(1, Math.floor(zoom * 0.25));
 
     for (const unit of units) {
+      const isWarrior = unit.unitType === UnitType.WARRIOR;
+      const totalH = isWarrior ? hpH + 1 + cH : hpH;
+      const yOff = -(zoom + totalH);
+
       const sx = (unit.position.x - camX) * zoom - barW / 2;
       const sy = (unit.position.y - camY) * zoom + yOff;
 
       if (sx + barW < 0 || sx > this.canvas.width) continue;
-      if (sy + barH < 0 || sy > this.canvas.height) continue;
+      if (sy + totalH < 0 || sy > this.canvas.height) continue;
 
-      const ratio = unit.hp / unit.maxHp;
+      // HP bar
+      const hpRatio = unit.hp / unit.maxHp;
       this.ctx.fillStyle = '#880000';
-      this.ctx.fillRect(sx, sy, barW, barH);
+      this.ctx.fillRect(sx, sy, barW, hpH);
       this.ctx.fillStyle = '#00cc44';
-      this.ctx.fillRect(sx, sy, Math.max(0, barW * ratio), barH);
+      this.ctx.fillRect(sx, sy, Math.max(0, barW * hpRatio), hpH);
+
+      // Courage bar — warriors only
+      if (isWarrior) {
+        const cRatio = unit.courage / 100;
+        const cy = sy + hpH + 1;
+        this.ctx.fillStyle = '#333300';
+        this.ctx.fillRect(sx, cy, barW, cH);
+        this.ctx.fillStyle = '#ccaa00';
+        this.ctx.fillRect(sx, cy, Math.max(0, barW * cRatio), cH);
+      }
     }
+  }
+
+  private updateFps(): void {
+    this.fpsFrameCount++;
+    const now = performance.now();
+    if (this.fpsLastTime === 0) {
+      this.fpsLastTime = now;
+      return;
+    }
+    if (now - this.fpsLastTime >= 1000) {
+      this.fps = Math.round((this.fpsFrameCount * 1000) / (now - this.fpsLastTime));
+      this.fpsFrameCount = 0;
+      this.fpsLastTime = now;
+    }
+  }
+
+  private drawDebugInfo(battlefield: IBattlefield): void {
+    this.ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
+    this.ctx.fillRect(4, 4, 130, 54);
+    this.ctx.fillStyle = '#00ff88';
+    this.ctx.font = '11px monospace';
+    this.ctx.fillText(`FPS: ${this.fps}`, 10, 19);
+    this.ctx.fillText(`Units: ${battlefield.units.length}`, 10, 33);
+    this.ctx.fillText(`T: ${Math.floor(battlefield.elapsedTime)}s`, 10, 47);
   }
 
   // Draws a transparent circle showing the hero's influence area (sight range: 15 tiles).

@@ -43,6 +43,7 @@ export interface IUnit {
   path: Position[]; // A* path to follow — empty when idle or in combat
   target: string | null; // ID of the unit being attacked (null = no target)
   attackCooldown: number; // seconds until next attack (0 = ready)
+  groupId: string; // spawn group identifier — used for coordinated berserker patrol
 }
 
 export interface IHero extends IUnit {
@@ -98,3 +99,17 @@ export const UNIT_COLORS: Record<string, string> = {
 
 export const GRID_SIZE = 150;
 export const TILE_SIZE = 5; // pixels per tile at base zoom (offscreen terrain canvas = 750×750)
+
+export type TerrainDensity = 'light' | 'normal' | 'dense';
+
+export interface SimConfig {
+  warriorCount: number;
+  waveMultiplier: number;
+  terrainDensity: TerrainDensity;
+}
+
+export const DEFAULT_CONFIG: SimConfig = {
+  warriorCount: 300,
+  waveMultiplier: 1,
+  terrainDensity: 'normal',
+};
