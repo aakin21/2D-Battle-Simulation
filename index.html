@@ -271,6 +271,32 @@
       background: #333;
     }
 
+    .cfg-row input[type=number] {
+      width: 52px;
+      background: #2a2a2a;
+      color: #ccc;
+      border: 1px solid #444;
+      font-family: monospace;
+      font-size: 12px;
+      padding: 2px 4px;
+      text-align: center;
+    }
+
+    .cfg-row input[type=number]::-webkit-inner-spin-button,
+    .cfg-row input[type=number]::-webkit-outer-spin-button {
+      -webkit-appearance: none;
+    }
+
+    .cfg-row input[type=number] { -moz-appearance: textfield; }
+
+    #stress-info {
+      text-align: center;
+      font-size: 12px;
+      color: #888;
+      padding: 20px 0 10px;
+      line-height: 1.8;
+    }
+
     /* Start / Instructions buttons */
     #menu-start {
       background: #3a3a3a;
@@ -346,7 +372,7 @@
       background: #4a4a4a;
     }
   </style>
-  <script type="module" crossorigin src="./assets/index-Dg8m9Y7I.js"></script>
+  <script type="module" crossorigin src="./assets/index-c7bLsVOS.js"></script>
 </head>
 <body>
 
@@ -357,21 +383,19 @@
     <div id="menu-tabs">
       <button id="tab-default" class="active">Default</button>
       <button id="tab-custom">Custom</button>
+      <button id="tab-stress">Stress</button>
     </div>
 
     <div id="menu-config" class="locked">
       <div class="cfg-row">
         <label>Warriors</label>
-        <input type="range" id="cfg-warriors" min="0" max="1000" step="50" value="300">
-        <span class="cfg-val" id="cfg-warriors-val">300</span>
+        <input type="range" id="cfg-warriors" min="0" max="2000" step="1" value="300">
+        <input type="number" id="cfg-warriors-num" min="0" max="2000" value="300">
       </div>
       <div class="cfg-row">
-        <label>Wave size</label>
-        <div class="cfg-opts" id="cfg-wave">
-          <button data-val="0.5">0.5×</button>
-          <button data-val="1" class="active">1×</button>
-          <button data-val="2">2×</button>
-        </div>
+        <label>Wave ×</label>
+        <input type="range" id="cfg-wave-slider" min="0.5" max="10" step="0.5" value="1">
+        <span class="cfg-val" id="cfg-wave-val">1×</span>
       </div>
       <div class="cfg-row">
         <label>Terrain</label>
@@ -381,6 +405,11 @@
           <button data-val="dense">Dense</button>
         </div>
       </div>
+    </div>
+
+    <div id="stress-info" style="display:none;">
+      2000 warriors vs 2000 berserkers<br>
+      Normal terrain · Wave ×1
     </div>
 
     <button id="menu-start">Start Simulation</button>
@@ -409,7 +438,7 @@
     <span id="speed-display">1x</span>
     <button id="btn-faster">+</button>
     <button id="btn-restart">Restart</button>
-    <button id="btn-stress" style="color:#f90;">Stress Test</button>
+    <button id="btn-menu">Menu</button>
     <button id="btn-debug">Debug</button>
     <span id="wave-counter">Wave: 0</span>
     <span id="warrior-count" style="color:#FFD700;">W: 0</span>
