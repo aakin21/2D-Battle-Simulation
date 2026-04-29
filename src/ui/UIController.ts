@@ -26,7 +26,7 @@ export class UIController {
   private elBtnFaster: HTMLButtonElement;
   private elBtnSlower: HTMLButtonElement;
   private elBtnRestart: HTMLButtonElement;
-  private elBtnStress: HTMLButtonElement;
+  private elBtnMenu: HTMLButtonElement;
   private elBtnDebug: HTMLButtonElement;
   private elSpeedDisplay: HTMLElement;
   private elWaveCounter: HTMLElement;
@@ -59,7 +59,7 @@ export class UIController {
     this.elBtnFaster = document.getElementById('btn-faster') as HTMLButtonElement;
     this.elBtnSlower = document.getElementById('btn-slower') as HTMLButtonElement;
     this.elBtnRestart = document.getElementById('btn-restart') as HTMLButtonElement;
-    this.elBtnStress = document.getElementById('btn-stress') as HTMLButtonElement;
+    this.elBtnMenu = document.getElementById('btn-menu') as HTMLButtonElement;
     this.elBtnDebug = document.getElementById('btn-debug') as HTMLButtonElement;
     this.elSpeedDisplay = document.getElementById('speed-display')!;
     this.elWaveCounter = document.getElementById('wave-counter')!;
@@ -87,40 +87,52 @@ export class UIController {
 
   private wireMainMenu(): void {
     const config = document.getElementById('menu-config')!;
+    const stressInfo = document.getElementById('stress-info')!;
     const tabDefault = document.getElementById('tab-default')!;
     const tabCustom = document.getElementById('tab-custom')!;
+    const tabStress = document.getElementById('tab-stress')!;
     const warriorSlider = document.getElementById('cfg-warriors') as HTMLInputElement;
-    const warriorVal = document.getElementById('cfg-warriors-val')!;
+    const warriorNum = document.getElementById('cfg-warriors-num') as HTMLInputElement;
+    const waveSlider = document.getElementById('cfg-wave-slider') as HTMLInputElement;
+    const waveVal = document.getElementById('cfg-wave-val')!;
 
-    // Tab switching
+    const setTab = (active: HTMLElement) => {
+      [tabDefault, tabCustom, tabStress].forEach(t => t.classList.remove('active'));
+      active.classList.add('active');
+      const isStress = active === tabStress;
+      const isCustom = active === tabCustom;
+      config.classList.toggle('locked', !isCustom);
+      stressInfo.style.display = isStress ? 'block' : 'none';
+    };
+
     tabDefault.addEventListener('click', () => {
-      tabDefault.classList.add('active');
-      tabCustom.classList.remove('active');
-      config.classList.add('locked');
-      // Reset to default values visually
+      setTab(tabDefault);
       warriorSlider.value = '300';
-      warriorVal.textContent = '300';
-      this.setOptActive('cfg-wave', '1');
+      warriorNum.value = '300';
+      waveSlider.value = '1';
+      waveVal.textContent = '1×';
       this.setOptActive('cfg-terrain', 'normal');
     });
 
-    tabCustom.addEventListener('click', () => {
-      tabCustom.classList.add('active');
-      tabDefault.classList.remove('active');
-      config.classList.remove('locked');
-    });
+    tabCustom.addEventListener('click', () => setTab(tabCustom));
+    tabStress.addEventListener('click', () => setTab(tabStress));
 
-    // Warrior slider — live value display
+    // Warrior slider + number input — keep in sync
     warriorSlider.addEventListener('input', () => {
-      warriorVal.textContent = warriorSlider.value;
+      warriorNum.value = warriorSlider.value;
+    });
+    warriorNum.addEventListener('input', () => {
+      const v = Math.min(2000, Math.max(0, parseInt(warriorNum.value) || 0));
+      warriorSlider.value = v.toString();
+      warriorNum.value = v.toString();
     });
 
-    // Option button groups
-    document.getElementById('cfg-wave')!.addEventListener('click', (e) => {
-      const btn = (e.target as HTMLElement).closest('button');
-      if (btn) this.setOptActive('cfg-wave', btn.dataset.val!);
+    // Wave size slider
+    waveSlider.addEventListener('input', () => {
+      waveVal.textContent = `${waveSlider.value}×`;
     });
 
+    // Terrain buttons
     document.getElementById('cfg-terrain')!.addEventListener('click', (e) => {
       const btn = (e.target as HTMLElement).closest('button');
       if (btn) this.setOptActive('cfg-terrain', btn.dataset.val!);
@@ -128,19 +140,28 @@ export class UIController {
 
     // Start
     document.getElementById('menu-start')!.addEventListener('click', () => {
+      this.selectedUnitId = null;
+      this.renderer.setSelectedUnit(null);
+      this.renderer.clearTerrainCache();
+      this.minimapRenderer.clearTerrainCache();
+      this.elMainMenu.style.display = 'none';
+      this.elBtnPause.textContent = 'Pause';
+
+      if (tabStress.classList.contains('active')) {
+        this.engine.restartStressTest();
+        return;
+      }
+
       const isDefault = tabDefault.classList.contains('active');
       const cfg: SimConfig = isDefault ? DEFAULT_CONFIG : {
         warriorCount: parseInt(warriorSlider.value),
-        waveMultiplier: parseFloat(this.getOptActive('cfg-wave')),
+        waveMultiplier: parseFloat(waveSlider.value),
         terrainDensity: this.getOptActive('cfg-terrain') as TerrainDensity,
       };
       this.lastConfig = cfg;
-      this.renderer.clearTerrainCache();
-      this.minimapRenderer.clearTerrainCache();
-      this.stateManager.reset(cfg);
       this.engine.applyConfig(cfg);
-      this.engine.resume();
-      this.elMainMenu.style.display = 'none';
+      this.engine.restart();
+      this.updateSpeedDisplay();
     });
 
     document.getElementById('menu-instructions')!.addEventListener('click', () => {
@@ -185,7 +206,12 @@ export class UIController {
     });
 
     this.elBtnRestart.addEventListener('click', () => this.doRestart());
-    this.elBtnStress.addEventListener('click', () => this.doStressTest());
+
+    this.elBtnMenu.addEventListener('click', () => {
+      this.engine.pause();
+      this.elBtnPause.textContent = 'Resume';
+      this.elMainMenu.style.display = 'flex';
+    });
 
     this.elBtnDebug.addEventListener('click', () => {
       this.debugMode = !this.debugMode;
@@ -410,17 +436,6 @@ export class UIController {
     this.minimapRenderer.clearTerrainCache();
     this.engine.applyConfig(this.lastConfig);
     this.engine.restart();
-    this.elBtnPause.textContent = 'Pause';
-    this.updateSpeedDisplay();
-  }
-
-  private doStressTest(): void {
-    this.selectedUnitId = null;
-    this.renderer.setSelectedUnit(null);
-    this.updateInfoPanel(null);
-    this.renderer.clearTerrainCache();
-    this.minimapRenderer.clearTerrainCache();
-    this.engine.restartStressTest();
     this.elBtnPause.textContent = 'Pause';
     this.updateSpeedDisplay();
   }

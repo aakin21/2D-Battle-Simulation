@@ -1,6 +1,6 @@
 import { IUnit, UnitType, Faction, BehaviorState, UNIT_STATS, Position } from '../types/types';
 
-const POOL_SIZE = 900;
+const POOL_SIZE = 2000;
 const S = UNIT_STATS.BERSERKER;
 
 export class BerserkerPool {
