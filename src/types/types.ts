@@ -84,10 +84,11 @@ export const TERRAIN_SPEED: Record<string, number> = {
   MOUNTAIN: 0,
 };
 
+
 export const TERRAIN_SIGHT: Record<string, number> = {
   OPEN: 1.0,
-  FOREST: 0.5,
-  SWAMP: 0.4,
+  FOREST: 0.8,
+  SWAMP: 0.7,
   MOUNTAIN: 0,
 };
 

@@ -33,6 +33,7 @@ export class SimulationEngine {
   private groupPatrol = new Map<string, { dest: Position; expiry: number }>();
 
   private paused: boolean = false;
+  private stressMode: boolean = false;
   private speedMultiplier: number = 1;
   private waveMultiplier: number = 1;
   private lastConfig: SimConfig = DEFAULT_CONFIG;
@@ -97,6 +98,7 @@ export class SimulationEngine {
 
   restart(): void {
     this.stop();
+    this.stressMode = false;
     this.stateManager.setStressMode(false);
     this.stateManager.reset(this.lastConfig);
     this.groupPatrol.clear();
@@ -107,6 +109,7 @@ export class SimulationEngine {
 
   restartStressTest(): void {
     this.stop();
+    this.stressMode = true;
     this.stateManager.setStressMode(true);
     this.stateManager.reset();
     this.groupPatrol.clear();
@@ -325,6 +328,7 @@ export class SimulationEngine {
   }
 
   private updateWaveSpawner(bf: IBattlefield): void {
+    if (this.stressMode) return;
     const { elapsedTime, waveNumber } = bf;
 
     if (waveNumber < 3) {
