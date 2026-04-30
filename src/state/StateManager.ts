@@ -123,7 +123,7 @@ export class StateManager {
 
     if (this.stressMode) {
       const extraWarriorPositions = this.getShuffledPositions(5, 60, 10, 140);
-      for (let i = 0; i < 1900; i++) {
+      for (let i = 0; i < 1900 && i < extraWarriorPositions.length; i++) {
         const unit = this.createUnit(UnitType.WARRIOR, Faction.FRIENDLY);
         unit.position = extraWarriorPositions[i];
         this.addUnit(unit);
@@ -133,7 +133,7 @@ export class StateManager {
     if (this.stressMode) {
       const berserkerPositions = this.getShuffledPositions(90, 145, 10, 140);
       const rallyPoint: Position = { x: 30, y: 75 };
-      for (let i = 0; i < 2000; i++) {
+      for (let i = 0; i < 2000 && i < berserkerPositions.length; i++) {
         const unit = this.createUnit(UnitType.BERSERKER, Faction.ENEMY);
         unit.position = berserkerPositions[i];
         unit.groupId = 'stress_all';
