@@ -2,6 +2,7 @@ import { IUnit, UnitType, Faction, Camera } from '../../types/types';
 import { Corpses } from './Corpses';
 import { Blood } from './Blood';
 import { StatusIcons } from './StatusIcons';
+import { HeroAura } from './HeroAura';
 
 // Visual effects layer. Reads simulation state, never writes it.
 //
@@ -57,6 +58,7 @@ export class EffectsManager {
   private corpses = new Corpses();
   private blood = new Blood();
   private statusIcons = new StatusIcons();
+  private heroAura = new HeroAura();
 
   // Unit id → real time (ms) at which its hit flash ends
   private flashes = new Map<string, number>();
@@ -207,14 +209,17 @@ export class EffectsManager {
   // Effects that lie on the ground, drawn after terrain and before units
   drawUnderUnits(
     ctx: CanvasRenderingContext2D,
+    units: IUnit[],
     camera: Camera,
     width: number,
     height: number
   ): void {
     if (!this.enabled) return;
-    // Blood pools first so corpses lie on top of them
-    this.blood.drawPools(ctx, camera, width, height, this.lastSimTime);
+    const simTime = Math.max(0, this.lastSimTime);
+    // Blood pools first so corpses lie on top of them; the aura glows over both
+    this.blood.drawPools(ctx, camera, width, height, simTime);
     this.corpses.draw(ctx, camera, width, height);
+    this.heroAura.draw(ctx, units, camera, width, height, simTime);
   }
 
   // Effects in the air, drawn after units

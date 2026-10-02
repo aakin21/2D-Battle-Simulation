@@ -23,7 +23,7 @@ Effect time is simulation time (`battlefield.elapsedTime`): effects freeze while
 | 2 | Death animation | ✅ |
 | 3 | Light blood | ✅ |
 | 4 | Status icons | ✅ |
-| 5 | Hero aura | ⬜ |
+| 5 | Hero aura | ✅ |
 | 6 | Sprites | ⬜ |
 | 7 | "Building simulation" loading screen | ⬜ |
 | 8 | Wrap-up | ⬜ |
@@ -69,8 +69,9 @@ Effect time is simulation time (`battlefield.elapsedTime`): effects freeze while
 - Performance: 0.06 ms at full-map zoom (pass is skipped). Worst case of 1000 icons in view at zoom 9: 0.9 ms. A real battle has tens to a few hundred fleeing/resting units in view.
 
 ### 5. Hero aura
-- A subtle pulsing ring at the charisma radius, always visible.
-- The existing filled circle when the hero is selected is kept.
+- `src/rendering/effects/HeroAura.ts`: an orange-gold breathing glow, a steady edge ring and an expanding ripple (2 s period, sim time) at `hero.charismaRadius` (10 tiles): the radius the engine actually uses for the courage bonus. Drawn on the ground (over blood/corpses, under units). Covered by the FX toggle.
+- The existing red circle shown when the hero is selected is kept unchanged. Note: it uses `hero.sight` (15 tiles) although its code comment calls it the influence area, so with the hero selected both circles are visible (aura 10, sight 15).
+- Cost: a few draw calls per frame (one hero).
 
 ### 6. Sprites
 - CC0 pixel art pack (Kenney or itch.io); license credited in README.
