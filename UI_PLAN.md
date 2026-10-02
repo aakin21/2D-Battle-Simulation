@@ -43,11 +43,12 @@ Effect time is simulation time (`battlefield.elapsedTime`): effects freeze while
 - Verified: white pixels on canvas 331 (FX on) vs 0 (FX off); stress-mode FPS identical to the pre-UI baseline.
 
 ### 2. Death animation
-- `src/rendering/effects/Corpses.ts`. Over 0.4 s the unit square collapses into a flat body and its color darkens. The body lies on the ground and fades out over the last 1.5 s of a 5 s life (sim time, so it freezes while paused).
+- `src/rendering/effects/Corpses.ts`. Over 0.4 s the unit square tips over to a random 20°–70° angle (either side) and its color darkens. (First version flattened the square into a rectangle; changed to a tilted square after review.) The body lies on the ground and fades out over the last 1.5 s of a 5 s life (sim time, so it freezes while paused).
 - Max 1500 corpses (pooled); deaths beyond that are not drawn.
-- Performance: lying opaque corpses are batched into one `Path2D` per unit type (3 fills per frame instead of one `fillRect` + `globalAlpha` change per corpse). Before batching, stress mode was 1–3 FPS slower than step 1; after batching it is within measurement noise (uncapped headless: avg ~47 FPS for both).
+- Performance: lying opaque corpses are batched into one `Path2D` per unit type (3 fills per frame instead of one fill + `globalAlpha` change per corpse); cos/sin of the final angle are cached at spawn. Before batching, stress mode was 1–3 FPS slower than step 1; after batching it is within measurement noise (uncapped headless: avg ~47 FPS for both).
 
 ### 3. Light blood
+- Agreed look (from step 2 review): corpse keeps its unit color, with a small, semi-transparent dark red pool underneath.
 - 2–3 small red particles on hit.
 - A small dark decal on death, fading over 20–30 s.
 - Decals kept in a ring buffer (max ~1500); only visible ones are drawn.
