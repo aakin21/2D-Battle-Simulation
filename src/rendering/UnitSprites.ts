@@ -9,7 +9,7 @@ import heroLionOrangeUrl from '../assets/sprites/hero_lion_orange.png';
 import heroTenguUrl from '../assets/sprites/hero_tengu.png';
 
 // Unit sprites from the Ninja Adventure asset pack (CC0, see src/assets/sprites/LICENSE.txt
-// and THESIS_DOCUMENTATION.md D19).
+// and THESIS_DOCUMENTATION.md D25).
 //
 // Sheet layout (64×112, 16×16 frames), verified against the pack's separate animations:
 //   columns: 0 facing down, 1 up, 2 left, 3 right

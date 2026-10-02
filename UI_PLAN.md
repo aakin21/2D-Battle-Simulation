@@ -74,7 +74,7 @@ Effect time is simulation time (`battlefield.elapsedTime`): effects freeze while
 - Cost: a few draw calls per frame (one hero).
 
 ### 6. Sprites
-- Pack: Ninja Adventure (CC0), chosen in THESIS_DOCUMENTATION.md D19 / R4. Credited in README; license in `src/assets/sprites/LICENSE.txt`.
+- Pack: Ninja Adventure (CC0), chosen in THESIS_DOCUMENTATION.md D25 / R4. Credited in README; license in `src/assets/sprites/LICENSE.txt`.
 - Characters: warrior = Knight, berserker = Lion. Heroes: KnightGold, Master, Samurai (friendly) and ShamanLion, LionOrange, Tengu (enemy). Phase 1 uses only KnightGold; the others are for 3 heroes per side (D13).
 - Sheet layout verified against the pack's separate animation files: columns down/up/left/right, rows 0–3 walk (row 0 = idle), row 4 attack, row 6 col 0 dead.
 - `src/rendering/UnitSprites.ts`: warriors and berserkers are tinted 80% toward their team color (yellow / blue), keeping shading and dark outlines. Heroes keep their own colors and get a team-colored ring at their feet. Each sheet also has a white silhouette (hit flash) and a darkened copy (corpses), all built once at load.
