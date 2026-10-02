@@ -123,6 +123,7 @@ D1–D4 are the professor's proposals from the 2026-09-30 meeting; D5 onwards ca
 | D16 | 2026-10-01 | Input scope: LLM reads the whole map, Jev reads only each hero's surroundings | Small input keeps Jev fast. See record below | Accepted (2026-10-01) |
 | D17 | 2026-10-01 | Locations are given as a sector grid (e.g. 10×10, A1–J10) | Works without fixed landmarks; fits Jev's option limit. See record below | Accepted (2026-10-01) |
 | D18 | 2026-10-02 | Heroes move at their group's speed, and have a survival reflex (rule layer) | Stops heroes from running ahead alone and dying, which the AI layers are too slow to prevent. See record below | Accepted (2026-10-02) |
+| D19 | 2026-10-02 | Keep the Phase 1 game as "Classic"; add a symmetric "Battle" mode with equal stats on both sides | Nothing that works is lost; equal stats keep AI comparisons fair. See record below | Accepted (2026-10-02) |
 
 ### Decision records
 
@@ -343,6 +344,21 @@ Each record lists the options we considered, what we chose, and why.
   - (d) is a safety net for when the group breaks apart in combat: if the hero's HP is low or enemies heavily outnumber allies around it, the hero falls back to its own units, whatever the AI ordered. The AI sees this at its next decision.
   - Like fleeing units that cannot be forced to attack (D14), the rule layer's reflexes always come first.
   - This is a concrete example of why the three-layer design is needed: the AI plans, the rules react.
+
+#### D19: Classic and Battle modes, equal stats in Battle
+- **Options:**
+  - (a) replace the Phase 1 game with the symmetric setup
+  - (b) keep the Phase 1 game as "Classic" and add the symmetric setup as a new "Battle" mode
+- **Chosen:** (b).
+- **Why:**
+  - Phase 1 keeps working and can still be shown in the thesis. Nothing that works is broken.
+  - Battle mode is the base for User vs Agent and Agent vs Agent (D3).
+- **Battle mode setup:**
+  - 3 heroes + 150 soldiers per side, no waves.
+  - Soldiers follow the nearest hero of their side and use courage (D13, D14).
+  - Enemy heroes without AI are rule-based: charge a visible enemy, otherwise patrol like a berserker group (same behavior as Phase 1 berserkers).
+  - **Both sides use the same unit stats** (warrior values). Then the result depends only on how each side is commanded, which keeps AI comparisons fair. Classic mode keeps its original stats.
+- **Implementation:** commit `dfc0df3` (branch `phase2/symmetry`). Headless test: soldiers stay 1–2 tiles from their hero; the hero reflex (D18) triggered 20 times in a 240 s battle with no hero deaths; spawning checked on 600 random maps.
 
 ---
 
