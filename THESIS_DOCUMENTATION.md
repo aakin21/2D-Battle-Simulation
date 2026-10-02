@@ -127,6 +127,7 @@ D1–D4 are the professor's proposals from the 2026-09-30 meeting; D5 onwards ca
 | D20 | 2026-10-02 | Revised command set: move to a sector, hold, retreat, attack, attack an enemy hero, continue the LLM's order; all commands go through one command interface | Flanking has no effect in this simulation (no facing or direction). One entry point for user, Jev and LLM. See record below | Accepted (2026-10-02) |
 | D21 | 2026-10-02 | Jev layer, first version: what Jev sees, which options it gets, how often it is asked, and what happens on low confidence or errors | See record below | Proposed |
 | D22 | 2026-10-02 | LLM layer, first version: report format, reply format, interval, model, and the opponent options (Rules / Jev / LLM / Jev + LLM) | See record below | Proposed |
+| D23 | 2026-10-02 | Win condition (Battle mode): the side whose units (heroes and soldiers) all die first loses | Simple and unambiguous; every test match ended. See record below | Accepted (2026-10-02) |
 
 ### Decision records
 
@@ -361,6 +362,12 @@ Each record lists the options we considered, what we chose, and why.
 
   - 0 invalid orders. Latency after the first call matches R2 (~1.3–2.3 s). The first call includes starting the session; it could be started before the match begins.
   - The plans are coherent and react to the situation (e.g. targeting an isolated enemy hero).
+
+#### D23: Win condition
+- **Chosen:** in Battle mode, the side that loses all its units (heroes and soldiers) first loses. If both die in the same step it is a draw. The simulation then stops and shows the winner, the time and the units left.
+- **Why:** simple and unambiguous, and needed before any experiment can be run. Objectives (D12) can change this later.
+- **Spawning and patrol with AI:** Battle mode has no waves. Random patrol is only used by the rule-based opponent; heroes commanded by Jev or the LLM only move on AI orders (they fall back to rules only if the AI cannot be reached).
+- **Test (headless, fixed map, 8 matches, west heroes ordered to "attack", east rule-based):** every match ended, after 130–286 s. Hunting down the last few fleeing units took at most ~1 minute. West won 8 of 8: the rule-based opponent (random patrol, charge when an enemy is seen) is a weak baseline.
 
 #### D15: How the LLM and Jev work together
 - **Options:**

@@ -7,6 +7,7 @@ import {
   IHero,
   IBattlefield,
   UnitType,
+  Faction,
   BehaviorState,
   TerrainType,
   TERRAIN_SPEED,
@@ -45,6 +46,13 @@ export interface AIController {
   tick(elapsed: number): void;
 }
 
+// Battle mode result: the side whose units (heroes and soldiers) all die first loses.
+export interface MatchResult {
+  winner: Faction | null; // null: both sides died in the same step (draw)
+  time: number; // simulation seconds
+  survivors: number; // units left on the winning side
+}
+
 export class SimulationEngine {
   private stateManager: StateManager;
   private renderer: Renderer;
@@ -56,6 +64,8 @@ export class SimulationEngine {
   private stressMode: boolean = false;
   private battleMode: boolean = false;
   private controllers: AIController[] = [];
+  private result: MatchResult | null = null;
+  private onMatchEnd: ((result: MatchResult) => void) | null = null;
   private speedMultiplier: number = 1;
   private waveMultiplier: number = 1;
   private lastConfig: SimConfig = DEFAULT_CONFIG;
@@ -122,6 +132,14 @@ export class SimulationEngine {
     return this.battleMode;
   }
 
+  getResult(): MatchResult | null {
+    return this.result;
+  }
+
+  setOnMatchEnd(cb: (result: MatchResult) => void): void {
+    this.onMatchEnd = cb;
+  }
+
   // AI controllers for the current match; cleared on every restart.
   setControllers(controllers: AIController[]): void {
     this.controllers = controllers;
@@ -145,6 +163,7 @@ export class SimulationEngine {
     this.stateManager.setStressMode(false);
     this.stateManager.reset(this.lastConfig);
     this.controllers = [];
+    this.result = null;
     this.battleMode = this.stateManager.isBattleMode();
     this.renderer.setBattleMode(this.battleMode);
     this.groupPatrol.clear();
@@ -159,6 +178,7 @@ export class SimulationEngine {
     this.stateManager.setStressMode(true);
     this.stateManager.reset();
     this.controllers = [];
+    this.result = null;
     this.battleMode = false;
     this.renderer.setBattleMode(false);
     this.groupPatrol.clear();
@@ -193,6 +213,7 @@ export class SimulationEngine {
     this.processRest(units, deltaTime);
     this.processCombat(units, deltaTime);
     this.removeDeadUnits();
+    if (this.battleMode) this.checkMatchEnd();
     this.updateWaveSpawner(this.stateManager.getBattlefield());
   }
 
@@ -291,6 +312,26 @@ export class SimulationEngine {
       case 'continueLlm':
         return null; // no LLM command yet
     }
+  }
+
+  // Ends the match when one side has no units left, then freezes the simulation.
+  private checkMatchEnd(): void {
+    if (this.result) return;
+    let friendly = 0;
+    let enemy = 0;
+    for (const u of this.stateManager.getBattlefield().units) {
+      if (u.faction === Faction.FRIENDLY) friendly++;
+      else enemy++;
+    }
+    if (friendly > 0 && enemy > 0) return;
+
+    this.result = {
+      winner: friendly > 0 ? Faction.FRIENDLY : enemy > 0 ? Faction.ENEMY : null,
+      time: this.stateManager.getBattlefield().elapsedTime,
+      survivors: Math.max(friendly, enemy),
+    };
+    this.paused = true;
+    this.onMatchEnd?.(this.result);
   }
 
   private findNearestEnemyAnywhere(unit: IUnit): IUnit | null {

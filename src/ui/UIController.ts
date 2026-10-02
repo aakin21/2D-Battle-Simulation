@@ -20,7 +20,7 @@ import { decodeGrid, listSavedMaps, loadSavedMap, saveMap } from '../state/MapSt
 import { FIXED_MAP } from '../maps/fixedMap';
 import { JevController } from '../ai/JevController';
 import { LlmController } from '../ai/LlmController';
-import { AIController } from '../engine/SimulationEngine';
+import { AIController, MatchResult } from '../engine/SimulationEngine';
 
 const LS_SPEED = 'sim_speed';
 const LS_DEBUG = 'sim_debug';
@@ -98,6 +98,7 @@ export class UIController {
 
     this.loadSettings();
     this.wireMainMenu();
+    this.engine.setOnMatchEnd((r) => this.showMatchResult(r));
     this.wireButtonEvents();
     this.wireInputEvents();
     this.startUIRefresh();
@@ -534,9 +535,23 @@ export class UIController {
     localStorage.setItem(LS_EFFECTS, this.renderer.isEffectsEnabled().toString());
   }
 
+  // Battle mode: shown when one side has no units left.
+  private showMatchResult(r: MatchResult): void {
+    const el = document.getElementById('match-result')!;
+    const who = r.winner === null ? 'Draw' : r.winner === Faction.FRIENDLY ? 'West (you) wins' : 'East wins';
+    const ai = this.lastConfig.enemyAI && this.lastConfig.enemyAI !== 'none' ? ` (East: ${this.lastConfig.enemyAI})` : '';
+    el.innerHTML =
+      `<b>${who}</b>${ai}<br>` +
+      `Time: ${Math.round(r.time)} s · Units left: ${r.survivors}<br>` +
+      `<span style="color:#888">R: restart · Menu: new battle</span>`;
+    el.style.display = 'block';
+    this.elBtnPause.textContent = 'Resume';
+  }
+
   // Attaches the AI layers chosen for this match. Restart clears them, so this runs after
   // every engine.restart(). Controllers are exposed as window.jev / window.llm for inspection.
   private startControllers(): void {
+    document.getElementById('match-result')!.style.display = 'none';
     const ai = this.lastConfig.mode === 'battle' ? (this.lastConfig.enemyAI ?? 'none') : 'none';
     if (ai === 'none') return;
     const both = ai === 'jev+llm';
