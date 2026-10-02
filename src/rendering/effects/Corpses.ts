@@ -1,4 +1,5 @@
-import { Camera, UnitType, UNIT_COLORS } from '../../types/types';
+import { Camera, Faction, UnitType, UNIT_COLORS } from '../../types/types';
+import { UnitSprites, FRAME, COL_LEFT, COL_RIGHT, ROW_DEAD } from '../UnitSprites';
 import { Pool } from './Pool';
 import type { DeathEvent } from './EffectsManager';
 import {
@@ -10,6 +11,8 @@ import {
 
 // Death animation: the unit "falls" (its square tips over to a random angle and
 // darkens), the body lies for a while, then fades out. Times are in simulation seconds.
+// When zoomed in far enough for unit sprites, the corpse is the sprite's own "dead"
+// frame instead: the living frame crossfades into a darkened dead frame.
 const FALL_TIME = 0.4;
 const CORPSE_LIFE = 5;
 const FADE_TIME = 1.5; // last part of CORPSE_LIFE spent fading out
@@ -27,6 +30,8 @@ interface Corpse {
   x: number;
   y: number;
   unitType: UnitType;
+  faction: Faction;
+  facing: 1 | -1;
   age: number;
   tilt: number; // index into CORPSE_TILTS
 }
@@ -56,9 +61,15 @@ export class Corpses {
     x: 0,
     y: 0,
     unitType: UnitType.WARRIOR,
+    faction: Faction.FRIENDLY,
+    facing: 1,
     age: 0,
     tilt: 0,
   }));
+  // Unit sprite sheets, used for corpses when zoomed in (set by the renderer)
+  private unitSprites: UnitSprites | null = null;
+  // Decided by the renderer per frame (zoom + sprite budget)
+  private spriteMode: boolean = false;
   // [unitType][tiltIndex], built by prepare() (needs a DOM)
   private sprites: HTMLCanvasElement[][] | null = null;
 
@@ -68,6 +79,8 @@ export class Corpses {
     c.x = e.x;
     c.y = e.y;
     c.unitType = e.unitType;
+    c.faction = e.faction;
+    c.facing = e.facing;
     c.age = 0;
     c.tilt = Math.floor(Math.random() * CORPSE_TILTS.length);
   }
@@ -101,8 +114,20 @@ export class Corpses {
     for (const row of this.sprites) for (const sp of row) warmTarget.drawImage(sp, 0, 0, 4, 4);
   }
 
+  setUnitSprites(sprites: UnitSprites): void {
+    this.unitSprites = sprites;
+  }
+
+  setSpriteMode(on: boolean): void {
+    this.spriteMode = on;
+  }
+
   draw(ctx: CanvasRenderingContext2D, camera: Camera, width: number, height: number): void {
     if (this.pool.size === 0) return;
+    if (this.spriteMode && this.unitSprites?.isReady()) {
+      this.drawUnitSprites(ctx, this.unitSprites, camera, width, height);
+      return;
+    }
     this.prepare();
     const sprites = this.sprites!;
     const { x: camX, y: camY, zoom } = camera;
@@ -147,5 +172,39 @@ export class Corpses {
 
     ctx.globalAlpha = 1;
     ctx.imageSmoothingEnabled = prevSmoothing;
+  }
+
+  private drawUnitSprites(
+    ctx: CanvasRenderingContext2D,
+    sprites: UnitSprites,
+    camera: Camera,
+    width: number,
+    height: number
+  ): void {
+    const { x: camX, y: camY, zoom } = camera;
+    const size = zoom * 2;
+    const half = size / 2;
+    const fadeStart = CORPSE_LIFE - FADE_TIME;
+
+    this.pool.forEach((c) => {
+      const sx = (c.x - camX) * zoom - half;
+      const sy = (c.y - camY) * zoom - half;
+      if (sx + size < 0 || sx > width || sy + size < 0 || sy > height) return;
+
+      const set = sprites.get(c.unitType, c.faction, 0);
+      if (c.age < FALL_TIME) {
+        // Falling: living idle frame fades out over the dead frame
+        const t = c.age / FALL_TIME;
+        ctx.globalAlpha = t;
+        ctx.drawImage(set.dark, 0, ROW_DEAD * FRAME, FRAME, FRAME, sx, sy, size, size);
+        ctx.globalAlpha = 1 - t;
+        const col = c.facing > 0 ? COL_RIGHT : COL_LEFT;
+        ctx.drawImage(set.normal, col * FRAME, 0, FRAME, FRAME, sx, sy, size, size);
+      } else {
+        ctx.globalAlpha = c.age < fadeStart ? 1 : 1 - (c.age - fadeStart) / FADE_TIME;
+        ctx.drawImage(set.dark, 0, ROW_DEAD * FRAME, FRAME, FRAME, sx, sy, size, size);
+      }
+    });
+    ctx.globalAlpha = 1;
   }
 }
