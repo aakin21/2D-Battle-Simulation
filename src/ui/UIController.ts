@@ -339,7 +339,7 @@ export class UIController {
     // Left click → clear task point + select unit (sorted by distance)
     this.inputHandler.onLeftClick((cx, cy) => {
       const hero = this.stateManager.getHero();
-      if (hero && !this.engine.isBattleMode()) hero.taskPoint = null;
+      if (hero && !this.engine.isBattleMode()) this.engine.issueCommand(hero, null, 'user');
       const grid = this.renderer.canvasToGrid(cx, cy);
       const nearby = this.stateManager.getUnitsInRadius(grid.x, grid.y, 2);
       nearby.sort((a, b) => {
@@ -359,7 +359,7 @@ export class UIController {
     this.inputHandler.onRightClick((cx, cy) => {
       const grid = this.renderer.canvasToGrid(cx, cy);
       const hero = this.commandableHero();
-      if (hero) hero.taskPoint = { x: grid.x, y: grid.y };
+      if (hero) this.engine.issueCommand(hero, { type: 'move', target: { x: grid.x, y: grid.y } }, 'user');
     });
 
     // Hover → tooltip

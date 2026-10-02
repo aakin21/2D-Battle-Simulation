@@ -13,6 +13,8 @@ import {
   TERRAIN_SIGHT,
   UNIT_STATS,
   Position,
+  HeroCommand,
+  CommandSource,
   SimConfig,
   DEFAULT_CONFIG,
 } from '../types/types';
@@ -25,10 +27,18 @@ const FLEE_SPEED_MULT = 1.5;
 const REST_TRIGGER_HP = 50;
 
 // D18 hero survival reflex (battle mode): fall back when badly hurt or heavily outnumbered.
-const HERO_RETREAT_HP_RATIO = 0.3;
-const HERO_RECOVER_HP_RATIO = 0.5;
+const HERO_RETREAT_HP_RATIO = 0.5;
+const HERO_RECOVER_HP_RATIO = 0.8;
 const HERO_OUTNUMBERED_MIN_ENEMIES = 5;
-const HERO_OUTNUMBERED_RATIO = 3;
+const HERO_OUTNUMBERED_RATIO = 2;
+
+// Mountains are impassable for pathfinding, but a unit can still clip a mountain tile's
+// corner while moving. Speed 0 there would trap it forever, so it crawls out instead.
+const MOUNTAIN_ESCAPE_SPEED = 0.5;
+
+function terrainSpeed(terrain: TerrainType): number {
+  return terrain === TerrainType.MOUNTAIN ? MOUNTAIN_ESCAPE_SPEED : TERRAIN_SPEED[TerrainType[terrain]];
+}
 
 export class SimulationEngine {
   private stateManager: StateManager;
@@ -106,6 +116,18 @@ export class SimulationEngine {
     return this.battleMode;
   }
 
+  // Single entry point for hero orders (D20): user clicks, rule heroes, Jev and the LLM
+  // all come through here, so a hero behaves the same whoever gave the order.
+  issueCommand(hero: IHero, command: HeroCommand | null, source: CommandSource): void {
+    if (command?.type === 'move') {
+      command = { type: 'move', target: this.nearestClearTile(command.target) };
+    }
+    hero.command = command;
+    hero.commandSource = command ? source : null;
+    hero.commandTime = this.stateManager.getBattlefield().elapsedTime;
+    if (source === 'llm' && command) hero.lastLlmCommand = command;
+  }
+
   restart(): void {
     this.stop();
     this.stressMode = false;
@@ -136,6 +158,7 @@ export class SimulationEngine {
     const { units, grid } = this.stateManager.getBattlefield();
 
     if (this.battleMode) this.updateRuleHeroes();
+    this.applyCommands();
 
     for (const unit of units) {
       this.updateCourage(unit);
@@ -201,9 +224,8 @@ export class SimulationEngine {
     for (const hero of this.stateManager.getHeroes()) {
       if (hero.controller !== 'rule' || hero.hp <= 0 || hero.state === BehaviorState.FLEE) continue;
 
-      const enemy = this.findNearestEnemy(hero);
-      if (enemy) {
-        hero.taskPoint = { x: Math.floor(enemy.position.x), y: Math.floor(enemy.position.y) };
+      if (this.findNearestEnemy(hero)) {
+        if (hero.command?.type !== 'attack') this.issueCommand(hero, { type: 'attack' }, 'rule');
         continue;
       }
 
@@ -214,8 +236,85 @@ export class SimulationEngine {
       if (dx * dx + dy * dy <= WARRIOR_ARRIVE_RADIUS * WARRIOR_ARRIVE_RADIUS) {
         this.groupPatrol.delete(key);
       }
-      hero.taskPoint = dest;
+      const current = hero.command;
+      if (current?.type !== 'move' || current.target.x !== dest.x || current.target.y !== dest.y) {
+        this.issueCommand(hero, { type: 'move', target: dest }, 'rule');
+      }
     }
+  }
+
+  // Turns each hero's current command into a task point. Re-evaluated every frame
+  // because some targets move (nearest enemy, an enemy hero).
+  private applyCommands(): void {
+    for (const hero of this.stateManager.getHeroes()) {
+      if (hero.hp <= 0) continue;
+      const command = hero.command?.type === 'continueLlm' ? hero.lastLlmCommand : hero.command;
+      hero.taskPoint = this.commandTarget(hero, command);
+    }
+  }
+
+  // null means "no destination": the hero stays where it is.
+  private commandTarget(hero: IHero, command: HeroCommand | null): Position | null {
+    if (!command) return null;
+    switch (command.type) {
+      case 'move':
+        return command.target;
+      case 'hold':
+        return command.at;
+      case 'retreat':
+        return hero.home;
+      case 'attack': {
+        const enemy = this.findNearestEnemyAnywhere(hero);
+        return enemy ? this.tileOf(enemy.position) : null;
+      }
+      case 'attackHero': {
+        const target = this.stateManager
+          .getHeroes()
+          .find((h) => h.faction !== hero.faction && h.heroIndex === command.heroIndex && h.hp > 0);
+        const enemy = target ?? this.findNearestEnemyAnywhere(hero); // target dead: nearest enemy
+        return enemy ? this.tileOf(enemy.position) : null;
+      }
+      case 'continueLlm':
+        return null; // no LLM command yet
+    }
+  }
+
+  private findNearestEnemyAnywhere(unit: IUnit): IUnit | null {
+    let nearest: IUnit | null = null;
+    let minD2 = Infinity;
+    for (const other of this.stateManager.getBattlefield().units) {
+      if (other.faction === unit.faction || other.hp <= 0) continue;
+      const dx = other.position.x - unit.position.x;
+      const dy = other.position.y - unit.position.y;
+      const d2 = dx * dx + dy * dy;
+      if (d2 < minD2) {
+        minD2 = d2;
+        nearest = other;
+      }
+    }
+    return nearest;
+  }
+
+  private tileOf(pos: Position): Position {
+    return { x: Math.floor(pos.x), y: Math.floor(pos.y) };
+  }
+
+  // Move targets inside mountains or in enclosed pockets are unreachable; use the closest
+  // tile of the map's main walkable region instead.
+  private nearestClearTile(target: Position): Position {
+    const t = this.tileOf(target);
+    for (let r = 0; r <= 40; r++) {
+      for (let dy = -r; dy <= r; dy++) {
+        for (let dx = -r; dx <= r; dx++) {
+          if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+          const x = t.x + dx;
+          const y = t.y + dy;
+          if (x < 1 || y < 1 || x > 148 || y > 148) continue;
+          if (this.stateManager.isInMainRegion(x, y)) return { x, y };
+        }
+      }
+    }
+    return t;
   }
 
   private updateCourage(unit: IUnit): void {
@@ -393,27 +492,38 @@ export class SimulationEngine {
     return false;
   }
 
-  // Retreating hero moves toward the centre of its own nearby soldiers, or simply away
-  // from the nearest enemy when none are around.
-  private moveHeroRetreat(hero: IUnit, deltaTime: number, grid: TerrainType[][]): void {
-    let sx = 0;
-    let sy = 0;
+  // Retreating hero moves away from the enemies around it and back toward its own side
+  // (its start position). Running to its soldiers' centre is not safe: they may be
+  // fighting in the middle of the enemy.
+  private moveHeroRetreat(hero: IHero, deltaTime: number, grid: TerrainType[][]): void {
+    let ex = 0;
+    let ey = 0;
     let n = 0;
-    this.stateManager.forEachInRadius(hero.position.x, hero.position.y, hero.sight * 2, (other) => {
-      if (other.hp <= 0 || other.faction !== hero.faction || other.unitType === UnitType.HERO) return;
-      sx += other.position.x;
-      sy += other.position.y;
+    this.stateManager.forEachInRadius(hero.position.x, hero.position.y, this.effectiveSight(hero), (other) => {
+      if (other.hp <= 0 || other.faction === hero.faction) return;
+      ex += other.position.x;
+      ey += other.position.y;
       n++;
     });
 
-    if (n === 0) {
-      this.moveFlee(hero, deltaTime, grid);
-      return;
+    let dx = 0;
+    let dy = 0;
+    if (n > 0) {
+      const ax = hero.position.x - ex / n;
+      const ay = hero.position.y - ey / n;
+      const al = Math.hypot(ax, ay) || 1;
+      dx += ax / al;
+      dy += ay / al;
+    }
+    const hx = hero.home.x + 0.5 - hero.position.x;
+    const hy = hero.home.y + 0.5 - hero.position.y;
+    const hl = Math.hypot(hx, hy);
+    if (hl > WARRIOR_ARRIVE_RADIUS) {
+      dx += hx / hl;
+      dy += hy / hl;
     }
 
-    const dx = sx / n - hero.position.x;
-    const dy = sy / n - hero.position.y;
-    if (dx * dx + dy * dy <= WARRIOR_ARRIVE_RADIUS * WARRIOR_ARRIVE_RADIUS) return;
+    if (dx === 0 && dy === 0) return; // safe at home
     this.stepToward(hero, Math.atan2(dy, dx), deltaTime, grid);
   }
 
@@ -434,7 +544,7 @@ export class SimulationEngine {
     const xi = Math.floor(unit.position.x);
     const yi = Math.floor(unit.position.y);
     const terrain = grid[yi]?.[xi] ?? TerrainType.MOUNTAIN;
-    const terrainMult = TERRAIN_SPEED[TerrainType[terrain]];
+    const terrainMult = terrainSpeed(terrain);
     const speed = unit.baseSpeed * terrainMult * FLEE_SPEED_MULT;
     const step = speed * deltaTime;
 
@@ -604,7 +714,7 @@ export class SimulationEngine {
 
   private moveUnit(unit: IUnit, deltaTime: number, grid: TerrainType[][]): void {
     if (unit.state === BehaviorState.FLEE) {
-      if (unit.unitType === UnitType.HERO) this.moveHeroRetreat(unit, deltaTime, grid);
+      if (unit.unitType === UnitType.HERO) this.moveHeroRetreat(unit as IHero, deltaTime, grid);
       else this.moveFlee(unit, deltaTime, grid);
       return;
     }
@@ -749,7 +859,7 @@ export class SimulationEngine {
     const xi = Math.floor(unit.position.x);
     const yi = Math.floor(unit.position.y);
     const terrain = grid[yi]?.[xi] ?? TerrainType.MOUNTAIN;
-    const terrainMult = TERRAIN_SPEED[TerrainType[terrain]];
+    const terrainMult = terrainSpeed(terrain);
     const hpMult = 0.5 + 0.5 * (unit.hp / unit.maxHp);
     return unit.baseSpeed * hpMult * terrainMult;
   }

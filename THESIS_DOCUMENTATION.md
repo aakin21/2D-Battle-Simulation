@@ -118,12 +118,13 @@ D1–D4 are the professor's proposals from the 2026-09-30 meeting; D5 onwards ca
 | D11 | 2026-10-01 | LLM memory: in-match memory + learning across matches | Lets the LLM improve over time; a measurable thesis result. See record below | Accepted in principle: research first, build if feasible |
 | D12 | 2026-10-01 | Add objectives: a base for each side + 2–3 control points | Without objectives the only strategy is "group up and attack". See record below | Proposed (idea kept for later) |
 | D13 | 2026-10-01 | AI commands heroes only; each side has 2–3 heroes | Keeps the Phase 1 charisma mechanic; heroes allow the army to split. See record below | Accepted (2026-10-01) |
-| D14 | 2026-10-01 | Command set: move, hold, retreat, attack, flank left/right, attack a target, continue LLM order. Commands never change courage | Rich enough for real tactics; courage stays an independent system. See record below | Accepted (2026-10-01) |
+| D14 | 2026-10-01 | Command set: move, hold, retreat, attack, flank left/right, attack a target, continue LLM order. Commands never change courage | Rich enough for real tactics; courage stays an independent system. See record below | Superseded by D20 (2026-10-02) |
 | D15 | 2026-10-01 | LLM and Jev both command heroes (latest command wins); each knows the other's latest decision | Two independent algorithms that do not blindly override each other. See record below | Accepted (2026-10-01) |
 | D16 | 2026-10-01 | Input scope: LLM reads the whole map, Jev reads only each hero's surroundings | Small input keeps Jev fast. See record below | Accepted (2026-10-01) |
 | D17 | 2026-10-01 | Locations are given as a sector grid (e.g. 10×10, A1–J10) | Works without fixed landmarks; fits Jev's option limit. See record below | Accepted (2026-10-01) |
 | D18 | 2026-10-02 | Heroes move at their group's speed, and have a survival reflex (rule layer) | Stops heroes from running ahead alone and dying, which the AI layers are too slow to prevent. See record below | Accepted (2026-10-02) |
 | D19 | 2026-10-02 | Keep the Phase 1 game as "Classic"; add a symmetric "Battle" mode with equal stats on both sides | Nothing that works is lost; equal stats keep AI comparisons fair. See record below | Accepted (2026-10-02) |
+| D20 | 2026-10-02 | Revised command set: move to a sector, hold, retreat, attack, attack an enemy hero, continue the LLM's order; all commands go through one command interface | Flanking has no effect in this simulation (no facing or direction). One entry point for user, Jev and LLM. See record below | Accepted (2026-10-02) |
 
 ### Decision records
 
@@ -299,6 +300,27 @@ Each record lists the options we considered, what we chose, and why.
   - Stance was dropped because it would change courage thresholds from outside.
 - **To define later:** what "flank left/right" is relative to (likely the nearest enemy group), and which targets "attack a target" can choose from (Jev can only pick from a predefined list, e.g. enemy hero 1/2/3 or the nearest enemy group).
 
+#### D20: Revised command set and the command interface
+- **Replaces:** D14's command set.
+- **Options:** (a) keep D14 (including flank left/right), (b) drop flanking.
+- **Chosen:** (b). The commands are:
+
+| Command | What the hero does |
+|---|---|
+| Move (sector) | Goes to the given sector (e.g. D4) |
+| Hold | Stays where it is and defends |
+| Retreat | Falls back toward its own side |
+| Attack | Moves to the nearest enemy |
+| Attack hero (1–3) | Moves to a specific enemy hero |
+| Continue LLM order | Jev only (D15): keep following the LLM's latest command |
+
+- **Why:**
+  - Flanking only makes sense if attacking from the side is better than from the front. Units in this simulation have no facing, so damage is the same from every direction and a flank would just be a longer walk. It can come back if a direction system is added later.
+  - "Attack hero" stays: a hero's death removes its charisma bonus, so its soldiers lose courage and may flee. Targeting a hero is a real tactical choice.
+  - D14's rule still holds: no command can change courage.
+- **Command interface:** user right-clicks, Jev and the LLM all give orders through one function (`issueCommand`). The hero behaves the same whoever gave the order, and the hero remembers who gave the last command and the LLM's latest command (needed for D15).
+- **Implementation:** each frame a hero's command is turned into a destination (moving targets such as "nearest enemy" are re-evaluated). Sectors: 10×10, A–J left to right, 1–10 top to bottom, 15×15 tiles each. Move targets that cannot be reached (inside mountains or in pockets enclosed by mountains) are moved to the closest reachable tile. Headless tests pass for every command, including Jev overriding the LLM and then resuming it with "continue LLM order".
+
 #### D15: How the LLM and Jev work together
 - **Options:**
   - (a) the LLM gives goals and Jev only acts inside them
@@ -345,6 +367,11 @@ Each record lists the options we considered, what we chose, and why.
   - (d) is a safety net for when the group breaks apart in combat: if the hero's HP is low or enemies heavily outnumber allies around it, the hero falls back to its own units, whatever the AI ordered. The AI sees this at its next decision.
   - Like fleeing units that cannot be forced to attack (D14), the rule layer's reflexes always come first.
   - This is a concrete example of why the three-layer design is needed: the AI plans, the rules react.
+- **Implementation and tuning (2026-10-02):**
+  - First version: retreat at HP < 30%, or when enemies ≥ 5 and ≥ 3× allies in sight; the hero ran to the centre of its own soldiers. Testing showed two problems: by the time HP is at 30%, a hero hit by several enemies dies within a second; and the soldiers' centre can be inside the fight, so the hero ran into it.
+  - Final version: retreat at HP < 50% (resume at 80%), or when enemies ≥ 5 and ≥ 2× allies in sight. The hero moves away from nearby enemies and back toward its own side (its start position).
+  - **Measured effect** (headless, fixed map, friendly heroes ordered to attack, 20 matches of 180 s per condition): hero deaths **80/120 without the reflex vs 52/120 with it (35% fewer)**.
+  - Most remaining deaths are heroes whose whole army is gone: alone, chased by 60–75 enemies and cornered at the map edge. That is a lost battle, not a reflex failure.
 
 #### D19: Classic and Battle modes, equal stats in Battle
 - **Options:**

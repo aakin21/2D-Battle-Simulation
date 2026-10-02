@@ -28,6 +28,7 @@ export class StateManager {
   private heroRef: IHero | undefined;
   private heroes: IHero[] = [];
   private battleMode: boolean = false;
+  private mainRegion = new Uint8Array(GRID_SIZE * GRID_SIZE);
 
   setStressMode(on: boolean): void {
     this.stressMode = on;
@@ -122,6 +123,7 @@ export class StateManager {
     const heroPositions = this.getShuffledPositions(10, 50, 60, 90);
     const hero = this.createHero();
     hero.position = heroPositions[0];
+    hero.home = { x: heroPositions[0].x, y: heroPositions[0].y };
     this.addUnit(hero);
 
     if (this.stressMode) {
@@ -170,7 +172,11 @@ export class StateManager {
     };
   }
 
-  private createHero(faction: Faction = Faction.FRIENDLY, controller: HeroController = 'user'): IHero {
+  private createHero(
+    faction: Faction = Faction.FRIENDLY,
+    controller: HeroController = 'user',
+    heroIndex = 1
+  ): IHero {
     const base = this.createUnit(UnitType.HERO, faction);
     return {
       ...base,
@@ -178,6 +184,12 @@ export class StateManager {
       charismaRadius: 10,
       charismaBonus: 20,
       controller,
+      heroIndex,
+      home: { x: 0, y: 0 },
+      command: null,
+      commandSource: null,
+      commandTime: 0,
+      lastLlmCommand: null,
     };
   }
 
@@ -198,31 +210,33 @@ export class StateManager {
         const heroPos = this.clearSpotsAround(side.x, cy, 3, 1, 40)[0];
         if (!heroPos) continue;
 
-        const hero = this.createHero(side.faction, side.controller);
+        const hero = this.createHero(side.faction, side.controller, h + 1);
         hero.baseSpeed = UNIT_STATS.WARRIOR.speed; // D18: hero moves at its group's speed
-        hero.position = heroPos;
+        // Tile centres, matching how the pathfinder plans moves (corners can clip mountains).
+        hero.position = { x: heroPos.x + 0.5, y: heroPos.y + 0.5 };
+        hero.home = { x: heroPos.x, y: heroPos.y };
         this.addUnit(hero);
 
         const spots = this.clearSpotsAround(heroPos.x, heroPos.y, 8, perHero);
         for (let i = 0; i < perHero && i < spots.length; i++) {
           const unit = this.createUnit(side.type, side.faction, UNIT_STATS.WARRIOR);
-          unit.position = spots[i];
+          unit.position = { x: spots[i].x + 0.5, y: spots[i].y + 0.5 };
           this.addUnit(unit);
         }
       }
     }
   }
 
-  // Shuffled clear tiles in a square around (cx, cy). The square grows until it holds at
-  // least `needed` tiles. Soldiers keep the default limit so they start within their
-  // hero's sight.
+  // Shuffled clear tiles of the main region in a square around (cx, cy). The square grows
+  // until it holds at least `needed` tiles. Soldiers keep the default limit so they start
+  // within their hero's sight.
   private clearSpotsAround(cx: number, cy: number, radius: number, needed: number, maxRadius = 12): Position[] {
     let spots: Position[] = [];
     for (let r = radius; r <= maxRadius; r += 2) {
       spots = this.getShuffledPositions(
         Math.max(1, cx - r), Math.min(GRID_SIZE - 1, cx + r + 1),
         Math.max(1, cy - r), Math.min(GRID_SIZE - 1, cy + r + 1)
-      );
+      ).filter((p) => this.isInMainRegion(p.x, p.y));
       if (spots.length >= needed) break;
     }
     return spots;
@@ -250,6 +264,58 @@ export class StateManager {
     return dirs.every(
       ([dx, dy]) => this.battlefield.grid[y + dy]?.[x + dx] !== TerrainType.MOUNTAIN
     );
+  }
+
+  // True if the tile belongs to the largest connected walkable area of the map.
+  // Mountains can enclose small pockets; a unit inside one can never reach the rest.
+  public isInMainRegion(x: number, y: number): boolean {
+    const tx = Math.floor(x);
+    const ty = Math.floor(y);
+    if (tx < 0 || ty < 0 || tx >= GRID_SIZE || ty >= GRID_SIZE) return false;
+    return this.mainRegion[ty * GRID_SIZE + tx] === 1;
+  }
+
+  // Flood-fills walkable tiles (same rule as the pathfinder) and keeps the largest area.
+  private computeMainRegion(): void {
+    const label = new Int32Array(GRID_SIZE * GRID_SIZE).fill(-1);
+    let best = -1;
+    let bestSize = 0;
+    let next = 0;
+    const stack: number[] = [];
+
+    for (let start = 0; start < label.length; start++) {
+      if (label[start] !== -1) continue;
+      const sx = start % GRID_SIZE;
+      const sy = Math.floor(start / GRID_SIZE);
+      if (!this.isClearTile(sx, sy)) continue;
+
+      const id = next++;
+      let size = 0;
+      label[start] = id;
+      stack.push(start);
+      while (stack.length > 0) {
+        const k = stack.pop()!;
+        size++;
+        const x = k % GRID_SIZE;
+        const y = Math.floor(k / GRID_SIZE);
+        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          const nx = x + dx;
+          const ny = y + dy;
+          if (nx < 0 || ny < 0 || nx >= GRID_SIZE || ny >= GRID_SIZE) continue;
+          const nk = ny * GRID_SIZE + nx;
+          if (label[nk] !== -1 || !this.isClearTile(nx, ny)) continue;
+          label[nk] = id;
+          stack.push(nk);
+        }
+      }
+      if (size > bestSize) {
+        bestSize = size;
+        best = id;
+      }
+    }
+
+    this.mainRegion = new Uint8Array(label.length);
+    for (let k = 0; k < label.length; k++) if (label[k] === best) this.mainRegion[k] = 1;
   }
 
   // Hot path: no array allocation — calls cb for each unit within radius.
@@ -336,6 +402,7 @@ export class StateManager {
     this.battleMode = config.mode === 'battle' && !this.stressMode;
     if (config.presetGrid) this.battlefield.grid = config.presetGrid.map((row) => row.slice());
     else this.initGrid(config.terrainDensity);
+    this.computeMainRegion();
     if (this.battleMode) this.spawnBattleUnits(config);
     else this.spawnInitialUnits(config.warriorCount);
   }

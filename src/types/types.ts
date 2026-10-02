@@ -49,11 +49,28 @@ export interface IUnit {
 // Who gives a hero its orders. 'rule' heroes patrol and charge on their own (no AI).
 export type HeroController = 'user' | 'rule';
 
+// Orders a hero can receive (D20). Every source (user, rule, Jev, LLM) uses the same set.
+export type HeroCommand =
+  | { type: 'move'; target: Position } // AI gives a sector, the user an exact point
+  | { type: 'hold'; at: Position }
+  | { type: 'retreat' }
+  | { type: 'attack' }
+  | { type: 'attackHero'; heroIndex: number }
+  | { type: 'continueLlm' }; // Jev only: keep following the LLM's latest command
+
+export type CommandSource = 'user' | 'rule' | 'jev' | 'llm';
+
 export interface IHero extends IUnit {
-  taskPoint: Position | null;
+  taskPoint: Position | null; // where the hero is heading; derived from `command` each frame
   charismaRadius: number;
   charismaBonus: number;
   controller: HeroController;
+  heroIndex: number; // 1-based number within its side, used by "attack hero N"
+  home: Position; // start position; "retreat" falls back toward it
+  command: HeroCommand | null;
+  commandSource: CommandSource | null;
+  commandTime: number; // simulation time of the last command
+  lastLlmCommand: HeroCommand | null; // kept so Jev can see and resume the LLM's plan (D15)
 }
 
 export interface IBattlefield {
