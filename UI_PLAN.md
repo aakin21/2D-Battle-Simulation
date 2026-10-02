@@ -24,7 +24,7 @@ Effect time is simulation time (`battlefield.elapsedTime`): effects freeze while
 | 3 | Light blood | ✅ |
 | 4 | Status icons | ✅ |
 | 5 | Hero aura | ✅ |
-| 6 | Sprites | ⬜ |
+| 6 | Sprites | ✅ |
 | 7 | "Building simulation" loading screen | ⬜ |
 | 8 | Wrap-up | ⬜ |
 
@@ -74,10 +74,15 @@ Effect time is simulation time (`battlefield.elapsedTime`): effects freeze while
 - Cost: a few draw calls per frame (one hero).
 
 ### 6. Sprites
-- CC0 pixel art pack (Kenney or itch.io); license credited in README.
-- Single sprite atlas.
-- Warrior / berserker / hero with walk and attack frames; attack moment derived from `attackCooldown`; facing from movement direction.
-- LOD: below a zoom threshold, units are still drawn as squares.
+- Pack: Ninja Adventure (CC0), chosen in THESIS_DOCUMENTATION.md D19 / R4. Credited in README; license in `src/assets/sprites/LICENSE.txt`.
+- Characters: warrior = Knight, berserker = Lion. Heroes: KnightGold, Master, Samurai (friendly) and ShamanLion, LionOrange, Tengu (enemy). Phase 1 uses only KnightGold; the others are for 3 heroes per side (D13).
+- Sheet layout verified against the pack's separate animation files: columns down/up/left/right, rows 0–3 walk (row 0 = idle), row 4 attack, row 6 col 0 dead.
+- `src/rendering/UnitSprites.ts`: warriors and berserkers are tinted 80% toward their team color (yellow / blue), keeping shading and dark outlines. Heroes keep their own colors and get a team-colored ring at their feet. Each sheet also has a white silhouette (hit flash) and a darkened copy (corpses), all built once at load.
+- Animation: facing from movement (left/right columns), 4-frame walk at 8 fps while moving (per-unit random phase), attack frame for 0.25 s after each hit (from `attackCooldown`), idle otherwise. Sim time, so it freezes on pause.
+- Corpses in sprite mode use the dead frame: the living frame crossfades into it over 0.4 s.
+- LOD: sprites at zoom ≥ 9 px/tile; squares below. FX off shows the original squares.
+- **Performance:** a sprite costs ~1.1 µs to draw vs ~0.3 µs for a square (1500 units: 1.6 vs 0.4 ms). Atlas, ImageBitmap and integer coordinates made no difference. So the number of sprites is capped instead: above 800 visible units the view falls back to squares, and returns to sprites below 650 (the gap prevents flicker). Worst-case extra cost ~0.7 ms. In practice: default mode stays in sprites; dense stress views use squares. Real stress battle, paused: FX on 349 vs off 373 FPS (uncapped), same as previous steps.
+- Open point: blood pools were sized for squares and look large next to sprites at close zoom.
 
 ### 7. "Building simulation" loading screen
 - Pressing Start shows a 3–5 s overlay.

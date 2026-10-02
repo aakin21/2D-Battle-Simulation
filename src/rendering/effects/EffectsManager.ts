@@ -3,6 +3,7 @@ import { Corpses } from './Corpses';
 import { Blood } from './Blood';
 import { StatusIcons } from './StatusIcons';
 import { HeroAura } from './HeroAura';
+import type { UnitSprites } from '../UnitSprites';
 
 // Visual effects layer. Reads simulation state, never writes it.
 //
@@ -22,8 +23,19 @@ interface UnitSnapshot {
   unitType: UnitType;
   faction: Faction;
   facing: 1 | -1; // 1 = right, -1 = left
+  moving: boolean; // position changed in the last simulated frame
+  phase: number; // random 0..1 offset so neighbours don't animate in lockstep
   stamp: number; // frame stamp of the last update; stale stamp = unit is gone
 }
+
+// Animation info for sprite drawing (read-only view of a snapshot)
+export interface UnitAnim {
+  readonly facing: 1 | -1;
+  readonly moving: boolean;
+  readonly phase: number;
+}
+
+const DEFAULT_ANIM: UnitAnim = { facing: 1, moving: false, phase: 0 };
 
 export interface HitEvent {
   id: string;
@@ -78,6 +90,16 @@ export class EffectsManager {
     this.statusIcons.prepare(warmTarget);
   }
 
+  // Lets corpses use the unit sprites' dead frame when zoomed in
+  setUnitSprites(sprites: UnitSprites): void {
+    this.corpses.setUnitSprites(sprites);
+  }
+
+  // Set by the renderer each frame: corpses follow the units' sprite/square choice
+  setSpriteMode(on: boolean): void {
+    this.corpses.setSpriteMode(on);
+  }
+
   setEnabled(on: boolean): void {
     this.enabled = on;
     // Start from a clean state either way — stale snapshots would produce
@@ -107,6 +129,15 @@ export class EffectsManager {
 
   getFacing(id: string): 1 | -1 {
     return this.snapshots.get(id)?.facing ?? 1;
+  }
+
+  getAnim(id: string): UnitAnim {
+    return this.snapshots.get(id) ?? DEFAULT_ANIM;
+  }
+
+  // Sim time of the latest update (0 before the first one)
+  getSimTime(): number {
+    return Math.max(0, this.lastSimTime);
   }
 
   hasFlashes(): boolean {
@@ -156,6 +187,8 @@ export class EffectsManager {
           unitType: unit.unitType,
           faction: unit.faction,
           facing: 1,
+          moving: false,
+          phase: Math.random(),
           stamp,
         });
         continue;
@@ -173,8 +206,10 @@ export class EffectsManager {
       }
 
       const dx = unit.position.x - snap.x;
+      const dy = unit.position.y - snap.y;
       if (dx > FACING_EPSILON) snap.facing = 1;
       else if (dx < -FACING_EPSILON) snap.facing = -1;
+      snap.moving = Math.abs(dx) + Math.abs(dy) > FACING_EPSILON;
 
       snap.x = unit.position.x;
       snap.y = unit.position.y;

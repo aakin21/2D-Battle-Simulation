@@ -40,3 +40,7 @@ Requires Node.js 18+.
 ## Tech
 
 TypeScript · Vite · HTML5 Canvas · GitHub Pages
+
+## Credits
+
+Unit sprites: [Ninja Adventure Asset Pack](https://pixel-boy.itch.io/ninja-adventure-asset-pack) by Pixel-boy, released under CC0 (see `src/assets/sprites/LICENSE.txt`).
