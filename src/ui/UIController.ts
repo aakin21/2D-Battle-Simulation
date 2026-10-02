@@ -13,7 +13,10 @@ import {
   DEFAULT_CONFIG,
   BATTLE_CONFIG,
   TerrainDensity,
+  TerrainType,
 } from '../types/types';
+import { decodeGrid, listSavedMaps, loadSavedMap, saveMap } from '../state/MapStore';
+import { FIXED_MAP } from '../maps/fixedMap';
 
 const LS_SPEED = 'sim_speed';
 const LS_DEBUG = 'sim_debug';
@@ -155,6 +158,16 @@ export class UIController {
       if (btn) this.setOptActive('cfg-terrain', btn.dataset.val!);
     });
 
+    // Map buttons (D5): Random / Fixed / Saved
+    const mapSaved = document.getElementById('cfg-map-saved') as HTMLSelectElement;
+    document.getElementById('cfg-map')!.addEventListener('click', (e) => {
+      const btn = (e.target as HTMLElement).closest('button');
+      if (!btn) return;
+      this.setOptActive('cfg-map', btn.dataset.val!);
+      mapSaved.style.display = btn.dataset.val === 'saved' ? '' : 'none';
+    });
+    this.refreshSavedMaps();
+
     // Start
     document.getElementById('menu-start')!.addEventListener('click', () => {
       this.selectedUnitId = null;
@@ -171,12 +184,13 @@ export class UIController {
 
       const isDefault = tabDefault.classList.contains('active');
       const isBattle = tabBattle.classList.contains('active');
-      const cfg: SimConfig = isBattle ? BATTLE_CONFIG : isDefault ? DEFAULT_CONFIG : {
+      const base: SimConfig = isBattle ? BATTLE_CONFIG : isDefault ? DEFAULT_CONFIG : {
         ...DEFAULT_CONFIG,
         warriorCount: parseInt(warriorSlider.value),
         waveMultiplier: parseFloat(waveSlider.value),
         terrainDensity: this.getOptActive('cfg-terrain') as TerrainDensity,
       };
+      const cfg: SimConfig = { ...base, presetGrid: this.chosenMap(mapSaved.value) };
       this.lastConfig = cfg;
       this.engine.applyConfig(cfg);
       this.engine.restart();
@@ -190,6 +204,34 @@ export class UIController {
     document.getElementById('btn-close-instructions')!.addEventListener('click', () => {
       this.elInstructions.style.display = 'none';
     });
+  }
+
+  // Terrain for the chosen map option; undefined means "generate a new random map".
+  private chosenMap(savedName: string): TerrainType[][] | undefined {
+    const choice = this.getOptActive('cfg-map');
+    if (choice === 'fixed') return decodeGrid(FIXED_MAP) ?? undefined;
+    if (choice === 'saved' && savedName) return loadSavedMap(savedName) ?? undefined;
+    return undefined;
+  }
+
+  private refreshSavedMaps(): void {
+    const select = document.getElementById('cfg-map-saved') as HTMLSelectElement;
+    const names = listSavedMaps();
+    select.innerHTML = '';
+    for (const name of names) select.add(new Option(name, name));
+    if (names.length === 0) select.add(new Option('(no saved maps)', ''));
+  }
+
+  // Saves the current terrain under a name so it can be chosen again from the menu.
+  private saveCurrentMap(): void {
+    const defaultName = `map-${new Date().toISOString().slice(0, 16).replace('T', ' ')}`;
+    const name = window.prompt('Save this map as:', defaultName)?.trim();
+    if (!name) return;
+    if (!saveMap(name, this.stateManager.getBattlefield().grid)) {
+      window.alert('Could not save the map (browser storage is unavailable).');
+      return;
+    }
+    this.refreshSavedMaps();
   }
 
   private setOptActive(groupId: string, val: string): void {
@@ -225,6 +267,8 @@ export class UIController {
     });
 
     this.elBtnRestart.addEventListener('click', () => this.doRestart());
+
+    document.getElementById('btn-save-map')!.addEventListener('click', () => this.saveCurrentMap());
 
     this.elBtnMenu.addEventListener('click', () => {
       this.engine.pause();

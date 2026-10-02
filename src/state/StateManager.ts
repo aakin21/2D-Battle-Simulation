@@ -334,7 +334,8 @@ export class StateManager {
     this.heroRef = undefined;
     this.heroes = [];
     this.battleMode = config.mode === 'battle' && !this.stressMode;
-    this.initGrid(config.terrainDensity);
+    if (config.presetGrid) this.battlefield.grid = config.presetGrid.map((row) => row.slice());
+    else this.initGrid(config.terrainDensity);
     if (this.battleMode) this.spawnBattleUnits(config);
     else this.spawnInitialUnits(config.warriorCount);
   }

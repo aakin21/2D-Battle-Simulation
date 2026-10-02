@@ -124,6 +124,7 @@ export interface SimConfig {
   waveMultiplier: number;
   terrainDensity: TerrainDensity;
   heroesPerSide: number; // battle only
+  presetGrid?: TerrainType[][]; // fixed or saved map; a new random map is made when absent
 }
 
 export const DEFAULT_CONFIG: SimConfig = {

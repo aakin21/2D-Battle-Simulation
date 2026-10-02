@@ -179,6 +179,7 @@ Each record lists the options we considered, what we chose, and why.
   - A fixed map makes matches comparable.
   - Random maps test whether a strategy works in general and not just on one map.
   - "Save map" lets any map (including a random one) be loaded again, so the same map can be used for many matches in an experiment.
+- **Implementation:** the menu has a Map option (Random / Fixed / Saved) and the control bar a "Save Map" button. The fixed map was generated once with the normal terrain preset and is stored in the code, so it never changes. Saved maps are kept in the browser's local storage as compact text (~7 KB per map). Restart keeps the chosen map. Note: only the terrain is fixed; unit start positions are still random.
 
 #### D6: Jev for layer 2 (tactical decisions)
 - **Options:** (a) keep layer 2 rule-based, (b) a conventional LLM, (c) Jev.

@@ -386,6 +386,16 @@
       <button id="tab-battle">Battle</button>
     </div>
 
+    <div class="cfg-row" id="menu-map">
+      <label>Map</label>
+      <div class="cfg-opts" id="cfg-map">
+        <button data-val="random" class="active">Random</button>
+        <button data-val="fixed">Fixed</button>
+        <button data-val="saved">Saved</button>
+      </div>
+      <select id="cfg-map-saved" style="display:none;"></select>
+    </div>
+
     <div id="menu-config" class="locked">
       <div class="cfg-row">
         <label>Warriors</label>
@@ -446,6 +456,7 @@
     <button id="btn-menu">Menu</button>
     <button id="btn-debug">Debug</button>
     <button id="btn-effects">FX: On</button>
+    <button id="btn-save-map">Save Map</button>
     <span id="wave-counter">Wave: 0</span>
     <span id="warrior-count" style="color:#FFD700;">W: 0</span>
     <span id="berserker-count" style="color:#4169E1;">B: 0</span>
