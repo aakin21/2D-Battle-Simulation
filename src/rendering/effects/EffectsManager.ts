@@ -41,11 +41,18 @@ export interface DeathEvent {
 // Ignore sub-pixel jitter when deciding facing
 const FACING_EPSILON = 0.001;
 
+// Hit flash length in real milliseconds. Real time (not sim time) so the flash
+// stays visible at 4x speed; no new hits occur while paused anyway.
+const FLASH_MS = 90;
+
 export class EffectsManager {
   private enabled: boolean = true;
   private snapshots = new Map<string, UnitSnapshot>();
   private stamp: number = 0;
   private lastSimTime: number = -1;
+
+  // Unit id → real time (ms) at which its hit flash ends
+  private flashes = new Map<string, number>();
 
   // Events detected in the most recent update. Arrays are reused across frames.
   readonly hits: HitEvent[] = [];
@@ -68,6 +75,7 @@ export class EffectsManager {
   // Call on restart: unit ids are reused across runs, so old snapshots must go.
   reset(): void {
     this.snapshots.clear();
+    this.flashes.clear();
     this.hits.length = 0;
     this.deaths.length = 0;
     this.lastSimTime = -1;
@@ -82,7 +90,21 @@ export class EffectsManager {
     return this.snapshots.get(id)?.facing ?? 1;
   }
 
-  update(units: IUnit[], simTime: number): void {
+  hasFlashes(): boolean {
+    return this.flashes.size > 0;
+  }
+
+  // True while the unit's hit flash is active. Expired entries are dropped here,
+  // so the map only holds units that were hit in the last FLASH_MS.
+  isFlashing(id: string, now: number): boolean {
+    const until = this.flashes.get(id);
+    if (until === undefined) return false;
+    if (now < until) return true;
+    this.flashes.delete(id);
+    return false;
+  }
+
+  update(units: IUnit[], simTime: number, now: number = performance.now()): void {
     this.hits.length = 0;
     this.deaths.length = 0;
     if (!this.enabled) return;
@@ -96,6 +118,11 @@ export class EffectsManager {
 
     // Paused: units cannot change, skip the diff
     if (!firstFrame && this.dt === 0) return;
+
+    // Drop expired flashes, including those of off-screen units that are never drawn
+    for (const [id, until] of this.flashes) {
+      if (now >= until) this.flashes.delete(id);
+    }
 
     const stamp = ++this.stamp;
 
@@ -123,6 +150,7 @@ export class EffectsManager {
           damage: snap.hp - unit.hp,
           unitType: unit.unitType,
         });
+        this.flashes.set(unit.id, now + FLASH_MS);
       }
 
       const dx = unit.position.x - snap.x;
@@ -147,6 +175,7 @@ export class EffectsManager {
         facing: snap.facing,
       });
       this.snapshots.delete(id);
+      this.flashes.delete(id);
     }
   }
 

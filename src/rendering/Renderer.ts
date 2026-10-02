@@ -181,6 +181,8 @@ export class Renderer {
     const { x: camX, y: camY, zoom } = this.camera;
     const size = Math.max(3, zoom * 2);
     const half = size / 2;
+    const now = performance.now();
+    const anyFlash = this.effects.hasFlashes();
 
     for (const unit of units) {
       const sx = (unit.position.x - camX) * zoom - half;
@@ -189,7 +191,10 @@ export class Renderer {
       if (sx + size < 0 || sx > this.canvas.width) continue;
       if (sy + size < 0 || sy > this.canvas.height) continue;
 
-      this.ctx.fillStyle = UNIT_COLORS[UnitType[unit.unitType]] ?? '#fff';
+      this.ctx.fillStyle =
+        anyFlash && this.effects.isFlashing(unit.id, now)
+          ? '#ffffff'
+          : (UNIT_COLORS[UnitType[unit.unitType]] ?? '#fff');
       this.ctx.fillRect(sx, sy, size, size);
 
       if (unit.unitType === UnitType.HERO) {
