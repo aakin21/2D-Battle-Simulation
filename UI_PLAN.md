@@ -19,7 +19,7 @@ Effect time is simulation time (`battlefield.elapsedTime`): effects freeze while
 | # | Step | Status |
 |---|---|---|
 | 0 | Infrastructure | ✅ |
-| 1 | Hit flash | ⬜ |
+| 1 | Hit flash | ✅ |
 | 2 | Death animation | ⬜ |
 | 3 | Light blood | ⬜ |
 | 4 | Status icons | ⬜ |
@@ -37,7 +37,10 @@ Effect time is simulation time (`battlefield.elapsedTime`): effects freeze while
 - Verified: pause freezes events; restart and FX re-enable produce no fake death burst; FX setting survives reload; stress mode (4199 units) 60 FPS with FX on and off.
 
 ### 1. Hit flash
-- A unit that takes damage renders white for ~80 ms.
+- A unit that takes damage renders white for 90 ms.
+- Uses real time (not sim time) so the flash stays visible at 4x speed; no new hits occur while paused.
+- Expired flashes are pruned every update, including off-screen units that are never drawn.
+- Verified: white pixels on canvas 331 (FX on) vs 0 (FX off); stress-mode FPS identical to the pre-UI baseline.
 
 ### 2. Death animation
 - The unit fades out over ~0.4 s; a small corpse mark stays for a few seconds.
