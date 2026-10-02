@@ -46,8 +46,9 @@ export interface IUnit {
   groupId: string; // spawn group identifier — used for coordinated berserker patrol
 }
 
-// Who gives a hero its orders. 'rule' heroes patrol and charge on their own (no AI).
-export type HeroController = 'user' | 'rule';
+// Who gives a hero its orders. 'rule' heroes patrol and charge on their own (no AI);
+// 'jev' heroes get tactical orders from Jev (layer 2).
+export type HeroController = 'user' | 'rule' | 'jev';
 
 // Orders a hero can receive (D20). Every source (user, rule, Jev, LLM) uses the same set.
 export type HeroCommand =
@@ -142,6 +143,7 @@ export interface SimConfig {
   terrainDensity: TerrainDensity;
   heroesPerSide: number; // battle only
   presetGrid?: TerrainType[][]; // fixed or saved map; a new random map is made when absent
+  enemyController?: HeroController; // battle only: who commands the enemy heroes (default 'rule')
 }
 
 export const DEFAULT_CONFIG: SimConfig = {

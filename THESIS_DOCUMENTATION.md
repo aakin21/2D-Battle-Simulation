@@ -125,6 +125,7 @@ D1–D4 are the professor's proposals from the 2026-09-30 meeting; D5 onwards ca
 | D18 | 2026-10-02 | Heroes move at their group's speed, and have a survival reflex (rule layer) | Stops heroes from running ahead alone and dying, which the AI layers are too slow to prevent. See record below | Accepted (2026-10-02) |
 | D19 | 2026-10-02 | Keep the Phase 1 game as "Classic"; add a symmetric "Battle" mode with equal stats on both sides | Nothing that works is lost; equal stats keep AI comparisons fair. See record below | Accepted (2026-10-02) |
 | D20 | 2026-10-02 | Revised command set: move to a sector, hold, retreat, attack, attack an enemy hero, continue the LLM's order; all commands go through one command interface | Flanking has no effect in this simulation (no facing or direction). One entry point for user, Jev and LLM. See record below | Accepted (2026-10-02) |
+| D21 | 2026-10-02 | Jev layer, first version: what Jev sees, which options it gets, how often it is asked, and what happens on low confidence or errors | See record below | Proposed |
 
 ### Decision records
 
@@ -321,6 +322,24 @@ Each record lists the options we considered, what we chose, and why.
 - **Command interface:** user right-clicks, Jev and the LLM all give orders through one function (`issueCommand`). The hero behaves the same whoever gave the order, and the hero remembers who gave the last command and the LLM's latest command (needed for D15).
 - **Implementation:** each frame a hero's command is turned into a destination (moving targets such as "nearest enemy" are re-evaluated). Sectors: 10×10, A–J left to right, 1–10 top to bottom, 15×15 tiles each. Move targets that cannot be reached (inside mountains or in pockets enclosed by mountains) are moved to the closest reachable tile. Headless tests pass for every command, including Jev overriding the LLM and then resuming it with "continue LLM order".
 
+#### D21: Jev layer, first version (proposed)
+- **Status:** Proposed. Implemented so it can be tested; details to be confirmed or changed after trying it with a real API key.
+- **How it works:** in Battle mode the enemy side can be set to "Jev" in the menu. Every 4 s, one request is sent for all of that side's heroes. Each hero gets one Choice question; the answer is applied through the command interface (D20) with source "jev".
+- **What Jev sees per hero (D16, Q3):**
+  - HP, status (standing / moving / fighting / retreating / resting), sector
+  - current order and who gave it, the LLM's latest order
+  - allies and enemies within 15 tiles: counts, how many are fleeing, average ally courage
+  - nearest enemy (distance and direction), visible enemy heroes
+  - a 15×15 text map centred on the hero (each character = 2×2 tiles: hero, enemies, allies, terrain)
+  - Size: about 1,400 tokens for three heroes.
+- **Options per hero (D20):** hold, retreat, attack, attack enemy hero N (living ones), continue LLM order (only when the LLM has given one), and move to the hero's own sector or one of the 8 neighbouring sectors.
+  - Moves are limited to neighbouring sectors because Jev decides locally; map-wide moves are the LLM's job.
+- **Confidence gate:** answers with confidence below 0.4 are ignored and the hero keeps its current order.
+- **Overlapping requests (Q7):** if a new request is due while the previous one is still open, it is skipped and counted.
+- **Errors:** if Jev cannot be reached (no key, network error), the enemy heroes switch to rule-based control and the game continues.
+- **Logging:** every decision is recorded with time, hero, choice, confidence, whether it was applied, and response time (for Q13 and the latency experiments).
+- **Tested so far:** with a fake Jev (request shape, decisions applied, low confidence ignored, overlap skipping, fallback). The proxy reaches TypeSafe's API and gets "API key required", so it only needs a key.
+
 #### D15: How the LLM and Jev work together
 - **Options:**
   - (a) the LLM gives goals and Jev only acts inside them
@@ -506,7 +525,7 @@ Problems encountered during the project, how they were found, and how they were 
 - **Root cause:** Missing backend, not a Jev limitation. Even if CORS were allowed, calling the API from the browser would expose the API key to every visitor of the public demo.
 - **Impact:** Jev cannot be called directly from the simulation running in the browser.
 - **Resolution:** Route AI calls through a small proxy (D7), hosted as a Vercel serverless function (D8). This also keeps API keys off the client.
-- **Status:** Open (solution decided, not yet implemented)
+- **Status:** Workaround (2026-10-02): local development uses a Vite dev-server proxy that adds the key server-side; verified to reach TypeSafe's API. Vercel deployment (D8) still to do.
 
 ---
 
@@ -516,16 +535,16 @@ Problems encountered during the project, how they were found, and how they were 
 |---|---|---|
 | Q1 | What command set will layers 2 and 3 control? | Answered by D13, D14 |
 | Q2 | How do layers 2 and 3 interact when they disagree? | Answered by D15 |
-| Q3 | What surrounding information is passed to Jev? | Scope set by D16 (hero surroundings + latest LLM order). Exact fields still to define |
+| Q3 | What surrounding information is passed to Jev? | Proposed in D21: hero status, current and strategic order, nearby ally/enemy counts and courage, nearest enemy, visible enemy heroes, 15×15 local text map |
 | Q4 | How is the full map summarized for the LLM? | Locations as sector grid (D17). Exact format still to define |
 | Q5 | Proxy hosting for the live demo | Answered by D8 (Vercel) |
 | Q6 | Real-time mode: how does the speed multiplier interact with latency? | Answered by D4: speed setting stays; at higher speed more game time passes before an answer arrives. Response times are recorded |
-| Q7 | Real-time mode: a new decision is due but the previous one hasn't arrived | Suggestion: skip it and count skipped calls as a metric |
+| Q7 | Real-time mode: a new decision is due but the previous one hasn't arrived | Proposed in D21 (Jev): skip it and count skipped requests |
 | Q8 | Does the latency mode apply to both AI layers? | Answered by D4: yes, both Jev and the LLM |
 | Q9 | Agent vs Agent: same model on both sides, or different models? | Suggestion: both. A mirror match is the control experiment. |
 | Q10 | Does wave spawning stay in the symmetric setup? | If D12 is adopted: waves become symmetric reinforcements from each side's base |
 | Q11 | Which metrics will the thesis report? | Win rate, casualties, survival time, decision latency, skipped decisions, cost. Requires headless mode and export. |
-| Q12 | How should the layer 2 decision frequency relate to Jev latency (~0.3–0.7 s)? | Latency limits decision freshness, not frequency. Options: overlapping requests, batching all heroes into one request (Jev evaluates questions in parallel), smaller state. Needs real measurements (R1). |
+| Q12 | How should the layer 2 decision frequency relate to Jev latency (~0.3–0.7 s)? | Proposed in D21: every 4 s, one request per side for all its heroes. Still to measure with a real key (Q13) |
 | Q13 | What are Jev's real end-to-end latency and token cost per call? | Needs an API key; measure inside the simulation (R1, R3) |
 | Q14 | How large is the Vercel cold start in practice? | Measure after deployment (D8) |
 | Q15 | Is cross-match learning (D11) feasible, and how should it be built? | Research: lesson format and size limit, summarizing old lessons, effect of a fixed vs varied map (risk of map-specific lessons), fairness in Agent vs Agent, keeping other experiments independent (learning off). Related work: Reflexion (Shinn et al., 2023) |

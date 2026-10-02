@@ -40,6 +40,11 @@ function terrainSpeed(terrain: TerrainType): number {
   return terrain === TerrainType.MOUNTAIN ? MOUNTAIN_ESCAPE_SPEED : TERRAIN_SPEED[TerrainType[terrain]];
 }
 
+// An AI layer that gives heroes orders (Jev, later the LLM). Ticked every simulation step.
+export interface AIController {
+  tick(elapsed: number): void;
+}
+
 export class SimulationEngine {
   private stateManager: StateManager;
   private renderer: Renderer;
@@ -50,6 +55,7 @@ export class SimulationEngine {
   private paused: boolean = false;
   private stressMode: boolean = false;
   private battleMode: boolean = false;
+  private controllers: AIController[] = [];
   private speedMultiplier: number = 1;
   private waveMultiplier: number = 1;
   private lastConfig: SimConfig = DEFAULT_CONFIG;
@@ -116,6 +122,11 @@ export class SimulationEngine {
     return this.battleMode;
   }
 
+  // AI controllers for the current match; cleared on every restart.
+  setControllers(controllers: AIController[]): void {
+    this.controllers = controllers;
+  }
+
   // Single entry point for hero orders (D20): user clicks, rule heroes, Jev and the LLM
   // all come through here, so a hero behaves the same whoever gave the order.
   issueCommand(hero: IHero, command: HeroCommand | null, source: CommandSource): void {
@@ -133,6 +144,7 @@ export class SimulationEngine {
     this.stressMode = false;
     this.stateManager.setStressMode(false);
     this.stateManager.reset(this.lastConfig);
+    this.controllers = [];
     this.battleMode = this.stateManager.isBattleMode();
     this.renderer.setBattleMode(this.battleMode);
     this.groupPatrol.clear();
@@ -146,6 +158,7 @@ export class SimulationEngine {
     this.stressMode = true;
     this.stateManager.setStressMode(true);
     this.stateManager.reset();
+    this.controllers = [];
     this.battleMode = false;
     this.renderer.setBattleMode(false);
     this.groupPatrol.clear();
@@ -155,8 +168,9 @@ export class SimulationEngine {
   }
 
   private update(deltaTime: number): void {
-    const { units, grid } = this.stateManager.getBattlefield();
+    const { units, grid, elapsedTime } = this.stateManager.getBattlefield();
 
+    for (const controller of this.controllers) controller.tick(elapsedTime);
     if (this.battleMode) this.updateRuleHeroes();
     this.applyCommands();
 

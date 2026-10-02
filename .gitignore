@@ -3,3 +3,4 @@ dist/
 PROGRESS.md
 DEFENSE.md
 .claude/worktrees/
+.env*.local

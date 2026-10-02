@@ -17,6 +17,7 @@ import {
 } from '../types/types';
 import { decodeGrid, listSavedMaps, loadSavedMap, saveMap } from '../state/MapStore';
 import { FIXED_MAP } from '../maps/fixedMap';
+import { JevController } from '../ai/JevController';
 
 const LS_SPEED = 'sim_speed';
 const LS_DEBUG = 'sim_debug';
@@ -168,6 +169,12 @@ export class UIController {
     });
     this.refreshSavedMaps();
 
+    // Battle opponent: rule-based heroes or Jev (layer 2)
+    document.getElementById('cfg-opponent')!.addEventListener('click', (e) => {
+      const btn = (e.target as HTMLElement).closest('button');
+      if (btn) this.setOptActive('cfg-opponent', btn.dataset.val!);
+    });
+
     // Start
     document.getElementById('menu-start')!.addEventListener('click', () => {
       this.selectedUnitId = null;
@@ -190,10 +197,15 @@ export class UIController {
         waveMultiplier: parseFloat(waveSlider.value),
         terrainDensity: this.getOptActive('cfg-terrain') as TerrainDensity,
       };
-      const cfg: SimConfig = { ...base, presetGrid: this.chosenMap(mapSaved.value) };
+      const cfg: SimConfig = {
+        ...base,
+        presetGrid: this.chosenMap(mapSaved.value),
+        enemyController: isBattle && this.getOptActive('cfg-opponent') === 'jev' ? 'jev' : 'rule',
+      };
       this.lastConfig = cfg;
       this.engine.applyConfig(cfg);
       this.engine.restart();
+      this.startControllers();
       this.updateSpeedDisplay();
     });
 
@@ -519,6 +531,15 @@ export class UIController {
     localStorage.setItem(LS_EFFECTS, this.renderer.isEffectsEnabled().toString());
   }
 
+  // Attaches the AI layers chosen for this match. Restart clears them, so this runs after
+  // every engine.restart(). The controller is exposed as window.jev for inspection.
+  private startControllers(): void {
+    if (this.lastConfig.mode !== 'battle' || this.lastConfig.enemyController !== 'jev') return;
+    const jev = new JevController(this.engine, this.stateManager, Faction.ENEMY);
+    this.engine.setControllers([jev]);
+    (window as unknown as { jev: JevController }).jev = jev;
+  }
+
   // --- Restart ---
 
   private doRestart(): void {
@@ -529,6 +550,7 @@ export class UIController {
     this.minimapRenderer.clearTerrainCache();
     this.engine.applyConfig(this.lastConfig);
     this.engine.restart();
+    this.startControllers();
     this.elBtnPause.textContent = 'Pause';
     this.updateSpeedDisplay();
   }
