@@ -11,6 +11,7 @@ import {
   TILE_SIZE,
   Position,
 } from '../types/types';
+import { EffectsManager } from './effects/EffectsManager';
 
 const ZOOM_MIN = TILE_SIZE; // full map visible: 150 tiles × 5px = 750px
 const ZOOM_MAX = 40; // max zoom: ~19 tiles visible
@@ -24,6 +25,11 @@ export class Renderer {
 
   private camera: Camera = { x: 0, y: 0, zoom: ZOOM_MIN };
   private selectedUnitId: string | null = null;
+
+  private effects = new EffectsManager();
+  // Cumulative event counts since the last reset — shown in the debug overlay
+  private fxHitCount: number = 0;
+  private fxDeathCount: number = 0;
 
   private debugMode: boolean = false;
   private fps: number = 0;
@@ -42,6 +48,7 @@ export class Renderer {
       this.buildTerrainCanvas(battlefield.grid);
     }
     this.updateFps();
+    this.updateEffects(battlefield);
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
     this.drawTerrain();
     this.drawCharismaRadius(battlefield.units);
@@ -57,6 +64,16 @@ export class Renderer {
 
   setDebugMode(on: boolean): void {
     this.debugMode = on;
+  }
+
+  setEffectsEnabled(on: boolean): void {
+    this.effects.setEnabled(on);
+    this.fxHitCount = 0;
+    this.fxDeathCount = 0;
+  }
+
+  isEffectsEnabled(): boolean {
+    return this.effects.isEnabled();
   }
 
   // --- Camera controls ---
@@ -110,6 +127,9 @@ export class Renderer {
     this.offscreenTerrain = null;
     this.camera = { x: 0, y: 0, zoom: ZOOM_MIN };
     this.selectedUnitId = null;
+    this.effects.reset();
+    this.fxHitCount = 0;
+    this.fxDeathCount = 0;
   }
 
   // --- Private helpers ---
@@ -217,6 +237,12 @@ export class Renderer {
     }
   }
 
+  private updateEffects(battlefield: IBattlefield): void {
+    this.effects.update(battlefield.units, battlefield.elapsedTime);
+    this.fxHitCount += this.effects.hits.length;
+    this.fxDeathCount += this.effects.deaths.length;
+  }
+
   private updateFps(): void {
     this.fpsFrameCount++;
     const now = performance.now();
@@ -233,12 +259,18 @@ export class Renderer {
 
   private drawDebugInfo(battlefield: IBattlefield): void {
     this.ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
-    this.ctx.fillRect(4, 4, 130, 54);
+    this.ctx.fillRect(4, 4, 150, 82);
     this.ctx.fillStyle = '#00ff88';
     this.ctx.font = '11px monospace';
     this.ctx.fillText(`FPS: ${this.fps}`, 10, 19);
     this.ctx.fillText(`Units: ${battlefield.units.length}`, 10, 33);
     this.ctx.fillText(`T: ${Math.floor(battlefield.elapsedTime)}s`, 10, 47);
+    if (this.effects.isEnabled()) {
+      this.ctx.fillText(`FX hits: ${this.fxHitCount}`, 10, 61);
+      this.ctx.fillText(`FX deaths: ${this.fxDeathCount}`, 10, 75);
+    } else {
+      this.ctx.fillText('FX: off', 10, 61);
+    }
   }
 
   // Draws a transparent circle showing the hero's influence area (sight range: 15 tiles).
