@@ -26,7 +26,7 @@ Effect time is simulation time (`battlefield.elapsedTime`): effects freeze while
 | 5 | Hero aura | ✅ |
 | 6 | Sprites | ✅ |
 | 7 | "Building simulation" loading screen | ✅ |
-| 8 | Wrap-up | ⬜ |
+| 8 | Wrap-up | ✅ |
 
 ### 0. Infrastructure
 - `src/rendering/effects/EffectsManager.ts`: frame-diff event detection (hits, deaths, facing), keyed by unit id.
@@ -93,8 +93,35 @@ Effect time is simulation time (`battlefield.elapsedTime`): effects freeze while
 - Found, not changed (pre-existing): stress mode spawns 2200 warriors (default 300 + 1900 extra in `StateManager`), while the menu says 2000.
 
 ### 8. Wrap-up
-- FPS measurement in 2000 vs 2000 mode with effects on and off.
-- Add the effects toggle to the README.
+- README: effects described, FX button added to the controls table, sprite credits.
+- Final comparison against the pre-UI code (`5a96495`), served side by side, stress mode, first ~15 s of battle, uncapped headless Chrome:
+
+| Version | Running FPS (avg of runs) | Paused, render only |
+|---|---|---|
+| Pre-UI (`5a96495`) | ~49 (5 runs) | ~378 |
+| Final, FX on | ~53 (4 runs) | ~382 |
+
+  Same within run-to-run noise. Later in a heavy battle, when effects accumulate, effects cost ~0.2–0.3 ms per frame (step 3). Sprites are capped at ~0.7 ms worst case by the sprite budget (step 6).
+
+## Versions
+
+| Tag | Step |
+|---|---|
+| `v1.1-ui-infra` | 0. Infrastructure |
+| `v1.2-ui-hit-flash` | 1. Hit flash |
+| `v1.3-ui-death` | 2. Death animation |
+| `v1.3.1-ui-death-tilt` | 2.1 Tilted corpses |
+| `v1.4-ui-blood` | 3. Light blood |
+| `v1.5-ui-status-icons` | 4. Status icons |
+| `v1.6-ui-hero-aura` | 5. Hero aura |
+| `v1.7-ui-sprites` | 6. Sprites |
+| `v1.8-ui-loading-screen` | 7. Loading screen |
+| `v1.9-ui-wrap-up` | 8. Wrap-up |
+
+## Open points
+- Blood pools look large next to sprites at close zoom (sized for squares).
+- The red circle shown for a selected hero uses `hero.sight` (15 tiles) but its code comment calls it the influence area; the aura shows the real charisma radius (10 tiles).
+- Stress mode spawns 2200 warriors while the menu says 2000 (pre-existing).
 
 ## Out of scope
 - Screen shake (rejected).
