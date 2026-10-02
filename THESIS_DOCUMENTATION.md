@@ -126,6 +126,7 @@ D1–D4 are the professor's proposals from the 2026-09-30 meeting; D5 onwards ca
 | D19 | 2026-10-02 | Keep the Phase 1 game as "Classic"; add a symmetric "Battle" mode with equal stats on both sides | Nothing that works is lost; equal stats keep AI comparisons fair. See record below | Accepted (2026-10-02) |
 | D20 | 2026-10-02 | Revised command set: move to a sector, hold, retreat, attack, attack an enemy hero, continue the LLM's order; all commands go through one command interface | Flanking has no effect in this simulation (no facing or direction). One entry point for user, Jev and LLM. See record below | Accepted (2026-10-02) |
 | D21 | 2026-10-02 | Jev layer, first version: what Jev sees, which options it gets, how often it is asked, and what happens on low confidence or errors | See record below | Proposed |
+| D22 | 2026-10-02 | LLM layer, first version: report format, reply format, interval, model, and the opponent options (Rules / Jev / LLM / Jev + LLM) | See record below | Proposed |
 
 ### Decision records
 
@@ -340,6 +341,27 @@ Each record lists the options we considered, what we chose, and why.
 - **Logging:** every decision is recorded with time, hero, choice, confidence, whether it was applied, and response time (for Q13 and the latency experiments).
 - **Tested so far:** with a fake Jev (request shape, decisions applied, low confidence ignored, overlap skipping, fallback). The proxy reaches TypeSafe's API and gets "API key required", so it only needs a key.
 
+#### D22: LLM layer, first version (proposed)
+- **Status:** Proposed. Implemented and tested end-to-end; details open for discussion.
+- **Where it runs (D10):** inside the Vite dev server as a small plugin (`/api/llm`) that uses the Claude Agent SDK with the developer's Claude login. One persistent, lean session per side (custom system prompt, no tools, no project settings). A new match starts a new session, so the LLM remembers decisions within a match only (in-match memory, D11 option b).
+- **How often:** every 20 s, first decision at the start of the match.
+- **What the LLM sees (D16, Q4):** time; its heroes (sector, HP, status, current order and who gave it, Jev's last decisions for that hero); enemy heroes; army totals with fleeing counts and average courage; soldiers per sector for both sides; dominant terrain per sector as a 10×10 text grid. About 380 tokens.
+- **What it answers:** one JSON object, `{"plan": "...", "orders": [{"hero": 1, "command": "move", "sector": "D4"}, ...]}`. Commands: move (any sector), hold, retreat, attack, attack_hero. Every order is checked (hero exists, sector valid, target alive) before it is applied through the command interface (D20) with source "llm". Invalid orders are logged and skipped.
+- **Model:** Sonnet by default (fastest in R2), changeable with the `LLM_MODEL` environment variable.
+- **Opponent options in the menu:** Rules, Jev, LLM, Jev + LLM. Offering every combination makes it possible to compare the layers on their own and together (ablation for the thesis). With both layers, Jev also sees the LLM's latest order and the LLM sees Jev's recent decisions (D15).
+- **Errors:** if the LLM cannot be reached, it stops; if it was the only AI layer, the heroes switch to rule-based control.
+- **End-to-end test (2026-10-02):** headless battle, enemy side commanded by the LLM, real dev server, Sonnet:
+
+| Time | Latency | Plan (from the LLM) | Orders |
+|---|---|---|---|
+| 0 s | 6.50 s (session start) | Concentrate heroes centrally in I6 to fight together | move I5 / I6 / I7 |
+| 20 s | 1.72 s | Hold a tight defensive line and let the enemy come | hold ×3 |
+| 40 s | 1.60 s | Keep holding the line together | hold ×3 |
+| 60 s | 2.08 s | Enemy hero 2 has pushed ahead of its allies, converge to kill it | attack_hero 2 ×3 |
+
+  - 0 invalid orders. Latency after the first call matches R2 (~1.3–2.3 s). The first call includes starting the session; it could be started before the match begins.
+  - The plans are coherent and react to the situation (e.g. targeting an isolated enemy hero).
+
 #### D15: How the LLM and Jev work together
 - **Options:**
   - (a) the LLM gives goals and Jev only acts inside them
@@ -536,7 +558,7 @@ Problems encountered during the project, how they were found, and how they were 
 | Q1 | What command set will layers 2 and 3 control? | Answered by D13, D14 |
 | Q2 | How do layers 2 and 3 interact when they disagree? | Answered by D15 |
 | Q3 | What surrounding information is passed to Jev? | Proposed in D21: hero status, current and strategic order, nearby ally/enemy counts and courage, nearest enemy, visible enemy heroes, 15×15 local text map |
-| Q4 | How is the full map summarized for the LLM? | Locations as sector grid (D17). Exact format still to define |
+| Q4 | How is the full map summarized for the LLM? | Proposed in D22: heroes of both sides, army totals and courage, soldiers per sector, terrain per sector as a 10×10 text grid (~380 tokens) |
 | Q5 | Proxy hosting for the live demo | Answered by D8 (Vercel) |
 | Q6 | Real-time mode: how does the speed multiplier interact with latency? | Answered by D4: speed setting stays; at higher speed more game time passes before an answer arrives. Response times are recorded |
 | Q7 | Real-time mode: a new decision is due but the previous one hasn't arrived | Proposed in D21 (Jev): skip it and count skipped requests |

@@ -28,6 +28,7 @@ export interface JevDecision {
 export interface JevOptions {
   intervalSec: number; // how often to ask (3–5 s, D1)
   minConfidence: number; // below this the hero keeps its current command
+  fallbackToRules: boolean; // on failure, hand heroes to the rule layer (when Jev is the only AI layer)
   endpoint: string;
   fetchFn: typeof fetch;
 }
@@ -35,6 +36,7 @@ export interface JevOptions {
 const DEFAULTS: JevOptions = {
   intervalSec: 4,
   minConfidence: 0.4,
+  fallbackToRules: true,
   endpoint: '/api/jev',
   fetchFn: (...args) => fetch(...args),
 };
@@ -77,10 +79,18 @@ export class JevController {
     void this.decide(elapsed);
   }
 
+  // The last few applied decisions for one hero, oldest first (shown to the LLM, D15).
+  recentFor(heroIndex: number, count = 3): string[] {
+    return this.decisions
+      .filter((d) => d.heroIndex === heroIndex && d.applied)
+      .slice(-count)
+      .map((d) => `t=${Math.round(d.time)}s ${d.choice}`);
+  }
+
   private heroes(): IHero[] {
     return this.stateManager
       .getHeroes()
-      .filter((h) => h.faction === this.faction && h.hp > 0 && h.controller === 'jev');
+      .filter((h) => h.faction === this.faction && h.hp > 0 && h.controller === 'ai');
   }
 
   private async decide(time: number): Promise<void> {
@@ -149,11 +159,13 @@ export class JevController {
     }
   }
 
-  // Jev is unavailable: hand the heroes back to the rule layer so the game goes on.
+  // Jev is unavailable: stop asking. If no other AI layer commands these heroes, hand them
+  // back to the rule layer so the game goes on.
   private fail(reason: string, hint: string): void {
     this.failed = true;
-    for (const hero of this.heroes()) hero.controller = 'rule';
-    console.warn(`Jev unavailable (${reason}); enemy heroes switched to rule-based control. ${hint}`);
+    if (this.opts.fallbackToRules) for (const hero of this.heroes()) hero.controller = 'rule';
+    const what = this.opts.fallbackToRules ? 'enemy heroes switched to rule-based control' : 'tactical layer stopped';
+    console.warn(`Jev unavailable (${reason}); ${what}. ${hint}`);
   }
 
   private sameCommand(a: HeroCommand | null, b: HeroCommand): boolean {

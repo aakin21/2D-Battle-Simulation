@@ -14,10 +14,13 @@ import {
   BATTLE_CONFIG,
   TerrainDensity,
   TerrainType,
+  EnemyAI,
 } from '../types/types';
 import { decodeGrid, listSavedMaps, loadSavedMap, saveMap } from '../state/MapStore';
 import { FIXED_MAP } from '../maps/fixedMap';
 import { JevController } from '../ai/JevController';
+import { LlmController } from '../ai/LlmController';
+import { AIController } from '../engine/SimulationEngine';
 
 const LS_SPEED = 'sim_speed';
 const LS_DEBUG = 'sim_debug';
@@ -200,7 +203,7 @@ export class UIController {
       const cfg: SimConfig = {
         ...base,
         presetGrid: this.chosenMap(mapSaved.value),
-        enemyController: isBattle && this.getOptActive('cfg-opponent') === 'jev' ? 'jev' : 'rule',
+        enemyAI: isBattle ? (this.getOptActive('cfg-opponent') as EnemyAI) : 'none',
       };
       this.lastConfig = cfg;
       this.engine.applyConfig(cfg);
@@ -532,12 +535,27 @@ export class UIController {
   }
 
   // Attaches the AI layers chosen for this match. Restart clears them, so this runs after
-  // every engine.restart(). The controller is exposed as window.jev for inspection.
+  // every engine.restart(). Controllers are exposed as window.jev / window.llm for inspection.
   private startControllers(): void {
-    if (this.lastConfig.mode !== 'battle' || this.lastConfig.enemyController !== 'jev') return;
-    const jev = new JevController(this.engine, this.stateManager, Faction.ENEMY);
-    this.engine.setControllers([jev]);
-    (window as unknown as { jev: JevController }).jev = jev;
+    const ai = this.lastConfig.mode === 'battle' ? (this.lastConfig.enemyAI ?? 'none') : 'none';
+    if (ai === 'none') return;
+    const both = ai === 'jev+llm';
+    const controllers: AIController[] = [];
+    const debug = window as unknown as { jev?: JevController; llm?: LlmController };
+    debug.jev = debug.llm = undefined;
+
+    if (ai === 'jev' || both) {
+      debug.jev = new JevController(this.engine, this.stateManager, Faction.ENEMY, { fallbackToRules: !both });
+      controllers.push(debug.jev);
+    }
+    if (ai === 'llm' || both) {
+      debug.llm = new LlmController(this.engine, this.stateManager, Faction.ENEMY, {
+        fallbackToRules: !both,
+        recentTactical: (heroIndex) => (debug.jev ? debug.jev.recentFor(heroIndex) : []),
+      });
+      controllers.push(debug.llm);
+    }
+    this.engine.setControllers(controllers);
   }
 
   // --- Restart ---

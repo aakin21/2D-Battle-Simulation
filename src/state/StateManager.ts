@@ -201,7 +201,7 @@ export class StateManager {
     const perHero = Math.floor(config.warriorCount / heroCount);
     const sides: Array<{ faction: Faction; type: UnitType; x: number; controller: HeroController }> = [
       { faction: Faction.FRIENDLY, type: UnitType.WARRIOR, x: 20, controller: 'user' },
-      { faction: Faction.ENEMY, type: UnitType.BERSERKER, x: 129, controller: config.enemyController ?? 'rule' },
+      { faction: Faction.ENEMY, type: UnitType.BERSERKER, x: 129, controller: (config.enemyAI ?? 'none') === 'none' ? 'rule' : 'ai' },
     ];
 
     for (const side of sides) {

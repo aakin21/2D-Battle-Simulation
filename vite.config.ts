@@ -1,4 +1,5 @@
 import { defineConfig, loadEnv } from 'vite'
+import { llmPlugin } from './server/llmPlugin'
 
 export default defineConfig(({ mode }) => {
   // TYPESAFE_API_KEY comes from .env.local (not committed). It is added to Jev requests
@@ -7,6 +8,7 @@ export default defineConfig(({ mode }) => {
 
   return {
     base: './',
+    plugins: [llmPlugin()],
     build: {
       outDir: 'dist'
     },
@@ -16,7 +18,9 @@ export default defineConfig(({ mode }) => {
           target: 'https://api.typesafe.ai',
           changeOrigin: true,
           rewrite: () => '/v1/systemone',
-          headers: env.TYPESAFE_API_KEY ? { Authorization: `Bearer ${env.TYPESAFE_API_KEY}` } : {},
+          headers: env.TYPESAFE_API_KEY
+            ? { Authorization: `Bearer ${env.TYPESAFE_API_KEY}` }
+            : ({} as Record<string, string>),
           // Server-to-server call: drop the browser's Origin so TypeSafe's CORS check never applies.
           configure: (proxy) => {
             proxy.on('proxyReq', (proxyReq) => proxyReq.removeHeader('origin'))

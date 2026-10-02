@@ -47,8 +47,12 @@ export interface IUnit {
 }
 
 // Who gives a hero its orders. 'rule' heroes patrol and charge on their own (no AI);
-// 'jev' heroes get tactical orders from Jev (layer 2).
-export type HeroController = 'user' | 'rule' | 'jev';
+// 'ai' heroes get orders from the AI layers attached to the match (Jev and/or the LLM).
+export type HeroController = 'user' | 'rule' | 'ai';
+
+// Which AI layers command the enemy side in battle mode. Every combination is offered so
+// the layers can be compared on their own and together.
+export type EnemyAI = 'none' | 'jev' | 'llm' | 'jev+llm';
 
 // Orders a hero can receive (D20). Every source (user, rule, Jev, LLM) uses the same set.
 export type HeroCommand =
@@ -143,7 +147,7 @@ export interface SimConfig {
   terrainDensity: TerrainDensity;
   heroesPerSide: number; // battle only
   presetGrid?: TerrainType[][]; // fixed or saved map; a new random map is made when absent
-  enemyController?: HeroController; // battle only: who commands the enemy heroes (default 'rule')
+  enemyAI?: EnemyAI; // battle only: AI layers for the enemy side (default 'none' = rule-based)
 }
 
 export const DEFAULT_CONFIG: SimConfig = {
