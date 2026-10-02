@@ -3,6 +3,7 @@ import { StateManager } from '../state/StateManager';
 import { Renderer } from '../rendering/Renderer';
 import { MinimapRenderer } from '../rendering/MinimapRenderer';
 import { InputHandler } from './InputHandler';
+import { LoadingScreen } from './LoadingScreen';
 import { IUnit, UnitType, BehaviorState, SimConfig, DEFAULT_CONFIG, TerrainDensity } from '../types/types';
 
 const LS_SPEED = 'sim_speed';
@@ -15,6 +16,7 @@ export class UIController {
   private renderer: Renderer;
   private minimapRenderer: MinimapRenderer;
   private inputHandler: InputHandler;
+  private loading = new LoadingScreen();
   private selectedUnitId: string | null = null;
   private debugMode: boolean = false;
   private lastConfig: SimConfig = DEFAULT_CONFIG;
@@ -141,8 +143,8 @@ export class UIController {
       if (btn) this.setOptActive('cfg-terrain', btn.dataset.val!);
     });
 
-    // Start
-    document.getElementById('menu-start')!.addEventListener('click', () => {
+    // Start: set up the run, keep it paused behind the loading screen, then start it
+    document.getElementById('menu-start')!.addEventListener('click', async () => {
       this.selectedUnitId = null;
       this.renderer.setSelectedUnit(null);
       this.renderer.clearTerrainCache();
@@ -152,19 +154,24 @@ export class UIController {
 
       if (tabStress.classList.contains('active')) {
         this.engine.restartStressTest();
-        return;
+      } else {
+        const isDefault = tabDefault.classList.contains('active');
+        const cfg: SimConfig = isDefault ? DEFAULT_CONFIG : {
+          warriorCount: parseInt(warriorSlider.value),
+          waveMultiplier: parseFloat(waveSlider.value),
+          terrainDensity: this.getOptActive('cfg-terrain') as TerrainDensity,
+        };
+        this.lastConfig = cfg;
+        this.engine.applyConfig(cfg);
+        this.engine.restart();
       }
-
-      const isDefault = tabDefault.classList.contains('active');
-      const cfg: SimConfig = isDefault ? DEFAULT_CONFIG : {
-        warriorCount: parseInt(warriorSlider.value),
-        waveMultiplier: parseFloat(waveSlider.value),
-        terrainDensity: this.getOptActive('cfg-terrain') as TerrainDensity,
-      };
-      this.lastConfig = cfg;
-      this.engine.applyConfig(cfg);
-      this.engine.restart();
       this.updateSpeedDisplay();
+
+      // restart() unpauses; pause before the first frame so no sim time passes
+      this.engine.pause();
+      await this.loading.run();
+      this.engine.resume();
+      this.elBtnPause.textContent = 'Pause';
     });
 
     document.getElementById('menu-instructions')!.addEventListener('click', () => {
@@ -240,6 +247,8 @@ export class UIController {
 
   private wireInputEvents(): void {
     this.inputHandler.onKeyDown((key: string) => {
+      // Shortcuts would unpause or restart the run behind the loading screen
+      if (this.loading.isActive()) return;
       switch (key) {
         case ' ':
           this.engine.togglePause();
