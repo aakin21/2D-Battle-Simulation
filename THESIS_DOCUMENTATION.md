@@ -159,6 +159,8 @@ Each record lists the options we considered, what we chose, and why.
   - **User vs Agent** comes next: the user controls one side, the AI the other.
   - **Agent vs Agent** comes last: the same agent is simply placed on the user's side as well. It reuses everything from User vs Agent.
   - A user's click and an AI decision go through the same command interface, so modes only differ in who gives the orders.
+- **Implementation (2026-10-02):** the Battle menu chooses who commands each side: West = You / Jev / LLM / Jev + LLM, East = Rules / Jev / LLM / Jev + LLM. Any pairing is possible, e.g. LLM vs Jev + LLM. Each side gets its own AI controllers and its own LLM session; the user can only command heroes they control.
+- **First Agent vs Agent match (LLM vs LLM, Sonnet, fixed map, real time):** both sides made 12 decisions with no invalid orders (average response 2.2 s west, 2.8 s east). Both first formed a defensive line and waited, then both advanced at t = 60 s; east massed a counter-attack, broke the west army by t = 140 s, pulled its wounded heroes back under its soldiers and then hunted the lone west heroes. **East won at 233 s with 135 units left.** The plans are readable and explain each decision, which is useful material for the thesis.
 
 #### D4: AI response modes (Paused and Real-time)
 - **Options:**

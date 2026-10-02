@@ -14,7 +14,7 @@ import {
   BATTLE_CONFIG,
   TerrainDensity,
   TerrainType,
-  EnemyAI,
+  SideAI,
 } from '../types/types';
 import { decodeGrid, listSavedMaps, loadSavedMap, saveMap } from '../state/MapStore';
 import { FIXED_MAP } from '../maps/fixedMap';
@@ -174,7 +174,7 @@ export class UIController {
     this.refreshSavedMaps();
 
     // Battle opponent (rules / AI layers) and AI timing (D4)
-    for (const id of ['cfg-opponent', 'cfg-timing']) {
+    for (const id of ['cfg-west', 'cfg-opponent', 'cfg-timing']) {
       document.getElementById(id)!.addEventListener('click', (e) => {
         const btn = (e.target as HTMLElement).closest('button');
         if (btn) this.setOptActive(id, btn.dataset.val!);
@@ -206,7 +206,8 @@ export class UIController {
       const cfg: SimConfig = {
         ...base,
         presetGrid: this.chosenMap(mapSaved.value),
-        enemyAI: isBattle ? (this.getOptActive('cfg-opponent') as EnemyAI) : 'none',
+        friendlyAI: isBattle ? (this.getOptActive('cfg-west') as SideAI) : 'none',
+        enemyAI: isBattle ? (this.getOptActive('cfg-opponent') as SideAI) : 'none',
         aiTiming: this.getOptActive('cfg-timing') === 'paused' ? 'paused' : 'realtime',
       };
       this.lastConfig = cfg;
@@ -483,7 +484,8 @@ export class UIController {
     ) {
       return selected as IHero;
     }
-    return this.stateManager.getHero();
+    const first = this.stateManager.getHero();
+    return first?.controller === 'user' ? first : undefined;
   }
 
   private showSelectStats(x1: number, y1: number, x2: number, y2: number): void {
@@ -541,37 +543,49 @@ export class UIController {
   // Battle mode: shown when one side has no units left.
   private showMatchResult(r: MatchResult): void {
     const el = document.getElementById('match-result')!;
-    const who = r.winner === null ? 'Draw' : r.winner === Faction.FRIENDLY ? 'West (you) wins' : 'East wins';
-    const ai = this.lastConfig.enemyAI && this.lastConfig.enemyAI !== 'none' ? ` (East: ${this.lastConfig.enemyAI})` : '';
+    const label = (ai: SideAI | undefined, none: string) => (!ai || ai === 'none' ? none : ai);
+    const west = label(this.lastConfig.friendlyAI, 'you');
+    const east = label(this.lastConfig.enemyAI, 'rules');
+    const who =
+      r.winner === null ? 'Draw' : r.winner === Faction.FRIENDLY ? `West (${west}) wins` : `East (${east}) wins`;
     el.innerHTML =
-      `<b>${who}</b>${ai}<br>` +
+      `<b>${who}</b><br>West: ${west} · East: ${east}<br>` +
       `Time: ${Math.round(r.time)} s · Units left: ${r.survivors}<br>` +
       `<span style="color:#888">R: restart · Menu: new battle</span>`;
     el.style.display = 'block';
     this.elBtnPause.textContent = 'Resume';
   }
 
-  // Attaches the AI layers chosen for this match. Restart clears them, so this runs after
-  // every engine.restart(). Controllers are exposed as window.jev / window.llm for inspection.
+  // Attaches the AI layers chosen for each side of this match. Restart clears them, so this
+  // runs after every engine.restart(). Running controllers are exposed as window.ai.west /
+  // window.ai.east ({ jev, llm }) for inspection in the browser console.
   private startControllers(): void {
     document.getElementById('match-result')!.style.display = 'none';
-    const ai = this.lastConfig.mode === 'battle' ? (this.lastConfig.enemyAI ?? 'none') : 'none';
-    if (ai === 'none') return;
-    const both = ai === 'jev+llm';
-    const controllers: AIController[] = [];
-    const debug = window as unknown as { jev?: JevController; llm?: LlmController };
-    debug.jev = debug.llm = undefined;
+    const debug = window as unknown as { ai?: Record<string, { jev?: JevController; llm?: LlmController }> };
+    debug.ai = {};
+    if (this.lastConfig.mode !== 'battle') return;
 
-    if (ai === 'jev' || both) {
-      debug.jev = new JevController(this.engine, this.stateManager, Faction.ENEMY, { fallbackToRules: !both });
-      controllers.push(debug.jev);
-    }
-    if (ai === 'llm' || both) {
-      debug.llm = new LlmController(this.engine, this.stateManager, Faction.ENEMY, {
-        fallbackToRules: !both,
-        recentTactical: (heroIndex) => (debug.jev ? debug.jev.recentFor(heroIndex) : []),
-      });
-      controllers.push(debug.llm);
+    const controllers: AIController[] = [];
+    const sides: Array<[Faction, SideAI, string]> = [
+      [Faction.FRIENDLY, this.lastConfig.friendlyAI ?? 'none', 'west'],
+      [Faction.ENEMY, this.lastConfig.enemyAI ?? 'none', 'east'],
+    ];
+    for (const [faction, ai, name] of sides) {
+      if (ai === 'none') continue;
+      const both = ai === 'jev+llm';
+      const side: { jev?: JevController; llm?: LlmController } = {};
+      if (ai === 'jev' || both) {
+        side.jev = new JevController(this.engine, this.stateManager, faction, { fallbackToRules: !both });
+        controllers.push(side.jev);
+      }
+      if (ai === 'llm' || both) {
+        side.llm = new LlmController(this.engine, this.stateManager, faction, {
+          fallbackToRules: !both,
+          recentTactical: (heroIndex) => side.jev?.recentFor(heroIndex) ?? [],
+        });
+        controllers.push(side.llm);
+      }
+      debug.ai[name] = side;
     }
     this.engine.setControllers(controllers);
   }

@@ -50,9 +50,10 @@ export interface IUnit {
 // 'ai' heroes get orders from the AI layers attached to the match (Jev and/or the LLM).
 export type HeroController = 'user' | 'rule' | 'ai';
 
-// Which AI layers command the enemy side in battle mode. Every combination is offered so
-// the layers can be compared on their own and together.
-export type EnemyAI = 'none' | 'jev' | 'llm' | 'jev+llm';
+// Which AI layers command a side in battle mode. Every combination is offered so the
+// layers can be compared on their own and together. 'none': the user (west) or the rule
+// layer (east) commands the heroes.
+export type SideAI = 'none' | 'jev' | 'llm' | 'jev+llm';
 
 // D4: 'realtime' keeps the battle running and applies AI answers when they arrive;
 // 'paused' freezes the battle until every pending AI answer has arrived.
@@ -150,7 +151,8 @@ export interface SimConfig {
   terrainDensity: TerrainDensity;
   heroesPerSide: number; // battle only
   presetGrid?: TerrainType[][]; // fixed or saved map; a new random map is made when absent
-  enemyAI?: EnemyAI; // battle only: AI layers for the enemy side (default 'none' = rule-based)
+  friendlyAI?: SideAI; // battle only: AI layers for the west side (default 'none' = the user)
+  enemyAI?: SideAI; // battle only: AI layers for the east side (default 'none' = rule-based)
   aiTiming?: AITiming; // battle only: does the simulation wait for AI answers (D4)
 }
 

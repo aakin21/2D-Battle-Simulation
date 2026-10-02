@@ -216,7 +216,12 @@ export class StateManager {
       x: number;
       controller: HeroController;
     }> = [
-      { faction: Faction.FRIENDLY, type: UnitType.WARRIOR, x: 20, controller: 'user' },
+      {
+        faction: Faction.FRIENDLY,
+        type: UnitType.WARRIOR,
+        x: 20,
+        controller: (config.friendlyAI ?? 'none') === 'none' ? 'user' : 'ai',
+      },
       {
         faction: Faction.ENEMY,
         type: UnitType.BERSERKER,

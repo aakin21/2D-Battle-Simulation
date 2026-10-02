@@ -16,4 +16,4 @@ AI layers that command the heroes of one side. Each implements `AIController` (`
 - Log every decision with its response time (`decisions`); these feed the latency experiments.
 - Never start a new request while one is open; count it as skipped (Q7).
 - On failure, stop the layer; hand heroes to the rule layer only if no other AI layer is attached (`fallbackToRules`).
-- `window.jev` / `window.llm` expose the running controllers for inspection in the browser console.
+- `window.ai.west` / `window.ai.east` (`{ jev, llm }`) expose the running controllers for inspection in the browser console.
