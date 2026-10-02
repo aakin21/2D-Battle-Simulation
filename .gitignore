@@ -2,3 +2,4 @@ node_modules/
 dist/
 PROGRESS.md
 DEFENSE.md
+.claude/worktrees/
