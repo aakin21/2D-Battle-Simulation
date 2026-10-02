@@ -7,6 +7,7 @@ import { IUnit, UnitType, BehaviorState, SimConfig, DEFAULT_CONFIG, TerrainDensi
 
 const LS_SPEED = 'sim_speed';
 const LS_DEBUG = 'sim_debug';
+const LS_EFFECTS = 'sim_effects';
 
 export class UIController {
   private engine: SimulationEngine;
@@ -28,6 +29,7 @@ export class UIController {
   private elBtnRestart: HTMLButtonElement;
   private elBtnMenu: HTMLButtonElement;
   private elBtnDebug: HTMLButtonElement;
+  private elBtnEffects: HTMLButtonElement;
   private elSpeedDisplay: HTMLElement;
   private elWaveCounter: HTMLElement;
   private elWarriorCount: HTMLElement;
@@ -61,6 +63,7 @@ export class UIController {
     this.elBtnRestart = document.getElementById('btn-restart') as HTMLButtonElement;
     this.elBtnMenu = document.getElementById('btn-menu') as HTMLButtonElement;
     this.elBtnDebug = document.getElementById('btn-debug') as HTMLButtonElement;
+    this.elBtnEffects = document.getElementById('btn-effects') as HTMLButtonElement;
     this.elSpeedDisplay = document.getElementById('speed-display')!;
     this.elWaveCounter = document.getElementById('wave-counter')!;
     this.elWarriorCount = document.getElementById('warrior-count')!;
@@ -219,6 +222,18 @@ export class UIController {
       this.elBtnDebug.style.color = this.debugMode ? '#00ff88' : '';
       this.saveSettings();
     });
+
+    this.elBtnEffects.addEventListener('click', () => {
+      this.renderer.setEffectsEnabled(!this.renderer.isEffectsEnabled());
+      this.updateEffectsButton();
+      this.saveSettings();
+    });
+  }
+
+  private updateEffectsButton(): void {
+    const on = this.renderer.isEffectsEnabled();
+    this.elBtnEffects.textContent = on ? 'FX: On' : 'FX: Off';
+    this.elBtnEffects.style.color = on ? '#00ff88' : '';
   }
 
   // --- Input events ---
@@ -419,11 +434,16 @@ export class UIController {
       this.renderer.setDebugMode(true);
       this.elBtnDebug.style.color = '#00ff88';
     }
+
+    // Effects default to on; only an explicit 'false' turns them off
+    this.renderer.setEffectsEnabled(localStorage.getItem(LS_EFFECTS) !== 'false');
+    this.updateEffectsButton();
   }
 
   private saveSettings(): void {
     localStorage.setItem(LS_SPEED, this.engine.getSpeed().toString());
     localStorage.setItem(LS_DEBUG, this.debugMode.toString());
+    localStorage.setItem(LS_EFFECTS, this.renderer.isEffectsEnabled().toString());
   }
 
   // --- Restart ---
