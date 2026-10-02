@@ -25,7 +25,7 @@ Effect time is simulation time (`battlefield.elapsedTime`): effects freeze while
 | 4 | Status icons | ✅ |
 | 5 | Hero aura | ✅ |
 | 6 | Sprites | ✅ |
-| 7 | "Building simulation" loading screen | ⬜ |
+| 7 | "Building simulation" loading screen | ✅ |
 | 8 | Wrap-up | ⬜ |
 
 ### 0. Infrastructure
@@ -85,10 +85,12 @@ Effect time is simulation time (`battlefield.elapsedTime`): effects freeze while
 - Open point: blood pools were sized for squares and look large next to sprites at close zoom.
 
 ### 7. "Building simulation" loading screen
-- Pressing Start shows a 3–5 s overlay.
-- Step messages ("Generating terrain…", "Deploying warriors…", "Calculating paths…"), a progress bar, and a small animation.
-- Real setup happens behind it while the simulation stays paused; the battle starts when the overlay fades out.
-- Restart (R) skips the screen to stay fast.
+- `src/ui/LoadingScreen.ts` + `#loading-overlay` in `index.html`. Pressing Start shows a full-screen overlay for 3.5 s: "Building simulation", a Knight and a Lion walking toward each other (CSS sprite animation from the same sprite sheets), step messages (Generating terrain → Deploying warriors → Preparing berserker waves → Calculating paths → Ready), a progress bar, then a 0.4 s fade-out. "click to skip" ends it early.
+- The run is set up immediately and paused before its first frame, so no sim time passes behind the overlay. Keyboard shortcuts are ignored while it is shown (Space would unpause, R would restart). The overlay also blocks clicks on the control bar.
+- Restart (R / Restart button) skips the screen.
+- Animation is disabled for `prefers-reduced-motion`.
+- Verified: overlay shown; sim time stays 0 s and Space/R/+ are ignored during loading; battle starts after the fade; click skips; works for default and stress mode and for a second Start from the menu; R restart shows no overlay; no console errors.
+- Found, not changed (pre-existing): stress mode spawns 2200 warriors (default 300 + 1900 extra in `StateManager`), while the menu says 2000.
 
 ### 8. Wrap-up
 - FPS measurement in 2000 vs 2000 mode with effects on and off.

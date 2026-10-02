@@ -371,6 +371,108 @@
     #instructions-overlay button:hover {
       background: #4a4a4a;
     }
+
+    /* "Building simulation" screen shown after Start */
+    #loading-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.92);
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 18px;
+      z-index: 110;
+      cursor: pointer;
+      opacity: 1;
+      transition: opacity 0.4s ease;
+    }
+
+    #loading-overlay.fading {
+      opacity: 0;
+    }
+
+    #loading-overlay h2 {
+      font-size: 22px;
+      letter-spacing: 2px;
+      color: #e0e0e0;
+    }
+
+    /* Two units walking toward each other (sprite sheets: 64×112, frames 16×16, ×4 scale) */
+    #loading-units {
+      display: flex;
+      gap: 120px;
+    }
+
+    .loading-unit {
+      width: 64px;
+      height: 64px;
+      background-size: 256px 448px;
+      background-repeat: no-repeat;
+      image-rendering: pixelated;
+      animation: loading-walk 0.5s steps(4) infinite;
+    }
+
+    /* Walk rows 0–3; column 3 faces right, column 2 faces left */
+    #loading-warrior {
+      background-position-x: -192px;
+      animation-name: loading-walk, loading-bob-right;
+      animation-duration: 0.5s, 1s;
+      animation-timing-function: steps(4), ease-in-out;
+    }
+
+    #loading-berserker {
+      background-position-x: -128px;
+      animation-name: loading-walk, loading-bob-left;
+      animation-duration: 0.5s, 1s;
+      animation-timing-function: steps(4), ease-in-out;
+    }
+
+    @keyframes loading-walk {
+      from { background-position-y: 0; }
+      to { background-position-y: -256px; }
+    }
+
+    @keyframes loading-bob-right {
+      0%, 100% { transform: translateX(0); }
+      50% { transform: translateX(12px); }
+    }
+
+    @keyframes loading-bob-left {
+      0%, 100% { transform: translateX(0); }
+      50% { transform: translateX(-12px); }
+    }
+
+    #loading-step {
+      font-size: 13px;
+      color: #aaa;
+      height: 16px;
+    }
+
+    #loading-bar {
+      width: 320px;
+      height: 8px;
+      background: #2a2a2a;
+      border: 1px solid #444;
+    }
+
+    #loading-fill {
+      width: 0;
+      height: 100%;
+      background: #FFD700;
+      transition: width 0.6s ease;
+    }
+
+    #loading-hint {
+      font-size: 11px;
+      color: #555;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .loading-unit {
+        animation: none;
+      }
+    }
   </style>
 </head>
 <body>
@@ -413,6 +515,18 @@
 
     <button id="menu-start">Start Simulation</button>
     <button id="menu-instructions">Instructions</button>
+  </div>
+
+  <!-- Building simulation (shown after Start) -->
+  <div id="loading-overlay">
+    <h2>Building simulation</h2>
+    <div id="loading-units">
+      <div id="loading-warrior" class="loading-unit"></div>
+      <div id="loading-berserker" class="loading-unit"></div>
+    </div>
+    <div id="loading-step"></div>
+    <div id="loading-bar"><div id="loading-fill"></div></div>
+    <div id="loading-hint">click to skip</div>
   </div>
 
   <!-- Instructions -->
