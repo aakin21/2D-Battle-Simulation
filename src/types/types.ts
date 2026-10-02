@@ -54,6 +54,10 @@ export type HeroController = 'user' | 'rule' | 'ai';
 // the layers can be compared on their own and together.
 export type EnemyAI = 'none' | 'jev' | 'llm' | 'jev+llm';
 
+// D4: 'realtime' keeps the battle running and applies AI answers when they arrive;
+// 'paused' freezes the battle until every pending AI answer has arrived.
+export type AITiming = 'realtime' | 'paused';
+
 // Orders a hero can receive (D20). Every source (user, rule, Jev, LLM) uses the same set.
 export type HeroCommand =
   | { type: 'move'; target: Position } // AI gives a sector, the user an exact point
@@ -148,6 +152,7 @@ export interface SimConfig {
   heroesPerSide: number; // battle only
   presetGrid?: TerrainType[][]; // fixed or saved map; a new random map is made when absent
   enemyAI?: EnemyAI; // battle only: AI layers for the enemy side (default 'none' = rule-based)
+  aiTiming?: AITiming; // battle only: does the simulation wait for AI answers (D4)
 }
 
 export const DEFAULT_CONFIG: SimConfig = {

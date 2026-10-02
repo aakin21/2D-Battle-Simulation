@@ -56,6 +56,10 @@ export class LlmController {
     this.opts = { ...DEFAULTS, ...opts };
   }
 
+  isWaiting(): boolean {
+    return this.pending;
+  }
+
   tick(elapsed: number): void {
     if (this.failed || elapsed < this.nextAt) return;
     this.nextAt = elapsed + this.opts.intervalSec;

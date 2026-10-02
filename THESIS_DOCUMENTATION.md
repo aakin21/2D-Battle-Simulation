@@ -175,6 +175,7 @@ Each record lists the options we considered, what we chose, and why.
   - Comparing the two shows how much AI response time affects the outcome.
   - We do not set the delay ourselves. We record how long every AI answer takes, so the thesis can report real response times for Jev and the LLM.
   - The game speed setting stays. Note: in Real-time mode, a higher game speed means more game time passes before an answer arrives.
+- **Implementation (2026-10-02):** Battle menu option "AI timing: Real-time / Paused". In Paused mode the simulation does not advance while any AI request (Jev or LLM) is open; rendering continues and the control bar shows "waiting for AI…". Tested with slow fake AIs (Jev 0.5 s, LLM 1.5 s asked at the same moment): over 6 s of real time, Real-time advanced 5.7 s of battle and never waited; Paused advanced 4.1 s and froze ~1.7 s until both answers had arrived. Every AI answer is logged with its response time.
 
 #### D5: Maps
 - **Options:** (a) a fixed map only, (b) random maps only, (c) fixed map + random map + save option.

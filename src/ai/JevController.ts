@@ -68,6 +68,10 @@ export class JevController {
     this.opts = { ...DEFAULTS, ...opts };
   }
 
+  isWaiting(): boolean {
+    return this.pending;
+  }
+
   // Called by the engine every simulation step.
   tick(elapsed: number): void {
     if (this.failed || elapsed < this.nextAt) return;

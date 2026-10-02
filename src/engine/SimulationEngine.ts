@@ -16,6 +16,7 @@ import {
   Position,
   HeroCommand,
   CommandSource,
+  AITiming,
   SimConfig,
   DEFAULT_CONFIG,
 } from '../types/types';
@@ -44,6 +45,7 @@ function terrainSpeed(terrain: TerrainType): number {
 // An AI layer that gives heroes orders (Jev, later the LLM). Ticked every simulation step.
 export interface AIController {
   tick(elapsed: number): void;
+  isWaiting(): boolean; // a request is open and its answer has not arrived yet
 }
 
 // Battle mode result: the side whose units (heroes and soldiers) all die first loses.
@@ -65,6 +67,7 @@ export class SimulationEngine {
   private battleMode: boolean = false;
   private controllers: AIController[] = [];
   private result: MatchResult | null = null;
+  private aiTiming: AITiming = 'realtime';
   private onMatchEnd: ((result: MatchResult) => void) | null = null;
   private speedMultiplier: number = 1;
   private waveMultiplier: number = 1;
@@ -126,6 +129,12 @@ export class SimulationEngine {
   applyConfig(config: SimConfig): void {
     this.lastConfig = config;
     this.waveMultiplier = config.waveMultiplier;
+    this.aiTiming = config.aiTiming ?? 'realtime';
+  }
+
+  // D4 paused mode: the simulation does not advance while an AI answer is pending.
+  isWaitingForAI(): boolean {
+    return this.aiTiming === 'paused' && this.controllers.some((c) => c.isWaiting());
   }
 
   isBattleMode(): boolean {
@@ -925,7 +934,7 @@ export class SimulationEngine {
 
     const deltaTime = Math.min(rawDelta, 0.1) * this.speedMultiplier;
 
-    if (!this.paused) {
+    if (!this.paused && !this.isWaitingForAI()) {
       this.update(deltaTime);
       this.stateManager.getBattlefield().elapsedTime += deltaTime;
     }

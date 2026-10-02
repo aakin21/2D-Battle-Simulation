@@ -173,11 +173,13 @@ export class UIController {
     });
     this.refreshSavedMaps();
 
-    // Battle opponent: rule-based heroes or Jev (layer 2)
-    document.getElementById('cfg-opponent')!.addEventListener('click', (e) => {
-      const btn = (e.target as HTMLElement).closest('button');
-      if (btn) this.setOptActive('cfg-opponent', btn.dataset.val!);
-    });
+    // Battle opponent (rules / AI layers) and AI timing (D4)
+    for (const id of ['cfg-opponent', 'cfg-timing']) {
+      document.getElementById(id)!.addEventListener('click', (e) => {
+        const btn = (e.target as HTMLElement).closest('button');
+        if (btn) this.setOptActive(id, btn.dataset.val!);
+      });
+    }
 
     // Start
     document.getElementById('menu-start')!.addEventListener('click', () => {
@@ -205,6 +207,7 @@ export class UIController {
         ...base,
         presetGrid: this.chosenMap(mapSaved.value),
         enemyAI: isBattle ? (this.getOptActive('cfg-opponent') as EnemyAI) : 'none',
+        aiTiming: this.getOptActive('cfg-timing') === 'paused' ? 'paused' : 'realtime',
       };
       this.lastConfig = cfg;
       this.engine.applyConfig(cfg);
@@ -618,7 +621,7 @@ export class UIController {
     this.elWaveCounter.textContent = `Wave: ${bf.waveNumber}`;
     this.elWarriorCount.textContent = `W: ${warriors}`;
     this.elBerserkerCount.textContent = `B: ${berserkers}`;
-    this.elElapsedTime.textContent = `T: ${Math.floor(bf.elapsedTime)}s`;
+    this.elElapsedTime.textContent = `T: ${Math.floor(bf.elapsedTime)}s${this.engine.isWaitingForAI() ? " · waiting for AI…" : ""}`;
   }
 
   private updateSpeedDisplay(): void {
