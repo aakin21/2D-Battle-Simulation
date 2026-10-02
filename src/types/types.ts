@@ -46,10 +46,14 @@ export interface IUnit {
   groupId: string; // spawn group identifier — used for coordinated berserker patrol
 }
 
+// Who gives a hero its orders. 'rule' heroes patrol and charge on their own (no AI).
+export type HeroController = 'user' | 'rule';
+
 export interface IHero extends IUnit {
   taskPoint: Position | null;
   charismaRadius: number;
   charismaBonus: number;
+  controller: HeroController;
 }
 
 export interface IBattlefield {
@@ -110,14 +114,30 @@ export const TILE_SIZE = 5; // pixels per tile at base zoom (offscreen terrain c
 
 export type TerrainDensity = 'light' | 'normal' | 'dense';
 
+// 'classic': Phase 1 game (one hero vs berserker waves).
+// 'battle': symmetric sides, each with several heroes and soldiers that use courage.
+export type GameMode = 'classic' | 'battle';
+
 export interface SimConfig {
-  warriorCount: number;
+  mode: GameMode;
+  warriorCount: number; // classic: friendly warriors; battle: soldiers per side
   waveMultiplier: number;
   terrainDensity: TerrainDensity;
+  heroesPerSide: number; // battle only
 }
 
 export const DEFAULT_CONFIG: SimConfig = {
+  mode: 'classic',
   warriorCount: 300,
   waveMultiplier: 1,
   terrainDensity: 'normal',
+  heroesPerSide: 1,
+};
+
+export const BATTLE_CONFIG: SimConfig = {
+  mode: 'battle',
+  warriorCount: 150,
+  waveMultiplier: 0,
+  terrainDensity: 'normal',
+  heroesPerSide: 3,
 };

@@ -3,7 +3,17 @@ import { StateManager } from '../state/StateManager';
 import { Renderer } from '../rendering/Renderer';
 import { MinimapRenderer } from '../rendering/MinimapRenderer';
 import { InputHandler } from './InputHandler';
-import { IUnit, UnitType, BehaviorState, SimConfig, DEFAULT_CONFIG, TerrainDensity } from '../types/types';
+import {
+  IUnit,
+  IHero,
+  UnitType,
+  Faction,
+  BehaviorState,
+  SimConfig,
+  DEFAULT_CONFIG,
+  BATTLE_CONFIG,
+  TerrainDensity,
+} from '../types/types';
 
 const LS_SPEED = 'sim_speed';
 const LS_DEBUG = 'sim_debug';
@@ -91,21 +101,24 @@ export class UIController {
   private wireMainMenu(): void {
     const config = document.getElementById('menu-config')!;
     const stressInfo = document.getElementById('stress-info')!;
+    const battleInfo = document.getElementById('battle-info')!;
     const tabDefault = document.getElementById('tab-default')!;
     const tabCustom = document.getElementById('tab-custom')!;
     const tabStress = document.getElementById('tab-stress')!;
+    const tabBattle = document.getElementById('tab-battle')!;
     const warriorSlider = document.getElementById('cfg-warriors') as HTMLInputElement;
     const warriorNum = document.getElementById('cfg-warriors-num') as HTMLInputElement;
     const waveSlider = document.getElementById('cfg-wave-slider') as HTMLInputElement;
     const waveVal = document.getElementById('cfg-wave-val')!;
 
     const setTab = (active: HTMLElement) => {
-      [tabDefault, tabCustom, tabStress].forEach(t => t.classList.remove('active'));
+      [tabDefault, tabCustom, tabStress, tabBattle].forEach(t => t.classList.remove('active'));
       active.classList.add('active');
       const isStress = active === tabStress;
       const isCustom = active === tabCustom;
       config.classList.toggle('locked', !isCustom);
       stressInfo.style.display = isStress ? 'block' : 'none';
+      battleInfo.style.display = active === tabBattle ? 'block' : 'none';
     };
 
     tabDefault.addEventListener('click', () => {
@@ -119,6 +132,7 @@ export class UIController {
 
     tabCustom.addEventListener('click', () => setTab(tabCustom));
     tabStress.addEventListener('click', () => setTab(tabStress));
+    tabBattle.addEventListener('click', () => setTab(tabBattle));
 
     // Warrior slider + number input — keep in sync
     warriorSlider.addEventListener('input', () => {
@@ -156,7 +170,9 @@ export class UIController {
       }
 
       const isDefault = tabDefault.classList.contains('active');
-      const cfg: SimConfig = isDefault ? DEFAULT_CONFIG : {
+      const isBattle = tabBattle.classList.contains('active');
+      const cfg: SimConfig = isBattle ? BATTLE_CONFIG : isDefault ? DEFAULT_CONFIG : {
+        ...DEFAULT_CONFIG,
         warriorCount: parseInt(warriorSlider.value),
         waveMultiplier: parseFloat(waveSlider.value),
         terrainDensity: this.getOptActive('cfg-terrain') as TerrainDensity,
@@ -279,7 +295,7 @@ export class UIController {
     // Left click → clear task point + select unit (sorted by distance)
     this.inputHandler.onLeftClick((cx, cy) => {
       const hero = this.stateManager.getHero();
-      if (hero) hero.taskPoint = null;
+      if (hero && !this.engine.isBattleMode()) hero.taskPoint = null;
       const grid = this.renderer.canvasToGrid(cx, cy);
       const nearby = this.stateManager.getUnitsInRadius(grid.x, grid.y, 2);
       nearby.sort((a, b) => {
@@ -295,10 +311,10 @@ export class UIController {
       this.updateInfoPanel(clicked);
     });
 
-    // Right click → hero task point
+    // Right click → task point for the selected friendly hero, or the first one
     this.inputHandler.onRightClick((cx, cy) => {
       const grid = this.renderer.canvasToGrid(cx, cy);
-      const hero = this.stateManager.getHero();
+      const hero = this.commandableHero();
       if (hero) hero.taskPoint = { x: grid.x, y: grid.y };
     });
 
@@ -392,6 +408,19 @@ export class UIController {
     this.elSelectOverlay.style.width = `${w}px`;
     this.elSelectOverlay.style.height = `${h}px`;
     this.elSelectOverlay.style.display = 'block';
+  }
+
+  private commandableHero(): IHero | undefined {
+    const selected = this.selectedUnitId ? this.stateManager.getUnitById(this.selectedUnitId) : undefined;
+    if (
+      selected &&
+      selected.unitType === UnitType.HERO &&
+      selected.faction === Faction.FRIENDLY &&
+      (selected as IHero).controller === 'user'
+    ) {
+      return selected as IHero;
+    }
+    return this.stateManager.getHero();
   }
 
   private showSelectStats(x1: number, y1: number, x2: number, y2: number): void {

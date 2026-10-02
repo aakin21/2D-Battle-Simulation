@@ -7,7 +7,6 @@ import {
   IHero,
   IBattlefield,
   UnitType,
-  Faction,
   BehaviorState,
   TerrainType,
   TERRAIN_SPEED,
@@ -25,6 +24,12 @@ const FLEE_THRESHOLD = 25;
 const FLEE_SPEED_MULT = 1.5;
 const REST_TRIGGER_HP = 50;
 
+// D18 hero survival reflex (battle mode): fall back when badly hurt or heavily outnumbered.
+const HERO_RETREAT_HP_RATIO = 0.3;
+const HERO_RECOVER_HP_RATIO = 0.5;
+const HERO_OUTNUMBERED_MIN_ENEMIES = 5;
+const HERO_OUTNUMBERED_RATIO = 3;
+
 export class SimulationEngine {
   private stateManager: StateManager;
   private renderer: Renderer;
@@ -34,6 +39,7 @@ export class SimulationEngine {
 
   private paused: boolean = false;
   private stressMode: boolean = false;
+  private battleMode: boolean = false;
   private speedMultiplier: number = 1;
   private waveMultiplier: number = 1;
   private lastConfig: SimConfig = DEFAULT_CONFIG;
@@ -96,11 +102,17 @@ export class SimulationEngine {
     this.waveMultiplier = config.waveMultiplier;
   }
 
+  isBattleMode(): boolean {
+    return this.battleMode;
+  }
+
   restart(): void {
     this.stop();
     this.stressMode = false;
     this.stateManager.setStressMode(false);
     this.stateManager.reset(this.lastConfig);
+    this.battleMode = this.stateManager.isBattleMode();
+    this.renderer.setBattleMode(this.battleMode);
     this.groupPatrol.clear();
     this.paused = false;
     this.speedMultiplier = 1;
@@ -112,6 +124,8 @@ export class SimulationEngine {
     this.stressMode = true;
     this.stateManager.setStressMode(true);
     this.stateManager.reset();
+    this.battleMode = false;
+    this.renderer.setBattleMode(false);
     this.groupPatrol.clear();
     this.paused = false;
     this.speedMultiplier = 1;
@@ -120,10 +134,11 @@ export class SimulationEngine {
 
   private update(deltaTime: number): void {
     const { units, grid } = this.stateManager.getBattlefield();
-    const hero = this.stateManager.getHero();
+
+    if (this.battleMode) this.updateRuleHeroes();
 
     for (const unit of units) {
-      this.updateCourage(unit, hero);
+      this.updateCourage(unit);
     }
 
     for (const unit of units) {
@@ -134,7 +149,7 @@ export class SimulationEngine {
     for (const unit of units) {
       const oldX = unit.position.x;
       const oldY = unit.position.y;
-      this.moveUnit(unit, deltaTime, hero, grid);
+      this.moveUnit(unit, deltaTime, grid);
       this.stateManager.syncPosition(unit, oldX, oldY);
     }
 
@@ -152,9 +167,59 @@ export class SimulationEngine {
     return unit.sight * (TERRAIN_SIGHT[TerrainType[terrain]] ?? 1.0);
   }
 
-  private updateCourage(unit: IUnit, hero: IHero | undefined): void {
-    if (unit.unitType === UnitType.BERSERKER) return;
-    if (unit.unitType === UnitType.HERO) return;
+  // Soldiers follow heroes and use courage. In battle mode berserkers are soldiers too.
+  private isSoldier(unit: IUnit): boolean {
+    return (
+      unit.unitType === UnitType.WARRIOR ||
+      (this.battleMode && unit.unitType === UnitType.BERSERKER)
+    );
+  }
+
+  // Nearest living hero of the unit's own side within maxDist (or within the hero's
+  // sight when maxDist is not given). In classic mode this is the single hero.
+  private findLeader(unit: IUnit, maxDist?: (hero: IHero) => number): IHero | undefined {
+    let best: IHero | undefined;
+    let bestD2 = Infinity;
+    for (const hero of this.stateManager.getHeroes()) {
+      if (hero.faction !== unit.faction || hero.hp <= 0 || hero.id === unit.id) continue;
+      const dx = hero.position.x - unit.position.x;
+      const dy = hero.position.y - unit.position.y;
+      const d2 = dx * dx + dy * dy;
+      const r = maxDist ? maxDist(hero) : hero.sight;
+      if (d2 <= r * r && d2 < bestD2) {
+        bestD2 = d2;
+        best = hero;
+      }
+    }
+    return best;
+  }
+
+  // Rule-controlled heroes (battle mode, no AI): charge the nearest visible enemy,
+  // otherwise patrol like a berserker group. Their soldiers follow the task point.
+  private updateRuleHeroes(): void {
+    const elapsed = this.stateManager.getBattlefield().elapsedTime;
+    for (const hero of this.stateManager.getHeroes()) {
+      if (hero.controller !== 'rule' || hero.hp <= 0 || hero.state === BehaviorState.FLEE) continue;
+
+      const enemy = this.findNearestEnemy(hero);
+      if (enemy) {
+        hero.taskPoint = { x: Math.floor(enemy.position.x), y: Math.floor(enemy.position.y) };
+        continue;
+      }
+
+      const key = `hero_${hero.id}`;
+      const dest = this.getGroupPatrolDest(key, hero.position, elapsed);
+      const dx = dest.x - hero.position.x;
+      const dy = dest.y - hero.position.y;
+      if (dx * dx + dy * dy <= WARRIOR_ARRIVE_RADIUS * WARRIOR_ARRIVE_RADIUS) {
+        this.groupPatrol.delete(key);
+      }
+      hero.taskPoint = dest;
+    }
+  }
+
+  private updateCourage(unit: IUnit): void {
+    if (!this.isSoldier(unit)) return;
 
     const base = UNIT_STATS[UnitType[unit.unitType] as keyof typeof UNIT_STATS].courage;
 
@@ -179,14 +244,8 @@ export class SimulationEngine {
       else if (ratio < 0.4) ratioModifier = -15;
     }
 
-    let heroBonus = 0;
-    if (unit.faction === Faction.FRIENDLY && hero && hero.hp > 0 && hero.id !== unit.id) {
-      const dx = hero.position.x - unit.position.x;
-      const dy = hero.position.y - unit.position.y;
-      if (dx * dx + dy * dy <= hero.charismaRadius * hero.charismaRadius) {
-        heroBonus = hero.charismaBonus;
-      }
-    }
+    const charismaHero = this.findLeader(unit, (h) => h.charismaRadius);
+    const heroBonus = charismaHero ? charismaHero.charismaBonus : 0;
 
     unit.courage = Math.max(0, Math.min(100, base + woundedPenalty + ratioModifier + heroBonus));
   }
@@ -208,7 +267,9 @@ export class SimulationEngine {
   }
 
   private updateBehavior(unit: IUnit): void {
-    if (unit.unitType === UnitType.BERSERKER) {
+    if (this.battleMode && unit.unitType === UnitType.HERO && this.updateHeroReflex(unit)) return;
+
+    if (unit.unitType === UnitType.BERSERKER && !this.battleMode) {
       const enemy = this.findNearestEnemy(unit);
       if (enemy) {
         const dx = enemy.position.x - unit.position.x;
@@ -247,14 +308,14 @@ export class SimulationEngine {
       return;
     }
 
-    if (unit.unitType === UnitType.WARRIOR && enemy && unit.courage <= FLEE_THRESHOLD) {
+    if (this.isSoldier(unit) && enemy && unit.courage <= FLEE_THRESHOLD) {
       unit.state = BehaviorState.FLEE;
       unit.target = null;
       unit.path = [];
       return;
     }
 
-    if ((unit.unitType === UnitType.WARRIOR || unit.unitType === UnitType.HERO) && unit.hp < REST_TRIGGER_HP && !enemy) {
+    if ((this.isSoldier(unit) || unit.unitType === UnitType.HERO) && unit.hp < REST_TRIGGER_HP && !enemy) {
       unit.state = BehaviorState.REST;
       unit.target = null;
       unit.path = [];
@@ -297,6 +358,65 @@ export class SimulationEngine {
     }
   }
 
+  // D18 survival reflex. Returns true when it decided the hero's state this frame.
+  // Rules come first: whatever the hero was ordered, it falls back to its own soldiers
+  // when badly hurt or heavily outnumbered, and resumes once it has recovered.
+  private updateHeroReflex(hero: IUnit): boolean {
+    let allies = 0;
+    let enemies = 0;
+    this.stateManager.forEachInRadius(hero.position.x, hero.position.y, this.effectiveSight(hero), (other) => {
+      if (other.hp <= 0 || other.id === hero.id) return;
+      if (other.faction === hero.faction) allies++;
+      else enemies++;
+    });
+
+    const outnumbered =
+      enemies >= HERO_OUTNUMBERED_MIN_ENEMIES && enemies >= HERO_OUTNUMBERED_RATIO * allies;
+    const hpRatio = hero.hp / hero.maxHp;
+
+    if (hero.state === BehaviorState.FLEE) {
+      if (enemies === 0 || (hpRatio >= HERO_RECOVER_HP_RATIO && !outnumbered)) {
+        hero.state = BehaviorState.IDLE;
+        hero.target = null;
+        hero.path = [];
+        return false;
+      }
+      return true;
+    }
+
+    if (enemies > 0 && (hpRatio < HERO_RETREAT_HP_RATIO || outnumbered)) {
+      hero.state = BehaviorState.FLEE;
+      hero.target = null;
+      hero.path = [];
+      return true;
+    }
+    return false;
+  }
+
+  // Retreating hero moves toward the centre of its own nearby soldiers, or simply away
+  // from the nearest enemy when none are around.
+  private moveHeroRetreat(hero: IUnit, deltaTime: number, grid: TerrainType[][]): void {
+    let sx = 0;
+    let sy = 0;
+    let n = 0;
+    this.stateManager.forEachInRadius(hero.position.x, hero.position.y, hero.sight * 2, (other) => {
+      if (other.hp <= 0 || other.faction !== hero.faction || other.unitType === UnitType.HERO) return;
+      sx += other.position.x;
+      sy += other.position.y;
+      n++;
+    });
+
+    if (n === 0) {
+      this.moveFlee(hero, deltaTime, grid);
+      return;
+    }
+
+    const dx = sx / n - hero.position.x;
+    const dy = sy / n - hero.position.y;
+    if (dx * dx + dy * dy <= WARRIOR_ARRIVE_RADIUS * WARRIOR_ARRIVE_RADIUS) return;
+    this.stepToward(hero, Math.atan2(dy, dx), deltaTime, grid);
+  }
+
   private moveFlee(unit: IUnit, deltaTime: number, grid: TerrainType[][]): void {
     const enemy = this.findNearestEnemy(unit);
     if (!enemy) return;
@@ -306,13 +426,17 @@ export class SimulationEngine {
     const dist = Math.sqrt(dx * dx + dy * dy);
     if (dist === 0) return;
 
+    this.stepToward(unit, Math.atan2(dy, dx), deltaTime, grid);
+  }
+
+  // Flee-speed step in the given direction, trying nearby angles if the way is blocked.
+  private stepToward(unit: IUnit, baseAngle: number, deltaTime: number, grid: TerrainType[][]): void {
     const xi = Math.floor(unit.position.x);
     const yi = Math.floor(unit.position.y);
     const terrain = grid[yi]?.[xi] ?? TerrainType.MOUNTAIN;
     const terrainMult = TERRAIN_SPEED[TerrainType[terrain]];
     const speed = unit.baseSpeed * terrainMult * FLEE_SPEED_MULT;
     const step = speed * deltaTime;
-    const baseAngle = Math.atan2(dy, dx);
 
     const offsets = [0, Math.PI / 8, -Math.PI / 8, Math.PI / 4, -Math.PI / 4, Math.PI / 2, -Math.PI / 2];
     for (const offset of offsets) {
@@ -478,18 +602,14 @@ export class SimulationEngine {
     }
   }
 
-  private moveUnit(
-    unit: IUnit,
-    deltaTime: number,
-    hero: IHero | undefined,
-    grid: TerrainType[][]
-  ): void {
+  private moveUnit(unit: IUnit, deltaTime: number, grid: TerrainType[][]): void {
     if (unit.state === BehaviorState.FLEE) {
-      this.moveFlee(unit, deltaTime, grid);
+      if (unit.unitType === UnitType.HERO) this.moveHeroRetreat(unit, deltaTime, grid);
+      else this.moveFlee(unit, deltaTime, grid);
       return;
     }
 
-    if (unit.unitType === UnitType.BERSERKER) {
+    if (unit.unitType === UnitType.BERSERKER && !this.battleMode) {
       if (unit.state !== BehaviorState.IDLE) return;
 
       if (unit.target !== null) {
@@ -552,20 +672,21 @@ export class SimulationEngine {
 
     if (unit.state !== BehaviorState.IDLE) return;
 
-    const dest = this.getDestination(unit, hero);
+    const leader = this.isSoldier(unit) ? this.findLeader(unit) : undefined;
+    const dest = this.getDestination(unit, leader);
     if (!dest) {
       unit.path = [];
       return;
     }
 
     if (
-      unit.unitType === UnitType.WARRIOR &&
+      this.isSoldier(unit) &&
       unit.target === null &&
-      hero &&
-      hero.path.length === 0
+      leader &&
+      leader.path.length === 0
     ) {
-      const dx = hero.position.x - unit.position.x;
-      const dy = hero.position.y - unit.position.y;
+      const dx = leader.position.x - unit.position.x;
+      const dy = leader.position.y - unit.position.y;
       if (dx * dx + dy * dy <= WARRIOR_ARRIVE_RADIUS * WARRIOR_ARRIVE_RADIUS) {
         unit.path = [];
         return;
@@ -608,7 +729,8 @@ export class SimulationEngine {
     }
   }
 
-  private getDestination(unit: IUnit, hero: IHero | undefined): Position | null {
+  // leader: the hero this soldier follows (already checked to be within its sight).
+  private getDestination(unit: IUnit, leader: IHero | undefined): Position | null {
     if (unit.target !== null) {
       const target = this.stateManager.getUnitById(unit.target);
       if (target && target.hp > 0) return target.position;
@@ -617,12 +739,8 @@ export class SimulationEngine {
     if (unit.unitType === UnitType.HERO) {
       return (unit as IHero).taskPoint ?? null;
     }
-    if (unit.unitType === UnitType.WARRIOR) {
-      if (!hero || !hero.taskPoint) return null;
-      const dx = hero.position.x - unit.position.x;
-      const dy = hero.position.y - unit.position.y;
-      if (dx * dx + dy * dy > hero.sight * hero.sight) return null;
-      return hero.taskPoint;
+    if (this.isSoldier(unit)) {
+      return leader?.taskPoint ?? null;
     }
     return null;
   }

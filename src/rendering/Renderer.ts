@@ -3,6 +3,7 @@ import {
   IUnit,
   IHero,
   UnitType,
+  Faction,
   TerrainType,
   Camera,
   TERRAIN_COLORS,
@@ -15,6 +16,7 @@ import { EffectsManager } from './effects/EffectsManager';
 
 const ZOOM_MIN = TILE_SIZE; // full map visible: 150 tiles × 5px = 750px
 const ZOOM_MAX = 40; // max zoom: ~19 tiles visible
+const ENEMY_HERO_COLOR = '#00E5FF'; // battle mode: enemy heroes stand out from blue berserkers
 
 export class Renderer {
   private canvas: HTMLCanvasElement;
@@ -25,6 +27,7 @@ export class Renderer {
 
   private camera: Camera = { x: 0, y: 0, zoom: ZOOM_MIN };
   private selectedUnitId: string | null = null;
+  private battleMode: boolean = false;
 
   private effects = new EffectsManager();
   // Cumulative event counts since the last reset — shown in the debug overlay
@@ -56,6 +59,11 @@ export class Renderer {
     this.drawBars(battlefield.units);
     this.drawTaskPoint(battlefield.units);
     if (this.debugMode) this.drawDebugInfo(battlefield);
+  }
+
+  // Battle mode: enemy soldiers use courage too, and there are heroes on both sides.
+  setBattleMode(on: boolean): void {
+    this.battleMode = on;
   }
 
   setSelectedUnit(id: string | null): void {
@@ -194,7 +202,9 @@ export class Renderer {
       this.ctx.fillStyle =
         anyFlash && this.effects.isFlashing(unit.id, now)
           ? '#ffffff'
-          : (UNIT_COLORS[UnitType[unit.unitType]] ?? '#fff');
+          : unit.unitType === UnitType.HERO && unit.faction === Faction.ENEMY
+            ? ENEMY_HERO_COLOR
+            : (UNIT_COLORS[UnitType[unit.unitType]] ?? '#fff');
       this.ctx.fillRect(sx, sy, size, size);
 
       if (unit.unitType === UnitType.HERO) {
@@ -205,7 +215,8 @@ export class Renderer {
     }
   }
 
-  // Draws HP bar above every unit. Warriors also get a courage bar below the HP bar.
+  // Draws HP bar above every unit. Units that use courage (warriors, and berserkers in
+  // battle mode) also get a courage bar below the HP bar.
   private drawBars(units: IUnit[]): void {
     const { x: camX, y: camY, zoom } = this.camera;
     const barW = Math.max(6, zoom * 2);
@@ -213,7 +224,9 @@ export class Renderer {
     const cH = Math.max(1, Math.floor(zoom * 0.25));
 
     for (const unit of units) {
-      const isWarrior = unit.unitType === UnitType.WARRIOR;
+      const isWarrior =
+        unit.unitType === UnitType.WARRIOR ||
+        (this.battleMode && unit.unitType === UnitType.BERSERKER);
       const totalH = isWarrior ? hpH + 1 + cH : hpH;
       const yOff = -(zoom + totalH);
 
@@ -300,26 +313,30 @@ export class Renderer {
     this.ctx.stroke();
   }
 
-  // Draws an X marker at the hero's current task point.
+  // Draws an X marker at each hero's current task point (enemy heroes in their own colour).
   private drawTaskPoint(units: IUnit[]): void {
-    const hero = units.find((u) => u.unitType === UnitType.HERO) as IHero | undefined;
-    if (!hero?.taskPoint) return;
-
     const { x: camX, y: camY, zoom } = this.camera;
-    const sx = (hero.taskPoint.x - camX) * zoom;
-    const sy = (hero.taskPoint.y - camY) * zoom;
-
-    if (sx < -20 || sx > this.canvas.width + 20) return;
-    if (sy < -20 || sy > this.canvas.height + 20) return;
-
     const half = Math.max(5, zoom * 0.7);
-    this.ctx.strokeStyle = '#FF0000';
-    this.ctx.lineWidth = Math.max(1, zoom * 0.2);
-    this.ctx.beginPath();
-    this.ctx.moveTo(sx - half, sy - half);
-    this.ctx.lineTo(sx + half, sy + half);
-    this.ctx.moveTo(sx + half, sy - half);
-    this.ctx.lineTo(sx - half, sy + half);
-    this.ctx.stroke();
+
+    for (const unit of units) {
+      if (unit.unitType !== UnitType.HERO) continue;
+      const hero = unit as IHero;
+      if (!hero.taskPoint) continue;
+
+      const sx = (hero.taskPoint.x - camX) * zoom;
+      const sy = (hero.taskPoint.y - camY) * zoom;
+
+      if (sx < -20 || sx > this.canvas.width + 20) continue;
+      if (sy < -20 || sy > this.canvas.height + 20) continue;
+
+      this.ctx.strokeStyle = hero.faction === Faction.ENEMY ? ENEMY_HERO_COLOR : '#FF0000';
+      this.ctx.lineWidth = Math.max(1, zoom * 0.2);
+      this.ctx.beginPath();
+      this.ctx.moveTo(sx - half, sy - half);
+      this.ctx.lineTo(sx + half, sy + half);
+      this.ctx.moveTo(sx + half, sy - half);
+      this.ctx.lineTo(sx - half, sy + half);
+      this.ctx.stroke();
+    }
   }
 }

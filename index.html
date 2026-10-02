@@ -289,7 +289,7 @@
 
     .cfg-row input[type=number] { -moz-appearance: textfield; }
 
-    #stress-info {
+    #stress-info, #battle-info {
       text-align: center;
       font-size: 12px;
       color: #888;
@@ -383,6 +383,7 @@
       <button id="tab-default" class="active">Default</button>
       <button id="tab-custom">Custom</button>
       <button id="tab-stress">Stress</button>
+      <button id="tab-battle">Battle</button>
     </div>
 
     <div id="menu-config" class="locked">
@@ -409,6 +410,11 @@
     <div id="stress-info" style="display:none;">
       2000 warriors vs 2000 berserkers<br>
       Normal terrain · Wave ×1
+    </div>
+
+    <div id="battle-info" style="display:none;">
+      3 heroes + 150 soldiers per side · no waves<br>
+      Select one of your heroes, right-click to command it
     </div>
 
     <button id="menu-start">Start Simulation</button>

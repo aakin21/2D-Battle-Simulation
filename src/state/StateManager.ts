@@ -6,6 +6,7 @@ import {
   IBattlefield,
   IUnit,
   IHero,
+  HeroController,
   Position,
   UNIT_STATS,
   GRID_SIZE,
@@ -25,6 +26,8 @@ export class StateManager {
   private berserkerPool = new BerserkerPool();
   private unitMap = new Map<string, IUnit>();
   private heroRef: IHero | undefined;
+  private heroes: IHero[] = [];
+  private battleMode: boolean = false;
 
   setStressMode(on: boolean): void {
     this.stressMode = on;
@@ -143,9 +146,11 @@ export class StateManager {
     }
   }
 
-  private createUnit(type: UnitType, faction: Faction): IUnit {
-    const key = UnitType[type] as keyof typeof UNIT_STATS;
-    const stats = UNIT_STATS[key];
+  private createUnit(
+    type: UnitType,
+    faction: Faction,
+    stats = UNIT_STATS[UnitType[type] as keyof typeof UNIT_STATS]
+  ): IUnit {
     return {
       id: `unit_${this.nextId++}`,
       position: { x: 0, y: 0 },
@@ -165,14 +170,62 @@ export class StateManager {
     };
   }
 
-  private createHero(): IHero {
-    const base = this.createUnit(UnitType.HERO, Faction.FRIENDLY);
+  private createHero(faction: Faction = Faction.FRIENDLY, controller: HeroController = 'user'): IHero {
+    const base = this.createUnit(UnitType.HERO, faction);
     return {
       ...base,
       taskPoint: null,
       charismaRadius: 10,
       charismaBonus: 20,
+      controller,
     };
+  }
+
+  // Battle mode: both sides get the same structure. Heroes are spread along each side's
+  // edge, and each hero starts with its share of soldiers around it so they follow it.
+  // Friendly soldiers are warriors, enemy soldiers are berserkers; both use warrior stats.
+  private spawnBattleUnits(config: SimConfig): void {
+    const heroCount = Math.max(1, config.heroesPerSide);
+    const perHero = Math.floor(config.warriorCount / heroCount);
+    const sides: Array<{ faction: Faction; type: UnitType; x: number; controller: HeroController }> = [
+      { faction: Faction.FRIENDLY, type: UnitType.WARRIOR, x: 20, controller: 'user' },
+      { faction: Faction.ENEMY, type: UnitType.BERSERKER, x: 129, controller: 'rule' },
+    ];
+
+    for (const side of sides) {
+      for (let h = 0; h < heroCount; h++) {
+        const cy = Math.round(((h + 1) * GRID_SIZE) / (heroCount + 1));
+        const heroPos = this.clearSpotsAround(side.x, cy, 3, 1, 40)[0];
+        if (!heroPos) continue;
+
+        const hero = this.createHero(side.faction, side.controller);
+        hero.baseSpeed = UNIT_STATS.WARRIOR.speed; // D18: hero moves at its group's speed
+        hero.position = heroPos;
+        this.addUnit(hero);
+
+        const spots = this.clearSpotsAround(heroPos.x, heroPos.y, 8, perHero);
+        for (let i = 0; i < perHero && i < spots.length; i++) {
+          const unit = this.createUnit(side.type, side.faction, UNIT_STATS.WARRIOR);
+          unit.position = spots[i];
+          this.addUnit(unit);
+        }
+      }
+    }
+  }
+
+  // Shuffled clear tiles in a square around (cx, cy). The square grows until it holds at
+  // least `needed` tiles. Soldiers keep the default limit so they start within their
+  // hero's sight.
+  private clearSpotsAround(cx: number, cy: number, radius: number, needed: number, maxRadius = 12): Position[] {
+    let spots: Position[] = [];
+    for (let r = radius; r <= maxRadius; r += 2) {
+      spots = this.getShuffledPositions(
+        Math.max(1, cx - r), Math.min(GRID_SIZE - 1, cx + r + 1),
+        Math.max(1, cy - r), Math.min(GRID_SIZE - 1, cy + r + 1)
+      );
+      if (spots.length >= needed) break;
+    }
+    return spots;
   }
 
   getShuffledPositions(xMin: number, xMax: number, yMin: number, yMax: number): Position[] {
@@ -214,8 +267,17 @@ export class StateManager {
     this.spatialGrid.move(unit, { x: oldX, y: oldY });
   }
 
+  // First friendly hero. In classic mode this is the only hero.
   getHero(): IHero | undefined {
     return this.heroRef;
+  }
+
+  getHeroes(): IHero[] {
+    return this.heroes;
+  }
+
+  isBattleMode(): boolean {
+    return this.battleMode;
   }
 
   spawnBerserker(x: number, y: number, groupId: string, initialPath: Position[] = []): void {
@@ -228,7 +290,10 @@ export class StateManager {
     this.battlefield.units.push(unit);
     this.spatialGrid.insert(unit);
     this.unitMap.set(unit.id, unit);
-    if (unit.unitType === UnitType.HERO) this.heroRef = unit as IHero;
+    if (unit.unitType === UnitType.HERO) {
+      this.heroes.push(unit as IHero);
+      if (!this.heroRef && unit.faction === Faction.FRIENDLY) this.heroRef = unit as IHero;
+    }
     this.battlefield.stats.totalSpawned++;
   }
 
@@ -242,8 +307,14 @@ export class StateManager {
     this.battlefield.stats.casualties++;
     this.spatialGrid.remove(unit);
     this.unitMap.delete(id);
-    if (unit.unitType === UnitType.HERO) this.heroRef = undefined;
-    if (unit.unitType === UnitType.BERSERKER) this.berserkerPool.release(unit);
+    if (unit.unitType === UnitType.HERO) {
+      this.heroes = this.heroes.filter((h) => h.id !== id);
+      if (this.heroRef?.id === id) {
+        this.heroRef = this.heroes.find((h) => h.faction === Faction.FRIENDLY);
+      }
+    }
+    // Battle-mode berserkers use warrior stats, so they must not go back into the pool.
+    if (unit.unitType === UnitType.BERSERKER && !this.battleMode) this.berserkerPool.release(unit);
   }
 
   getBattlefield(): IBattlefield {
@@ -261,8 +332,11 @@ export class StateManager {
     this.berserkerPool.reset();
     this.unitMap.clear();
     this.heroRef = undefined;
+    this.heroes = [];
+    this.battleMode = config.mode === 'battle' && !this.stressMode;
     this.initGrid(config.terrainDensity);
-    this.spawnInitialUnits(config.warriorCount);
+    if (this.battleMode) this.spawnBattleUnits(config);
+    else this.spawnInitialUnits(config.warriorCount);
   }
 
   private emptyBattlefield(): IBattlefield {
