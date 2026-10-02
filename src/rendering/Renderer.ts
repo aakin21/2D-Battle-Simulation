@@ -41,6 +41,8 @@ export class Renderer {
     this.ctx = this.canvas.getContext('2d')!;
     // Disable image smoothing so zoomed terrain stays crisp
     this.ctx.imageSmoothingEnabled = false;
+    // Warm-up draws land on the canvas, which is cleared on the first render
+    this.effects.prepare(this.ctx);
   }
 
   render(battlefield: IBattlefield): void {
@@ -54,6 +56,7 @@ export class Renderer {
     this.effects.drawUnderUnits(this.ctx, this.camera, this.canvas.width, this.canvas.height);
     this.drawCharismaRadius(battlefield.units);
     this.drawUnits(battlefield.units);
+    this.effects.drawOverUnits(this.ctx, this.camera, this.canvas.width, this.canvas.height);
     this.drawBars(battlefield.units);
     this.drawTaskPoint(battlefield.units);
     if (this.debugMode) this.drawDebugInfo(battlefield);
@@ -265,7 +268,7 @@ export class Renderer {
 
   private drawDebugInfo(battlefield: IBattlefield): void {
     this.ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
-    this.ctx.fillRect(4, 4, 150, 82);
+    this.ctx.fillRect(4, 4, 190, 96);
     this.ctx.fillStyle = '#00ff88';
     this.ctx.font = '11px monospace';
     this.ctx.fillText(`FPS: ${this.fps}`, 10, 19);
@@ -274,6 +277,11 @@ export class Renderer {
     if (this.effects.isEnabled()) {
       this.ctx.fillText(`FX hits: ${this.fxHitCount}`, 10, 61);
       this.ctx.fillText(`FX deaths: ${this.fxDeathCount}`, 10, 75);
+      this.ctx.fillText(
+        `corpses ${this.effects.getCorpseCount()} pools ${this.effects.getBloodPoolCount()}`,
+        10,
+        89
+      );
     } else {
       this.ctx.fillText('FX: off', 10, 61);
     }

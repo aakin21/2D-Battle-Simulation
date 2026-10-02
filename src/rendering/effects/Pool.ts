@@ -63,6 +63,12 @@ export class RingBuffer<T> {
     return item;
   }
 
+  // i = 0 is the oldest entry; valid for 0 <= i < size
+  get(i: number): T {
+    const cap = this.items.length;
+    return this.items[(this.head - this.count + i + cap * 2) % cap];
+  }
+
   forEach(fn: (item: T) => void): void {
     const cap = this.items.length;
     const start = (this.head - this.count + cap) % cap;

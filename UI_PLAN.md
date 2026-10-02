@@ -21,7 +21,7 @@ Effect time is simulation time (`battlefield.elapsedTime`): effects freeze while
 | 0 | Infrastructure | ✅ |
 | 1 | Hit flash | ✅ |
 | 2 | Death animation | ✅ |
-| 3 | Light blood | ⬜ |
+| 3 | Light blood | ✅ |
 | 4 | Status icons | ⬜ |
 | 5 | Hero aura | ⬜ |
 | 6 | Sprites | ⬜ |
@@ -48,10 +48,19 @@ Effect time is simulation time (`battlefield.elapsedTime`): effects freeze while
 - Performance: lying opaque corpses are batched into one `Path2D` per unit type (3 fills per frame instead of one fill + `globalAlpha` change per corpse); cos/sin of the final angle are cached at spawn. Before batching, stress mode was 1–3 FPS slower than step 1; after batching it is within measurement noise (uncapped headless: avg ~47 FPS for both).
 
 ### 3. Light blood
-- Agreed look (from step 2 review): corpse keeps its unit color, with a small, semi-transparent dark red pool underneath.
-- 2–3 small red particles on hit.
-- A small dark decal on death, fading over 20–30 s.
-- Decals kept in a ring buffer (max ~1500); only visible ones are drawn.
+- Agreed look (from step 2 review): corpse keeps its unit color, with a small dark red pool underneath. Hero corpse color darkened (`#3d0000`) so it stays visible on blood.
+- `src/rendering/effects/Blood.ts`: 2–3 droplets per hit (0.35 s, max 800, one batched path). Each death leaves a pool that spreads over 0.8 s and fades over the last 8 s of a 25 s life (max 1500, ring buffer).
+- Debug overlay also shows live corpse and pool counts. A real stress battle peaked around 100 corpses / 200 pools.
+
+**Performance work (FPS must not drop):**
+- First version drew corpses and pools as paths every frame. Worst case (1500 of each on screen) cost 6–14 ms per frame vs 2.4 ms for drawing all units. Measured the same with a real GPU, so not a headless artifact.
+- `src/rendering/effects/sprites.ts`: corpses and pools are pre-rendered sprites drawn with `drawImage`. Corpses: 3.7–5.7 → 1.4–1.9 ms worst case.
+- Settled pools are baked into a map-sized layer (8 px/tile) shown with a single `drawImage`, like the terrain. Pools: 2.6–8 → 0.2 ms at full-map zoom.
+- The layer is rebuilt once per sim second for fading. The rebuild is spread over frames (200 pools per frame) into a back buffer and swapped in when done. A one-frame rebuild had cost 3.5 ms median / 14 ms max.
+- Zoomed in past 12 px/tile, the layer would look blocky, so visible pools are drawn live from the full-resolution sprites (few are visible at that zoom).
+- Sprites and layers are built and uploaded to the GPU at startup. Otherwise the first death cost a ~15 ms frame (14 ms cold vs 3.5 ms warm).
+- Result: in a real stress battle, paused so only rendering runs, effects cost ~0.2–0.3 ms per frame (FX on 338–347 FPS vs off 371–376 uncapped). Early-battle FPS is the same as step 2 within run-to-run noise.
+- Note: FPS dips to single digits late in heavy stress battles. These happen with and without effects, and on the pre-UI code too, so they are engine load (pathfinding/combat), not rendering.
 
 ### 4. Status icons
 - "!" above units in FLEE, "z" above units in REST.

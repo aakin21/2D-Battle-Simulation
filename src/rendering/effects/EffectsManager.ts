@@ -1,5 +1,6 @@
 import { IUnit, UnitType, Faction, Camera } from '../../types/types';
 import { Corpses } from './Corpses';
+import { Blood } from './Blood';
 
 // Visual effects layer. Reads simulation state, never writes it.
 //
@@ -53,6 +54,7 @@ export class EffectsManager {
   private lastSimTime: number = -1;
 
   private corpses = new Corpses();
+  private blood = new Blood();
 
   // Unit id → real time (ms) at which its hit flash ends
   private flashes = new Map<string, number>();
@@ -63,6 +65,13 @@ export class EffectsManager {
 
   // Simulation seconds elapsed since the previous update (0 while paused)
   private dt: number = 0;
+
+  // Pre-builds sprites and layers and uploads them to the GPU by drawing them once
+  // on warmTarget (needs a DOM). Without this, the first death costs a ~15 ms frame.
+  prepare(warmTarget: CanvasRenderingContext2D): void {
+    this.corpses.prepare(warmTarget);
+    this.blood.prepare(warmTarget);
+  }
 
   setEnabled(on: boolean): void {
     this.enabled = on;
@@ -80,6 +89,7 @@ export class EffectsManager {
     this.snapshots.clear();
     this.flashes.clear();
     this.corpses.clear();
+    this.blood.clear();
     this.hits.length = 0;
     this.deaths.length = 0;
     this.lastSimTime = -1;
@@ -183,7 +193,12 @@ export class EffectsManager {
     }
 
     this.corpses.update(this.dt);
-    for (const d of this.deaths) this.corpses.spawn(d);
+    this.blood.update(this.dt);
+    for (const h of this.hits) this.blood.spawnHit(h);
+    for (const d of this.deaths) {
+      this.corpses.spawn(d);
+      this.blood.spawnPool(d, simTime);
+    }
   }
 
   // Effects that lie on the ground, drawn after terrain and before units
@@ -194,7 +209,20 @@ export class EffectsManager {
     height: number
   ): void {
     if (!this.enabled) return;
+    // Blood pools first so corpses lie on top of them
+    this.blood.drawPools(ctx, camera, width, height, this.lastSimTime);
     this.corpses.draw(ctx, camera, width, height);
+  }
+
+  // Effects in the air, drawn after units
+  drawOverUnits(
+    ctx: CanvasRenderingContext2D,
+    camera: Camera,
+    width: number,
+    height: number
+  ): void {
+    if (!this.enabled) return;
+    this.blood.drawDrops(ctx, camera, width, height);
   }
 
   // Debug counters for the overlay
@@ -204,5 +232,13 @@ export class EffectsManager {
 
   getCorpseCount(): number {
     return this.corpses.size;
+  }
+
+  getDropCount(): number {
+    return this.blood.dropCount;
+  }
+
+  getBloodPoolCount(): number {
+    return this.blood.countPools(this.lastSimTime);
   }
 }
