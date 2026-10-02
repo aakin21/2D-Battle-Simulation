@@ -58,6 +58,13 @@ export class Renderer {
     this.drawUnits(battlefield.units);
     this.effects.drawOverUnits(this.ctx, this.camera, this.canvas.width, this.canvas.height);
     this.drawBars(battlefield.units);
+    this.effects.drawOverlay(
+      this.ctx,
+      battlefield.units,
+      this.camera,
+      this.canvas.width,
+      this.canvas.height
+    );
     this.drawTaskPoint(battlefield.units);
     if (this.debugMode) this.drawDebugInfo(battlefield);
   }

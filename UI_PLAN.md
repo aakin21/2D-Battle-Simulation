@@ -22,7 +22,7 @@ Effect time is simulation time (`battlefield.elapsedTime`): effects freeze while
 | 1 | Hit flash | ✅ |
 | 2 | Death animation | ✅ |
 | 3 | Light blood | ✅ |
-| 4 | Status icons | ⬜ |
+| 4 | Status icons | ✅ |
 | 5 | Hero aura | ⬜ |
 | 6 | Sprites | ⬜ |
 | 7 | "Building simulation" loading screen | ⬜ |
@@ -63,8 +63,10 @@ Effect time is simulation time (`battlefield.elapsedTime`): effects freeze while
 - Note: FPS dips to single digits late in heavy stress battles. These happen with and without effects, and on the pre-UI code too, so they are engine load (pathfinding/combat), not rendering.
 
 ### 4. Status icons
-- "!" above units in FLEE, "z" above units in REST.
-- Shown only above a zoom threshold.
+- `src/rendering/effects/StatusIcons.ts`: a yellow "!" hops above units in FLEE; a light blue "z" floats up and fades above units in REST. Dark outline for contrast on any terrain. Animation uses sim time (freezes on pause).
+- Shown at zoom ≥ 9 px/tile (units 18 px wide). Icon size scales with zoom, 16–30 px. Drawn above HP bars. Covered by the FX toggle.
+- Pre-rendered glyph sprites (no per-frame `fillText`), uploaded to the GPU at startup.
+- Performance: 0.06 ms at full-map zoom (pass is skipped). Worst case of 1000 icons in view at zoom 9: 0.9 ms. A real battle has tens to a few hundred fleeing/resting units in view.
 
 ### 5. Hero aura
 - A subtle pulsing ring at the charisma radius, always visible.

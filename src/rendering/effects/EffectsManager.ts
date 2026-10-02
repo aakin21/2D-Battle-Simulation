@@ -1,6 +1,7 @@
 import { IUnit, UnitType, Faction, Camera } from '../../types/types';
 import { Corpses } from './Corpses';
 import { Blood } from './Blood';
+import { StatusIcons } from './StatusIcons';
 
 // Visual effects layer. Reads simulation state, never writes it.
 //
@@ -55,6 +56,7 @@ export class EffectsManager {
 
   private corpses = new Corpses();
   private blood = new Blood();
+  private statusIcons = new StatusIcons();
 
   // Unit id → real time (ms) at which its hit flash ends
   private flashes = new Map<string, number>();
@@ -71,6 +73,7 @@ export class EffectsManager {
   prepare(warmTarget: CanvasRenderingContext2D): void {
     this.corpses.prepare(warmTarget);
     this.blood.prepare(warmTarget);
+    this.statusIcons.prepare(warmTarget);
   }
 
   setEnabled(on: boolean): void {
@@ -223,6 +226,18 @@ export class EffectsManager {
   ): void {
     if (!this.enabled) return;
     this.blood.drawDrops(ctx, camera, width, height);
+  }
+
+  // UI-like markers drawn last, above units and their HP bars
+  drawOverlay(
+    ctx: CanvasRenderingContext2D,
+    units: IUnit[],
+    camera: Camera,
+    width: number,
+    height: number
+  ): void {
+    if (!this.enabled) return;
+    this.statusIcons.draw(ctx, units, camera, width, height, Math.max(0, this.lastSimTime));
   }
 
   // Debug counters for the overlay
