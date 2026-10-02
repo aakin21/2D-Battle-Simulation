@@ -31,6 +31,10 @@ export class Pool<T> {
     }
   }
 
+  forEach(fn: (item: T) => void): void {
+    for (let i = 0; i < this.active; i++) fn(this.items[i]);
+  }
+
   clear(): void {
     this.active = 0;
   }

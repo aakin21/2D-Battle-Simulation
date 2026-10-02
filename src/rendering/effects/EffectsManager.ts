@@ -1,4 +1,5 @@
-import { IUnit, UnitType, Faction } from '../../types/types';
+import { IUnit, UnitType, Faction, Camera } from '../../types/types';
+import { Corpses } from './Corpses';
 
 // Visual effects layer. Reads simulation state, never writes it.
 //
@@ -51,6 +52,8 @@ export class EffectsManager {
   private stamp: number = 0;
   private lastSimTime: number = -1;
 
+  private corpses = new Corpses();
+
   // Unit id → real time (ms) at which its hit flash ends
   private flashes = new Map<string, number>();
 
@@ -76,6 +79,7 @@ export class EffectsManager {
   reset(): void {
     this.snapshots.clear();
     this.flashes.clear();
+    this.corpses.clear();
     this.hits.length = 0;
     this.deaths.length = 0;
     this.lastSimTime = -1;
@@ -177,10 +181,28 @@ export class EffectsManager {
       this.snapshots.delete(id);
       this.flashes.delete(id);
     }
+
+    this.corpses.update(this.dt);
+    for (const d of this.deaths) this.corpses.spawn(d);
+  }
+
+  // Effects that lie on the ground, drawn after terrain and before units
+  drawUnderUnits(
+    ctx: CanvasRenderingContext2D,
+    camera: Camera,
+    width: number,
+    height: number
+  ): void {
+    if (!this.enabled) return;
+    this.corpses.draw(ctx, camera, width, height);
   }
 
   // Debug counters for the overlay
   getTrackedCount(): number {
     return this.snapshots.size;
+  }
+
+  getCorpseCount(): number {
+    return this.corpses.size;
   }
 }
