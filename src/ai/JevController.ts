@@ -43,7 +43,16 @@ const DEFAULTS: JevOptions = {
 
 const VIEW_RADIUS = 15; // tiles around the hero that Jev gets to see
 const MAP_CELL = 2; // local map: one character per 2×2 tiles
-const DIRS = ['east', 'south-east', 'south', 'south-west', 'west', 'north-west', 'north', 'north-east'];
+const DIRS = [
+  'east',
+  'south-east',
+  'south',
+  'south-west',
+  'west',
+  'north-west',
+  'north',
+  'north-east',
+];
 
 interface Option {
   key: string;
@@ -137,7 +146,12 @@ export class JevController {
       const latencyMs = performance.now() - started;
 
       if (!res.ok) {
-        this.fail(`HTTP ${res.status}`, res.status === 401 || res.status === 403 ? 'Set TYPESAFE_API_KEY in .env.local and restart the dev server.' : '');
+        this.fail(
+          `HTTP ${res.status}`,
+          res.status === 401 || res.status === 403
+            ? 'Set TYPESAFE_API_KEY in .env.local and restart the dev server.'
+            : ''
+        );
         return;
       }
 
@@ -154,7 +168,14 @@ export class JevController {
         if (applied && option.command && !this.sameCommand(hero.command, option.command)) {
           this.engine.issueCommand(hero, option.command, 'jev');
         }
-        this.decisions.push({ time, heroIndex: hero.heroIndex, choice: option.key, confidence, applied, latencyMs });
+        this.decisions.push({
+          time,
+          heroIndex: hero.heroIndex,
+          choice: option.key,
+          confidence,
+          applied,
+          latencyMs,
+        });
       }
     } catch (err) {
       this.fail(String(err), 'Is the dev server running (npm run dev)?');
@@ -168,13 +189,16 @@ export class JevController {
   private fail(reason: string, hint: string): void {
     this.failed = true;
     if (this.opts.fallbackToRules) for (const hero of this.heroes()) hero.controller = 'rule';
-    const what = this.opts.fallbackToRules ? 'enemy heroes switched to rule-based control' : 'tactical layer stopped';
+    const what = this.opts.fallbackToRules
+      ? 'enemy heroes switched to rule-based control'
+      : 'tactical layer stopped';
     console.warn(`Jev unavailable (${reason}); ${what}. ${hint}`);
   }
 
   private sameCommand(a: HeroCommand | null, b: HeroCommand): boolean {
     if (!a || a.type !== b.type) return false;
-    if (a.type === 'move' && b.type === 'move') return a.target.x === b.target.x && a.target.y === b.target.y;
+    if (a.type === 'move' && b.type === 'move')
+      return a.target.x === b.target.x && a.target.y === b.target.y;
     if (a.type === 'attackHero' && b.type === 'attackHero') return a.heroIndex === b.heroIndex;
     return true; // hold, retreat, attack, continueLlm: same type is the same order
   }
@@ -184,8 +208,16 @@ export class JevController {
   private optionsFor(hero: IHero): Option[] {
     const here = { x: Math.floor(hero.position.x), y: Math.floor(hero.position.y) };
     const opts: Option[] = [
-      { key: 'hold', description: 'Stay here and defend this position', command: { type: 'hold', at: here } },
-      { key: 'retreat', description: 'Fall back toward our own side, away from the enemy', command: { type: 'retreat' } },
+      {
+        key: 'hold',
+        description: 'Stay here and defend this position',
+        command: { type: 'hold', at: here },
+      },
+      {
+        key: 'retreat',
+        description: 'Fall back toward our own side, away from the enemy',
+        command: { type: 'retreat' },
+      },
       { key: 'attack', description: 'Advance on the nearest enemy', command: { type: 'attack' } },
     ];
 
@@ -212,11 +244,19 @@ export class JevController {
       for (let dc = -1; dc <= 1; dc++) {
         const c = col + dc;
         const r = row + dr;
-        if (c < 0 || r < 0 || c >= GRID_SIZE / SECTOR_SIZE || r >= GRID_SIZE / SECTOR_SIZE) continue;
+        if (c < 0 || r < 0 || c >= GRID_SIZE / SECTOR_SIZE || r >= GRID_SIZE / SECTOR_SIZE)
+          continue;
         const name = `${'ABCDEFGHIJ'[c]}${r + 1}`;
         const center = sectorCenter(name)!;
-        const where = dr === 0 && dc === 0 ? 'the centre of its current sector' : `the sector to the ${DIRS[this.dirIndex(dc, dr)]}`;
-        opts.push({ key: `move_${name}`, description: `Move to sector ${name} (${where})`, command: { type: 'move', target: center } });
+        const where =
+          dr === 0 && dc === 0
+            ? 'the centre of its current sector'
+            : `the sector to the ${DIRS[this.dirIndex(dc, dr)]}`;
+        opts.push({
+          key: `move_${name}`,
+          description: `Move to sector ${name} (${where})`,
+          command: { type: 'move', target: center },
+        });
       }
     }
     return opts;
@@ -224,7 +264,11 @@ export class JevController {
 
   // Everything Jev knows about one hero: its own status and what is around it (D16).
   private describeHero(hero: IHero): Record<string, unknown> {
-    let allies = 0, enemies = 0, alliesFleeing = 0, enemiesFleeing = 0, allyCourage = 0;
+    let allies = 0,
+      enemies = 0,
+      alliesFleeing = 0,
+      enemiesFleeing = 0,
+      allyCourage = 0;
     let nearest: IUnit | null = null;
     let nearestD = Infinity;
     const enemyHeroes: string[] = [];
@@ -241,7 +285,9 @@ export class JevController {
         enemies++;
         if (u.state === BehaviorState.FLEE) enemiesFleeing++;
         if (u.unitType === UnitType.HERO) {
-          enemyHeroes.push(`enemy hero ${(u as IHero).heroIndex}, ${Math.round(d)} tiles ${this.direction(hero, u)}, ${Math.round((100 * u.hp) / u.maxHp)}% hp`);
+          enemyHeroes.push(
+            `enemy hero ${(u as IHero).heroIndex}, ${Math.round(d)} tiles ${this.direction(hero, u)}, ${Math.round((100 * u.hp) / u.maxHp)}% hp`
+          );
         }
         if (d < nearestD) {
           nearestD = d;
@@ -254,14 +300,18 @@ export class JevController {
       hp_percent: Math.round((100 * hero.hp) / hero.maxHp),
       status: this.heroStatus(hero),
       sector: positionToSector(hero.position),
-      current_order: hero.command ? `${this.describeCommand(hero.command)} (from ${hero.commandSource})` : 'none',
+      current_order: hero.command
+        ? `${this.describeCommand(hero.command)} (from ${hero.commandSource})`
+        : 'none',
       strategic_order: hero.lastLlmCommand ? this.describeCommand(hero.lastLlmCommand) : 'none',
       allies_nearby: allies,
       allies_fleeing: alliesFleeing,
       allies_average_courage: allies ? Math.round(allyCourage / allies) : 0,
       enemies_nearby: enemies,
       enemies_fleeing: enemiesFleeing,
-      nearest_enemy: nearest ? `${Math.round(nearestD)} tiles ${this.direction(hero, nearest)}` : 'none in sight',
+      nearest_enemy: nearest
+        ? `${Math.round(nearestD)} tiles ${this.direction(hero, nearest)}`
+        : 'none in sight',
       enemy_heroes_nearby: enemyHeroes.length ? enemyHeroes : 'none',
       local_map: this.localMap(hero),
     };
@@ -287,47 +337,75 @@ export class JevController {
     for (let cy = hy - half; cy <= hy + half; cy++) {
       let line = '';
       for (let cx = hx - half; cx <= hx + half; cx++) {
-        if (cx === hx && cy === hy) { line += 'H'; continue; }
+        if (cx === hx && cy === hy) {
+          line += 'H';
+          continue;
+        }
         const x = cx * MAP_CELL;
         const y = cy * MAP_CELL;
-        if (x < 0 || y < 0 || x >= GRID_SIZE || y >= GRID_SIZE) { line += '#'; continue; }
+        if (x < 0 || y < 0 || x >= GRID_SIZE || y >= GRID_SIZE) {
+          line += '#';
+          continue;
+        }
         const mark = marks.get(cy * 1000 + cx);
-        if (mark) { line += mark; continue; }
+        if (mark) {
+          line += mark;
+          continue;
+        }
         const t = grid[y][x];
-        line += t === TerrainType.MOUNTAIN ? 'M' : t === TerrainType.FOREST ? 'f' : t === TerrainType.SWAMP ? 's' : '.';
+        line +=
+          t === TerrainType.MOUNTAIN
+            ? 'M'
+            : t === TerrainType.FOREST
+              ? 'f'
+              : t === TerrainType.SWAMP
+                ? 's'
+                : '.';
       }
       rows.push(line);
     }
     return {
-      legend: 'H this hero, e enemy, a ally, M mountain (impassable), f forest (slow, less sight), s swamp (very slow), . open, # map edge; north is up',
+      legend:
+        'H this hero, e enemy, a ally, M mountain (impassable), f forest (slow, less sight), s swamp (very slow), . open, # map edge; north is up',
       rows,
     };
   }
 
   private heroStatus(hero: IHero): string {
     switch (hero.state) {
-      case BehaviorState.ATTACK: return 'fighting';
-      case BehaviorState.FLEE: return 'retreating (survival reflex)';
-      case BehaviorState.REST: return 'resting to heal';
-      default: return hero.path.length > 0 ? 'moving' : 'standing';
+      case BehaviorState.ATTACK:
+        return 'fighting';
+      case BehaviorState.FLEE:
+        return 'retreating (survival reflex)';
+      case BehaviorState.REST:
+        return 'resting to heal';
+      default:
+        return hero.path.length > 0 ? 'moving' : 'standing';
     }
   }
 
   private describeCommand(c: HeroCommand): string {
     switch (c.type) {
-      case 'move': return `move to sector ${positionToSector(c.target)}`;
-      case 'hold': return `hold position in sector ${positionToSector(c.at)}`;
-      case 'retreat': return 'retreat';
-      case 'attack': return 'attack the nearest enemy';
-      case 'attackHero': return `attack enemy hero ${c.heroIndex}`;
-      case 'continueLlm': return 'follow the strategic order';
+      case 'move':
+        return `move to sector ${positionToSector(c.target)}`;
+      case 'hold':
+        return `hold position in sector ${positionToSector(c.at)}`;
+      case 'retreat':
+        return 'retreat';
+      case 'attack':
+        return 'attack the nearest enemy';
+      case 'attackHero':
+        return `attack enemy hero ${c.heroIndex}`;
+      case 'continueLlm':
+        return 'follow the strategic order';
     }
   }
 
   private direction(from: IUnit, to: IUnit): string {
     const dx = to.position.x - from.position.x;
     const dy = to.position.y - from.position.y;
-    const idx = Math.round(((Math.atan2(dy, dx) + 2 * Math.PI) % (2 * Math.PI)) / (Math.PI / 4)) % 8;
+    const idx =
+      Math.round(((Math.atan2(dy, dx) + 2 * Math.PI) % (2 * Math.PI)) / (Math.PI / 4)) % 8;
     return `to the ${DIRS[idx]}`;
   }
 

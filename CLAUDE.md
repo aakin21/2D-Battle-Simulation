@@ -2,6 +2,39 @@
 
 This is a thesis project. Phase 1 (baseline simulation, commit `5a96495`) is a finished checkpoint; Phase 2 adds AI integration (see `THESIS_DOCUMENTATION.md`).
 
+## Architecture
+
+Browser app (TypeScript + Vite + Canvas). Each folder has its own `CLAUDE.md` with details.
+
+| Folder | Role |
+|---|---|
+| `src/engine/` | Simulation: rules, courage, movement, combat, hero commands, match end |
+| `src/ai/` | AI layers that command heroes: Jev (tactical, layer 2) and the LLM (strategic, layer 3) |
+| `src/state/` | Battlefield data, spawning, unit lookup, saved maps |
+| `src/rendering/` | Canvas drawing, minimap, visual effects |
+| `src/ui/` | Menu, controls, mouse and keyboard input |
+| `src/types/` | Shared types and constants |
+| `src/maps/` | The fixed map (D5) |
+| `server/` | Dev-server only: the LLM endpoint (`/api/llm`) |
+
+The three decision layers (D1): rules every frame (`src/engine`), Jev every ~4 s, LLM every ~20 s (`src/ai`).
+
+## Rules that must not be broken
+
+- **Every hero order goes through `SimulationEngine.issueCommand`** (D20): user clicks, rule heroes, Jev and the LLM alike. Never set `hero.taskPoint` or `hero.command` directly.
+- **Courage is computed only by the engine** (D14). No command or AI layer may change courage or force a fleeing unit to fight.
+- **The rule layer's reflexes come first** (D18): a hero's survival reflex overrides any order.
+- **Classic mode keeps Phase 1 behavior** (D19). Battle-mode changes must be guarded by battle mode.
+- **AI layers only see what their decision needs** (D16): Jev gets a hero's surroundings, the LLM gets the whole map.
+- **API keys never reach the browser** (D7). Keys live in `.env.local` (not committed) and are added server-side.
+
+## Running
+
+- `npm run dev`: the full app, including the Jev proxy and the LLM endpoint.
+- `npm run build`: static build; Jev and the LLM are not available there.
+- Jev needs `TYPESAFE_API_KEY=...` in `.env.local`. The LLM uses the developer's Claude login through the Agent SDK (model: `LLM_MODEL`, default `sonnet`).
+- Formatting: Prettier (`.prettierrc`); lint: `npm run lint`. Run both on files you change.
+
 ## Thesis documentation rule
 
 `THESIS_DOCUMENTATION.md` is the record of the thesis process. Do not update it while a topic is still being discussed. Discuss first; write entries only when the user asks or confirms (e.g. "bunu kaydet"), or at the end of a topic after asking the user.

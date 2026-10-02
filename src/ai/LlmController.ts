@@ -94,7 +94,10 @@ export class LlmController {
       });
       const latencyMs = performance.now() - started;
       if (!res.ok) {
-        this.fail(`HTTP ${res.status}`, res.status === 404 ? 'The LLM only works with the dev server (npm run dev).' : '');
+        this.fail(
+          `HTTP ${res.status}`,
+          res.status === 404 ? 'The LLM only works with the dev server (npm run dev).' : ''
+        );
         return;
       }
       const { text } = (await res.json()) as { text: string };
@@ -108,7 +111,14 @@ export class LlmController {
 
   // Validates the LLM's orders and applies the usable ones through the command interface.
   private apply(time: number, latencyMs: number, text: string): void {
-    const decision: LlmDecision = { time, latencyMs, plan: '', orders: [], rejected: [], raw: text };
+    const decision: LlmDecision = {
+      time,
+      latencyMs,
+      plan: '',
+      orders: [],
+      rejected: [],
+      raw: text,
+    };
     this.decisions.push(decision);
 
     const start = text.indexOf('{');
@@ -139,7 +149,9 @@ export class LlmController {
       }
       // Always issued, even if unchanged: the LLM's latest order wins when it arrives (D15).
       this.engine.issueCommand(hero, command, 'llm');
-      decision.orders.push(`hero ${hero.heroIndex}: ${String(raw.command)}${raw.sector ? ' ' + String(raw.sector) : ''}${raw.target_hero ? ' ' + String(raw.target_hero) : ''}`);
+      decision.orders.push(
+        `hero ${hero.heroIndex}: ${String(raw.command)}${raw.sector ? ' ' + String(raw.sector) : ''}${raw.target_hero ? ' ' + String(raw.target_hero) : ''}`
+      );
     }
   }
 
@@ -151,15 +163,22 @@ export class LlmController {
         return center ? { type: 'move', target: center } : `invalid sector ${String(raw.sector)}`;
       }
       case 'hold':
-        return { type: 'hold', at: { x: Math.floor(hero.position.x), y: Math.floor(hero.position.y) } };
+        return {
+          type: 'hold',
+          at: { x: Math.floor(hero.position.x), y: Math.floor(hero.position.y) },
+        };
       case 'retreat':
         return { type: 'retreat' };
       case 'attack':
         return { type: 'attack' };
       case 'attack_hero': {
         const index = Number(raw.target_hero);
-        const alive = this.stateManager.getHeroes().some((h) => h.faction !== hero.faction && h.heroIndex === index && h.hp > 0);
-        return alive ? { type: 'attackHero', heroIndex: index } : `enemy hero ${String(raw.target_hero)} does not exist or is dead`;
+        const alive = this.stateManager
+          .getHeroes()
+          .some((h) => h.faction !== hero.faction && h.heroIndex === index && h.hp > 0);
+        return alive
+          ? { type: 'attackHero', heroIndex: index }
+          : `enemy hero ${String(raw.target_hero)} does not exist or is dead`;
       }
       default:
         return `unknown command ${String(raw.command)}`;
@@ -169,7 +188,9 @@ export class LlmController {
   private fail(reason: string, hint: string): void {
     this.failed = true;
     if (this.opts.fallbackToRules) for (const hero of this.myHeroes()) hero.controller = 'rule';
-    const what = this.opts.fallbackToRules ? 'enemy heroes switched to rule-based control' : 'strategic layer stopped';
+    const what = this.opts.fallbackToRules
+      ? 'enemy heroes switched to rule-based control'
+      : 'strategic layer stopped';
     console.warn(`LLM unavailable (${reason}); ${what}. ${hint}`);
   }
 
@@ -179,7 +200,14 @@ export class LlmController {
     const units = this.stateManager.getBattlefield().units;
     const mine = (f: Faction) => f === this.faction;
     const perSector = new Map<string, { yours: number; enemy: number }>();
-    const totals = { yours: 0, enemy: 0, yoursFleeing: 0, enemyFleeing: 0, yoursCourage: 0, enemyCourage: 0 };
+    const totals = {
+      yours: 0,
+      enemy: 0,
+      yoursFleeing: 0,
+      enemyFleeing: 0,
+      yoursCourage: 0,
+      enemyCourage: 0,
+    };
 
     for (const u of units) {
       if (u.hp <= 0 || u.unitType === UnitType.HERO) continue;
@@ -215,10 +243,15 @@ export class LlmController {
         .filter((h) => mine(h.faction) && h.hp > 0)
         .map((h) => ({
           ...heroInfo(h),
-          current_order: h.command ? `${this.describe(h.command)} (from ${h.commandSource})` : 'none',
+          current_order: h.command
+            ? `${this.describe(h.command)} (from ${h.commandSource})`
+            : 'none',
           recent_tactical_decisions: this.opts.recentTactical(h.heroIndex),
         })),
-      enemy_heroes: this.stateManager.getHeroes().filter((h) => !mine(h.faction) && h.hp > 0).map(heroInfo),
+      enemy_heroes: this.stateManager
+        .getHeroes()
+        .filter((h) => !mine(h.faction) && h.hp > 0)
+        .map(heroInfo),
       armies: {
         your_soldiers: totals.yours,
         your_soldiers_fleeing: totals.yoursFleeing,
@@ -248,32 +281,47 @@ export class LlmController {
         // A sector counts as mountainous when a third of it is impassable.
         if (counts[TerrainType.MOUNTAIN] > (SECTOR_SIZE * SECTOR_SIZE) / 3) line += 'M';
         else {
-          const top = [TerrainType.OPEN, TerrainType.FOREST, TerrainType.SWAMP].reduce((a, b) => (counts[b] > counts[a] ? b : a));
+          const top = [TerrainType.OPEN, TerrainType.FOREST, TerrainType.SWAMP].reduce((a, b) =>
+            counts[b] > counts[a] ? b : a
+          );
           line += top === TerrainType.FOREST ? 'f' : top === TerrainType.SWAMP ? 's' : '.';
         }
       }
       rows.push(`${r + 1}`.padStart(2) + ' ' + line);
     }
-    return { legend: 'columns A-J west to east; . open, f forest, s swamp, M mostly mountains', rows };
+    return {
+      legend: 'columns A-J west to east; . open, f forest, s swamp, M mostly mountains',
+      rows,
+    };
   }
 
   private status(h: IHero): string {
     switch (h.state) {
-      case BehaviorState.ATTACK: return 'fighting';
-      case BehaviorState.FLEE: return 'retreating';
-      case BehaviorState.REST: return 'resting';
-      default: return h.path.length > 0 ? 'moving' : 'standing';
+      case BehaviorState.ATTACK:
+        return 'fighting';
+      case BehaviorState.FLEE:
+        return 'retreating';
+      case BehaviorState.REST:
+        return 'resting';
+      default:
+        return h.path.length > 0 ? 'moving' : 'standing';
     }
   }
 
   private describe(c: HeroCommand): string {
     switch (c.type) {
-      case 'move': return `move to ${positionToSector(c.target)}`;
-      case 'hold': return `hold in ${positionToSector(c.at)}`;
-      case 'retreat': return 'retreat';
-      case 'attack': return 'attack nearest enemy';
-      case 'attackHero': return `attack enemy hero ${c.heroIndex}`;
-      case 'continueLlm': return 'follow strategic order';
+      case 'move':
+        return `move to ${positionToSector(c.target)}`;
+      case 'hold':
+        return `hold in ${positionToSector(c.at)}`;
+      case 'retreat':
+        return 'retreat';
+      case 'attack':
+        return 'attack nearest enemy';
+      case 'attackHero':
+        return `attack enemy hero ${c.heroIndex}`;
+      case 'continueLlm':
+        return 'follow strategic order';
     }
   }
 }

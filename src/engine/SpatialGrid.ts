@@ -19,7 +19,10 @@ export class SpatialGrid {
     const cy = this.toCell(unit.position.y);
     const k = this.key(cx, cy);
     let cell = this.cells.get(k);
-    if (!cell) { cell = []; this.cells.set(k, cell); }
+    if (!cell) {
+      cell = [];
+      this.cells.set(k, cell);
+    }
     cell.push(unit);
   }
 
@@ -44,12 +47,18 @@ export class SpatialGrid {
     const oldCell = this.cells.get(this.key(ocx, ocy));
     if (oldCell) {
       const idx = oldCell.indexOf(unit);
-      if (idx !== -1) { oldCell[idx] = oldCell[oldCell.length - 1]; oldCell.pop(); }
+      if (idx !== -1) {
+        oldCell[idx] = oldCell[oldCell.length - 1];
+        oldCell.pop();
+      }
     }
 
     const nk = this.key(ncx, ncy);
     let newCell = this.cells.get(nk);
-    if (!newCell) { newCell = []; this.cells.set(nk, newCell); }
+    if (!newCell) {
+      newCell = [];
+      this.cells.set(nk, newCell);
+    }
     newCell.push(unit);
   }
 

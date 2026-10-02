@@ -128,6 +128,7 @@ D1–D4 are the professor's proposals from the 2026-09-30 meeting; D5 onwards ca
 | D21 | 2026-10-02 | Jev layer, first version: what Jev sees, which options it gets, how often it is asked, and what happens on low confidence or errors | See record below | Proposed |
 | D22 | 2026-10-02 | LLM layer, first version: report format, reply format, interval, model, and the opponent options (Rules / Jev / LLM / Jev + LLM) | See record below | Proposed |
 | D23 | 2026-10-02 | Win condition (Battle mode): the side whose units (heroes and soldiers) all die first loses | Simple and unambiguous; every test match ended. See record below | Accepted (2026-10-02) |
+| D24 | 2026-10-02 | Code organization: split the engine into sibling modules, a CLAUDE.md per folder with a root CLAUDE.md for architecture and rules, Prettier and lint clean-up; tests stay outside the repository | Keeps the code readable and the design rules explicit as the AI layers grow. See record below | Accepted (2026-10-02) |
 
 ### Decision records
 
@@ -369,6 +370,15 @@ Each record lists the options we considered, what we chose, and why.
 - **Why:** simple and unambiguous, and needed before any experiment can be run. Objectives (D12) can change this later.
 - **Spawning and patrol with AI:** Battle mode has no waves. Random patrol is only used by the rule-based opponent; heroes commanded by Jev or the LLM only move on AI orders (they fall back to rules only if the AI cannot be reached).
 - **Test (headless, fixed map, 8 matches, west heroes ordered to "attack", east rule-based):** every match ended, after 130–286 s. Hunting down the last few fleeing units took at most ~1 minute. West won 8 of 8: the rule-based opponent (random patrol, charge when an enemy is seen) is a weak baseline.
+
+#### D24: Code organization
+- **Context:** after the AI layers were added, `SimulationEngine.ts` had grown to ~980 lines mixing rules, commands, rule heroes, the reflex and match end, and the design rules (D14, D19, D20) lived only in this document.
+- **Options considered:** (a) leave as is; (b) split the engine into sibling modules; (c) also move the headless tests into the repository; (d) document conventions in one root `CLAUDE.md` or in one per folder.
+- **Chosen:**
+  - **Engine split (b):** `SimulationEngine` stays the owner of the loop; parts move to sibling files in `src/engine/`: `HeroCommands` (command interface, D20), `RuleHeroes`, `HeroReflex` (D18), `GroupPatrol`, `UnitHelpers`. The engine went from ~980 to ~710 lines. Behavior is unchanged: all headless checks were re-run after the split and pass.
+  - **Conventions:** a root `CLAUDE.md` with the architecture, the rules that must not be broken (all orders through `issueCommand`, courage only computed by the engine, reflexes first, Classic keeps Phase 1 behavior, scoped AI inputs, no API keys in the browser) and how to run the project; plus a short `CLAUDE.md` in each folder (`src/engine`, `src/ai`, `src/state`, `src/rendering`, `src/ui`, `server`).
+  - **Formatting:** Prettier and ESLint run on the non-UI code (0 lint warnings). UI files that are being changed in parallel on `main` were left untouched to avoid merge conflicts.
+  - **Tests (c) not chosen:** the headless checks stay outside the repository, by the author's decision.
 
 #### D15: How the LLM and Jev work together
 - **Options:**

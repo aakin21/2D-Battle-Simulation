@@ -44,14 +44,14 @@ export class StateManager {
     );
 
     const presets: Record<TerrainDensity, { forest: number; swamp: number; mountain: number }> = {
-      light:  { forest: 0.15, swamp: 0.08, mountain: 0.05 },
-      normal: { forest: 0.25, swamp: 0.15, mountain: 0.10 },
-      dense:  { forest: 0.32, swamp: 0.20, mountain: 0.14 },
+      light: { forest: 0.15, swamp: 0.08, mountain: 0.05 },
+      normal: { forest: 0.25, swamp: 0.15, mountain: 0.1 },
+      dense: { forest: 0.32, swamp: 0.2, mountain: 0.14 },
     };
     const p = presets[density];
     const totalTiles = GRID_SIZE * GRID_SIZE;
-    this.placeBlobClusters(grid, TerrainType.FOREST,   Math.floor(totalTiles * p.forest),   4, 12);
-    this.placeBlobClusters(grid, TerrainType.SWAMP,    Math.floor(totalTiles * p.swamp),    3, 8);
+    this.placeBlobClusters(grid, TerrainType.FOREST, Math.floor(totalTiles * p.forest), 4, 12);
+    this.placeBlobClusters(grid, TerrainType.SWAMP, Math.floor(totalTiles * p.swamp), 3, 8);
     this.placeBlobClusters(grid, TerrainType.MOUNTAIN, Math.floor(totalTiles * p.mountain), 2, 6);
 
     this.battlefield.grid = grid;
@@ -69,11 +69,16 @@ export class StateManager {
     let totalPlaced = 0;
 
     for (let c = 0; c < numClusters && totalPlaced < targetCount; c++) {
-      let sx = 0, sy = 0, found = false;
+      let sx = 0,
+        sy = 0,
+        found = false;
       for (let attempt = 0; attempt < 300; attempt++) {
         sx = Math.floor(Math.random() * GRID_SIZE);
         sy = Math.floor(Math.random() * GRID_SIZE);
-        if (grid[sy][sx] === TerrainType.OPEN) { found = true; break; }
+        if (grid[sy][sx] === TerrainType.OPEN) {
+          found = true;
+          break;
+        }
       }
       if (!found) continue;
 
@@ -97,9 +102,15 @@ export class StateManager {
         totalPlaced++;
         clusterPlaced++;
 
-        const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+        const dirs = [
+          [1, 0],
+          [-1, 0],
+          [0, 1],
+          [0, -1],
+        ];
         for (const [dx, dy] of dirs) {
-          const nx = x + dx, ny = y + dy;
+          const nx = x + dx,
+            ny = y + dy;
           if (nx < 0 || nx >= GRID_SIZE || ny < 0 || ny >= GRID_SIZE) continue;
           const nk = ny * GRID_SIZE + nx;
           if (!inFrontier.has(nk) && grid[ny][nx] === TerrainType.OPEN) {
@@ -199,9 +210,19 @@ export class StateManager {
   private spawnBattleUnits(config: SimConfig): void {
     const heroCount = Math.max(1, config.heroesPerSide);
     const perHero = Math.floor(config.warriorCount / heroCount);
-    const sides: Array<{ faction: Faction; type: UnitType; x: number; controller: HeroController }> = [
+    const sides: Array<{
+      faction: Faction;
+      type: UnitType;
+      x: number;
+      controller: HeroController;
+    }> = [
       { faction: Faction.FRIENDLY, type: UnitType.WARRIOR, x: 20, controller: 'user' },
-      { faction: Faction.ENEMY, type: UnitType.BERSERKER, x: 129, controller: (config.enemyAI ?? 'none') === 'none' ? 'rule' : 'ai' },
+      {
+        faction: Faction.ENEMY,
+        type: UnitType.BERSERKER,
+        x: 129,
+        controller: (config.enemyAI ?? 'none') === 'none' ? 'rule' : 'ai',
+      },
     ];
 
     for (const side of sides) {
@@ -230,12 +251,20 @@ export class StateManager {
   // Shuffled clear tiles of the main region in a square around (cx, cy). The square grows
   // until it holds at least `needed` tiles. Soldiers keep the default limit so they start
   // within their hero's sight.
-  private clearSpotsAround(cx: number, cy: number, radius: number, needed: number, maxRadius = 12): Position[] {
+  private clearSpotsAround(
+    cx: number,
+    cy: number,
+    radius: number,
+    needed: number,
+    maxRadius = 12
+  ): Position[] {
     let spots: Position[] = [];
     for (let r = radius; r <= maxRadius; r += 2) {
       spots = this.getShuffledPositions(
-        Math.max(1, cx - r), Math.min(GRID_SIZE - 1, cx + r + 1),
-        Math.max(1, cy - r), Math.min(GRID_SIZE - 1, cy + r + 1)
+        Math.max(1, cx - r),
+        Math.min(GRID_SIZE - 1, cx + r + 1),
+        Math.max(1, cy - r),
+        Math.min(GRID_SIZE - 1, cy + r + 1)
       ).filter((p) => this.isInMainRegion(p.x, p.y));
       if (spots.length >= needed) break;
     }
@@ -260,7 +289,13 @@ export class StateManager {
   }
 
   public isClearTile(x: number, y: number): boolean {
-    const dirs = [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]];
+    const dirs = [
+      [0, 0],
+      [1, 0],
+      [-1, 0],
+      [0, 1],
+      [0, -1],
+    ];
     return dirs.every(
       ([dx, dy]) => this.battlefield.grid[y + dy]?.[x + dx] !== TerrainType.MOUNTAIN
     );
@@ -298,7 +333,12 @@ export class StateManager {
         size++;
         const x = k % GRID_SIZE;
         const y = Math.floor(k / GRID_SIZE);
-        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        for (const [dx, dy] of [
+          [1, 0],
+          [-1, 0],
+          [0, 1],
+          [0, -1],
+        ]) {
           const nx = x + dx;
           const ny = y + dy;
           if (nx < 0 || ny < 0 || nx >= GRID_SIZE || ny >= GRID_SIZE) continue;

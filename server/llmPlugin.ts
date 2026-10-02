@@ -125,7 +125,8 @@ export function llmPlugin(): Plugin {
             matchId: string;
             prompt: string;
           };
-          if (!side || !matchId || !prompt) return send(res, 400, { error: 'side, matchId and prompt are required' });
+          if (!side || !matchId || !prompt)
+            return send(res, 400, { error: 'side, matchId and prompt are required' });
 
           let session = sessions.get(side);
           if (!session || session.matchId !== matchId) {
