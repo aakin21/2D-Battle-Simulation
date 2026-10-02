@@ -20,7 +20,7 @@ Effect time is simulation time (`battlefield.elapsedTime`): effects freeze while
 |---|---|---|
 | 0 | Infrastructure | ✅ |
 | 1 | Hit flash | ✅ |
-| 2 | Death animation | ⬜ |
+| 2 | Death animation | ✅ |
 | 3 | Light blood | ⬜ |
 | 4 | Status icons | ⬜ |
 | 5 | Hero aura | ⬜ |
@@ -43,7 +43,9 @@ Effect time is simulation time (`battlefield.elapsedTime`): effects freeze while
 - Verified: white pixels on canvas 331 (FX on) vs 0 (FX off); stress-mode FPS identical to the pre-UI baseline.
 
 ### 2. Death animation
-- The unit fades out over ~0.4 s; a small corpse mark stays for a few seconds.
+- `src/rendering/effects/Corpses.ts`. Over 0.4 s the unit square collapses into a flat body and its color darkens. The body lies on the ground and fades out over the last 1.5 s of a 5 s life (sim time, so it freezes while paused).
+- Max 1500 corpses (pooled); deaths beyond that are not drawn.
+- Performance: lying opaque corpses are batched into one `Path2D` per unit type (3 fills per frame instead of one `fillRect` + `globalAlpha` change per corpse). Before batching, stress mode was 1–3 FPS slower than step 1; after batching it is within measurement noise (uncapped headless: avg ~47 FPS for both).
 
 ### 3. Light blood
 - 2–3 small red particles on hit.

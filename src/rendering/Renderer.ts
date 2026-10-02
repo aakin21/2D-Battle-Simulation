@@ -51,6 +51,7 @@ export class Renderer {
     this.updateEffects(battlefield);
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
     this.drawTerrain();
+    this.effects.drawUnderUnits(this.ctx, this.camera, this.canvas.width, this.canvas.height);
     this.drawCharismaRadius(battlefield.units);
     this.drawUnits(battlefield.units);
     this.drawBars(battlefield.units);
