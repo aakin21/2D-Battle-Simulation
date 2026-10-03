@@ -122,7 +122,7 @@ D1–D4 are the professor's proposals from the 2026-09-30 meeting; D5 onwards ca
 | D15 | 2026-10-01 | LLM and Jev both command heroes (latest command wins); each knows the other's latest decision | Two independent algorithms that do not blindly override each other. See record below | Accepted (2026-10-01) |
 | D16 | 2026-10-01 | Input scope: LLM reads the whole map, Jev reads only each hero's surroundings | Small input keeps Jev fast. See record below | Accepted (2026-10-01) |
 | D17 | 2026-10-01 | Locations are given as a sector grid (e.g. 10×10, A1–J10) | Works without fixed landmarks; fits Jev's option limit. See record below | Accepted (2026-10-01) |
-| D18 | 2026-10-02 | Heroes move at their group's speed, and have a survival reflex (rule layer) | Stops heroes from running ahead alone and dying, which the AI layers are too slow to prevent. See record below | Accepted (2026-10-02) |
+| D18 | 2026-10-02 | Heroes move at their group's speed, and have a survival reflex (rule layer) | Stops heroes from running ahead alone and dying, which the AI layers are too slow to prevent. See record below | Accepted (2026-10-02); reflex part superseded by D34 (2026-10-03) |
 | D19 | 2026-10-02 | Keep the Phase 1 game as "Classic"; add a symmetric "Battle" mode with equal stats on both sides | Nothing that works is lost; equal stats keep AI comparisons fair. See record below | Accepted (2026-10-02) |
 | D20 | 2026-10-02 | Revised command set: move to a sector, hold, retreat, attack, attack an enemy hero, continue the LLM's order; all commands go through one command interface | Flanking has no effect in this simulation (no facing or direction). One entry point for user, Jev and LLM. See record below | Accepted (2026-10-02) |
 | D21 | 2026-10-02 | Jev layer, first version: what Jev sees, which options it gets, how often it is asked, and what happens on low confidence or errors | See record below | Superseded by D26 (2026-10-03) |
@@ -132,11 +132,15 @@ D1–D4 are the professor's proposals from the 2026-09-30 meeting; D5 onwards ca
 | D25 | 2026-10-02 | Unit sprites come from the Ninja Adventure asset pack (CC0) | Free for a public repo, top-down 16×16 with walk and attack animations. See record below and R4 | Accepted (2026-10-02) |
 | D26 | 2026-10-03 | AI inputs v2: complete rulebook for both layers built from the engine's constants, computed summaries instead of raw data, stance and plan memory for the LLM, sub-sector targets, Jev assessments reported to the LLM | Applies R5; fixes the missing rules and repeated decisions seen in the first LLM vs LLM match. See record below | Accepted (2026-10-03) |
 | D27 | 2026-10-03 | Fighting and breaking off: heroes fight what they meet on a move; a different order during a fight breaks off until clear of enemies; repeated orders change nothing | Orders like retreat were ignored while a hero was fighting. See record below | Accepted (2026-10-03) |
-| D28 | 2026-10-03 | Stray soldiers walk back to their side's nearest hero (attack if no heroes are left); new `regroup` order; strays reported to both AI layers as clusters. No time limit: objectives (D12) will create the pressure to act | Leaderless soldiers stood still forever and some matches never ended; the AI had no way to gather scattered soldiers. See record below | Accepted (2026-10-03) |
+| D28 | 2026-10-03 | Stray soldiers walk back to their side's nearest hero (attack if no heroes are left); new `regroup` order; strays reported to both AI layers as clusters. No time limit: objectives (D12) will create the pressure to act | Leaderless soldiers stood still forever and some matches never ended; the AI had no way to gather scattered soldiers. See record below | Accepted (2026-10-03); walking back superseded by D35, "no time limit" superseded by D33 (2026-10-03) |
 | D29 | 2026-10-03 | LLM model selectable per side in the Battle menu: Haiku / Sonnet / Opus | Testing and a possible model comparison in the thesis. See record below | Accepted (2026-10-03) |
-| D30 | 2026-10-03 | Battle objectives as selectable modes: Elimination, Control A-B (majority near a point scores 1 point/s, 300 s match), Base (passive base with 3000 HP); new orders move A/B and attack_base; rulebook and reports per mode | Gives the AI a reason to act instead of waiting (see D28). See record below | Accepted (2026-10-03), implementation in progress |
+| D30 | 2026-10-03 | Battle objectives as selectable modes: Elimination, Control A-B (majority near a point scores 1 point/s, 300 s match), Base (passive base with 3000 HP); new orders move A/B and attack_base; rulebook and reports per mode | Gives the AI a reason to act instead of waiting (see D28). See record below | Accepted (2026-10-03) |
 | D31 | 2026-10-03 | Speed up neighbor queries with an algorithm that gives exactly the same results (finer grid, per-cell faction counts, ring search for the nearest enemy) | Fixes the FPS collapse in dense clusters (P2, R6) without changing any rule; update frequency and approximations were rejected because they change the model. See record below | Accepted (2026-10-03). Numbered D27 on branch `perf/neighbor-queries` until 2026-10-03; renumbered because `phase2/symmetry` uses D27 for another decision |
 | D32 | 2026-10-03 | Pathfinding skips A* when the target lies in a different walkable region than the start (regions labeled once per map) | Fixes the stress-mode drop to ~1 FPS (P3, R8). A* returns "no path" in that case anyway, so results are identical. See record below | Accepted (2026-10-03) |
+| D33 | 2026-10-03 | Elimination and Base matches end after 500 s; the side with more total HP left wins (Control keeps 300 s and points). Time left is shown to both AI layers | 8 of 10 rule-vs-rule elimination matches never ended (both sides idle); experiments need every match to end. See record below | Accepted (2026-10-03) |
+| D34 | 2026-10-03 | Hero survival reflex v2: the hero flees straight away from enemies (not home) until none is in sight; a different order from the user, Jev or the LLM ends the flight; rule-based heroes rest after a flight until their HP is full | Heroes ran back almost to their start position; the AI could not stop a flight. Fewest hero deaths of the variants tested (R9). See record below | Accepted (2026-10-03) |
+| D35 | 2026-10-03 | Stray soldiers stay where they are (and fight enemies in their sight) until a hero collects them with `regroup`; only a side with no heroes left attacks the nearest enemy | Soldiers walking after their hero on their own broke the rule that soldiers follow a hero only within its sight. See record below | Accepted (2026-10-03) |
+| D36 | 2026-10-03 | Battle mode: soldiers spawn at random tiles in their side's area (within 20 columns of the heroes' column, full map height) instead of around the heroes | Collecting soldiers becomes part of the game for the heroes and the AI (D35). See record below | Accepted (2026-10-03) |
 
 ### Decision records
 
@@ -425,10 +429,10 @@ Each record lists the options we considered, what we chose, and why.
 - **Problem:** a soldier with no hero of its side within 15 tiles followed nobody and stood still until an enemy came into sight. After a hero died, its soldiers could wait forever, and some matches never ended (3 of 8 headless matches were still running after 15 minutes). The AI also had no way to gather scattered soldiers: the LLM's "regroup" stance had no matching order and the report did not show where stray soldiers were.
 - **Options considered for ending stalled matches:** (a) leaderless soldiers attack the nearest enemy; (b) a time limit with the winner decided by remaining HP; (c) a side with only fleeing units left loses; (d) leaderless soldiers walk back to their heroes.
 - **Chosen:**
-  - **Stray soldiers walk back toward the nearest hero of their side** and follow it again once within 15 tiles. Only when a side has **no heroes left** do its soldiers attack the nearest enemy, so a battle always moves toward an end. (Option (a) alone was rejected because soldiers marching off to attack cannot be regrouped.)
+  - **Stray soldiers walk back toward the nearest hero of their side** (replaced by D35 on 2026-10-03: strays now wait to be collected) and follow it again once within 15 tiles. Only when a side has **no heroes left** do its soldiers attack the nearest enemy, so a battle always moves toward an end. (Option (a) alone was rejected because soldiers marching off to attack cannot be regrouped.)
   - **New order `regroup`:** the hero walks to the nearest group of its side's stray soldiers (bigger groups preferred); they follow it again and regain the charisma bonus. Available to the LLM and, when strays are within 25 tiles, to Jev.
   - **Strays are reported as clusters, not unit by unit (R5):** code groups strays closer than 6 tiles; the LLM gets the 5 largest clusters per side (place, size, average HP and courage, fleeing) and a count of the rest; Jev gets the clusters within 25 tiles of each hero (size, distance, direction, courage).
-  - **No time limit (option (b) rejected by the author):** the pressure to act should come from objectives (base destruction and area control, D12), which are planned as game modes. Experiment runs will still use a safety cut-off so a batch cannot hang, but that is a test setting, not a game rule.
+  - **No time limit (option (b) rejected by the author; changed by D33 on 2026-10-03):** the pressure to act should come from objectives (base destruction and area control, D12), which are planned as game modes. Experiment runs will still use a safety cut-off so a batch cannot hang, but that is a test setting, not a game rule.
   - Classic mode keeps Phase 1 behavior (D19).
 - **Tested (headless):** 12 teleported strays walked back and all 12 followed a hero again within 25 s; `regroup` targeted the stray cluster and all 12 followed again; with all heroes removed, the soldiers advanced on the enemy (average x 26 → 53 in 20 s); Classic heroless warriors still stand.
 - **Observation behind it:** in a Jev + LLM test the AI waited for the user to make a mistake and attacked only when the user split their army. With equal armies, a compact defender has a courage advantage, so waiting is the rational choice; nothing in the game punishes it yet. This is what D12 is meant to change.
@@ -442,10 +446,10 @@ Each record lists the options we considered, what we chose, and why.
   - **Elimination:** destroy every enemy unit (as before).
   - **Control A-B:** two points, A (north) and B (south), on the centre line. At every moment the side with more non-fleeing units within 8 tiles of a point scores 1 point per second for it. The match lasts 300 s; the side with more points wins (equal points: more total HP). Destroying every enemy unit also wins.
   - **Base:** each side has a passive base (3000 HP) at its start area. Units within 5 tiles of the enemy base hit it with their normal damage when not fighting a unit; bases do not fight back. A destroyed base loses; elimination also wins.
-- **Why:** with only elimination, waiting as a compact group is the rational strategy and both AIs wait (D28 observation). Objectives make waiting costly. A time limit for elimination was rejected in favour of these modes.
+- **Why:** with only elimination, waiting as a compact group is the rational strategy and both AIs wait (D28 observation). Objectives make waiting costly. A time limit for elimination was rejected in favour of these modes (changed by D33: elimination and base now end at 500 s).
 - **AI:** new orders `move A` / `move B` and `attack_base` (base mode). The rulebook explains only the current mode's goal and orders. The LLM report and Jev's state include the objective (control: points, holders, units near each point, scores, time left; base: base HP and attackers nearby). Jev gets `move_to_A` / `move_to_B` / `attack_base` options. When Jev runs without an LLM it now also gets the goal ("you command alone; standing still never wins"), fixing the passive Jev-only behaviour seen in testing.
 - **Rule-based heroes play the objective:** control → hero 1 to A, hero 2 to B, others to the point not held; base → march on the enemy base; all attack enemies in sight.
-- **Status (2026-10-03):** implemented and compiling; first headless check: points placed in the main region and scored. Still to verify: full control and base matches, and the open items in `NEXT_STEPS.md`.
+- **Status (2026-10-03):** implemented and verified headless: control matches end at 300.0 s on points; base matches end when a base falls (10/10, 90–155 s); rule heroes 1 and 2 reach their points (closest approach 0.2–4.5 tiles); the LLM rulebook and report and Jev's state contain the objective. In 10 rule-vs-rule matches per mode: base 6–4, control 5–5 (no side advantage).
 
 #### D15: How the LLM and Jev work together
 - **Options:**
@@ -498,6 +502,7 @@ Each record lists the options we considered, what we chose, and why.
   - Final version: retreat at HP < 50% (resume at 80%), or when enemies ≥ 5 and ≥ 2× allies in sight. The hero moves away from nearby enemies and back toward its own side (its start position).
   - **Measured effect** (headless, fixed map, friendly heroes ordered to attack, 20 matches of 180 s per condition): hero deaths **80/120 without the reflex vs 52/120 with it (35% fewer)**.
   - Most remaining deaths are heroes whose whole army is gone: alone, chased by 60–75 enemies and cornered at the map edge. That is a lost battle, not a reflex failure.
+- **Replaced by D34 (2026-10-03):** the flight no longer goes home, it ends when no enemy is in sight, and an order from the user, Jev or the LLM can end it.
 
 #### D19: Classic and Battle modes, equal stats in Battle
 - **Options:**
@@ -555,6 +560,35 @@ Each record lists the options we considered, what we chose, and why.
 - **Chosen:** (b).
 - **Why:** the result is exactly what A* returns, only the wasted search is skipped. The terrain does not change after the map is generated, so the labels stay valid for the whole match. Reachable targets are searched by A* as before.
 - **Condition for acceptance:** every pathfinding result identical to the original A*, and identical same-seed trajectories (R8).
+
+#### D33: Match time limit
+- **Problem:** with rule-based heroes on both sides, 8 of 10 headless elimination matches were still running after 900 s, all remaining units idle. Rule heroes patrol when they see no enemy, so the armies often never met. Base and control already ended (base destroyed, 300 s).
+- **Chosen:** Elimination and Base end after 500 s (`MATCH_TIME_LIMIT`); the side with more total HP left wins (same tie-break as Control). Control keeps 300 s and points. The control bar shows the seconds left; the LLM report and Jev's state include `seconds_left` in every mode; the rulebook states the limit.
+- **Why:** every match must end, also in experiments (Q11); a limit is simpler than making every behavior guarantee contact. This reverses the "no time limit" part of D28 and the note in D30; the author chose 500 s "for now".
+- **Tested (headless, rule vs rule, 10 matches per mode):** all 30 ended; elimination 10/10 at 500 s on HP (west 6, east 4).
+
+#### D34: Hero survival reflex v2
+- **Problem:** the D18 reflex took the hero away from enemies *and toward its start position*, and ended only when no enemy was in sight or HP was back at 80% (heroes do not heal while fleeing). A chased hero ran almost back to its base. It also overrode every order, so neither Jev nor the LLM could stop it. Measured: in 6 matches the reflex switched on and off 10,816 times within 0.5 s (start and stop used the same "outnumbered" threshold).
+- **Options tested (R9):** (a) short reflex: start only with an enemy within 5 tiles, stop with none within 6; (b) heroes use the soldiers' courage rule (flee at courage ≤ 25), no separate reflex; (c) flee until no enemy is in sight, an order ends it; (d) (c) plus rule heroes rest after a flight.
+- **Chosen:** (d).
+  - Start (unchanged from D18): enemies in sight and HP < 50%, or at least 5 enemies and 2× allies in sight.
+  - The hero moves straight away from the enemies it sees, not home, and sets no task point, so its soldiers keep fighting.
+  - Stop: no enemy in sight. Start needs an enemy in sight and stop needs none, so the reflex cannot flicker.
+  - A **different** order from the user, Jev or the LLM ends the flight; the reflex then stays off for that hero until no enemy is in its sight. Repeating the current order, or a rule-layer order, does not end it.
+  - Rule-based heroes (no AI) rest after a flight until their HP is full; an enemy coming into sight ends the rest. Without this they walked straight back into the fight and fled again.
+- **Why:** (b) was the author's idea (no extra rule for the AI to learn) but measured worst: more hero deaths, longer flights, heavy flickering (R9). (a) needs a new radius. (c)/(d) use only the hero's sight, which the AI already knows, and gave the fewest hero deaths. Letting AI orders end the flight changes the D18 principle "the reflex always comes first": instant safety stays in the rule layer, but what happens next is the commander's decision (layer 2/3). Fleeing soldiers still cannot be ordered back (D14).
+- **Tested (headless):** flight ends only with no enemy in (effective) sight; a rule order keeps it; the same order repeated keeps it; a different Jev order ends it and the reflex stays off; no soldier walked toward its fleeing hero (0 of ~13,000 soldier-frames).
+
+#### D35: Stray soldiers wait to be collected
+- **Problem:** with D28, a soldier left more than 15 tiles from every hero walked after the nearest hero on its own, and once within 15 tiles followed that hero's task point again. The author saw soldiers arriving at a task point although no hero had been near them, which breaks the Phase 1 rule that soldiers follow a hero only within its sight.
+- **Chosen:** a stray stays where it is and fights enemies that come into its sight. A hero collects strays by going to them (`regroup`, D28); they follow it again once it is within 15 tiles. Only when a side has no heroes left do its soldiers attack the nearest enemy, so such a match still ends. Strays are still reported to both AI layers as clusters (D28).
+- **Why:** gathering scattered soldiers should be a decision of the hero's commander, not automatic. Stalled matches no longer need the walk-back because of the time limit (D33).
+- **Tested (headless):** 12 teleported strays stayed in place for 25 s (average distance to the nearest hero 36 → 36); after `regroup` 12/12 followed a hero again; with no heroes left, soldiers advanced (average x 21 → 50 in 20 s); Classic unchanged.
+
+#### D36: Soldiers spawn across their side's area
+- **Chosen:** in battle mode each side's soldiers start at random clear tiles of the main region within 20 columns of its heroes' column (west x 1–40, east x 109–148), over the full map height, instead of within 8 tiles of each hero. Heroes are placed as before.
+- **Why:** author's request: soldiers packed around the heroes made the start artificial. With D35, heroes (and the AI) first have to collect their soldiers.
+- **Effect (headless, 3 spawns):** 150 soldiers per side, no shared tiles; 90–103 of 150 start as strays. 15 rule-vs-rule matches (5 per mode) all ended: elimination 5/5 at 500 s, base 5/5 by a destroyed base (109–262 s), control 5/5 at 300 s.
 
 ---
 
@@ -789,9 +823,31 @@ Exact distance ties were frequent (e.g. ~17,000 in the stress run), mostly from 
 |---|---|---|---|---|
 | Stress, seed 2, ×4 | 375 | 246,247 | 0 | identical |
 
-Only this scenario was run: the full test (classic, classic 1,000 warriors, stress seeds 1–3 at ×1/×2/×4) was stopped at the author's request because it takes 15–20 min. **In the browser** (author, stress mode): FPS close to 100 instead of dropping to ~1.
+Only this scenario was run at first: the full test was stopped at the author's request because it takes 15–20 min. **Full run on 2026-10-03** (on `phase2/symmetry` after merging `perf/neighbor-queries`): ALL PASS, 0 mismatches and identical trajectories in all six scenarios (classic default, classic 1,000 warriors with waves ×4, stress seed 1 ×1, seed 2 ×1 and ×4, seed 3 ×2; 1,359,103 path calls checked). The D31 equivalence test also passed there (classic, classic 1,000 warriors, battle mode, stress; ~10.4 M queries, 0 mismatches). **In the browser** (author, stress mode): FPS close to 100 instead of dropping to ~1.
 
 **Conclusion:** the drop came from repeated failed A* searches toward unreachable targets. D32 removes them with identical results in the tested scenario.
+
+### R9: Hero survival reflex variants (2026-10-03)
+
+**Question:** Which reflex rule keeps heroes alive without sending them far back, and does applying the soldiers' courage rule to heroes work (author's proposal)?
+
+**Setup:** Node.js headless, fixed map, battle mode, rule-based heroes on both sides (3 per side), 12 matches per variant (4 each of elimination, base, control), up to 500 s. Random numbers not seeded, so runs differ. Measured: hero deaths (of 72), flights shorter than 0.5 s (on/off switching), and for longer flights the distance and duration. Soldiers spawned around heroes and strays still walked back (before D35, D36).
+
+| Variant | Hero deaths / 72 | Flights < 0.5 s | Flight distance, median / p90 (tiles) |
+|---|---|---|---|
+| D18 original (to start position; 6 matches only, deaths not measured) | – | 10,816 | 6.8 / 15.7 |
+| (a) start with enemy ≤ 5 tiles, stop with none ≤ 6 tiles (2 runs) | 32 / 29 | 307 / 207 | 2.6 / 3.3 and 2.4 / 3.9 |
+| (b) soldiers' courage rule for heroes (2 runs) | 38 / 44 | 5,449 / 3,849 | 10.6 / 23.6 and 6.9 / 20.1 |
+| (c) until no enemy in sight, orders end it | 21 | 20,632 | 4.3 / 13.5 |
+| (d) = (c) + rule heroes rest after a flight | **17** | 8,570 | 4.0 / 14.7 |
+
+**Findings:**
+- ✅ (b) is worst on every measure: a hero needs both wounds and a bad ally share to reach courage 25, so it flees late (more deaths); it stops only with no enemy in sight or courage above 25, so it runs far; start and stop share one threshold, so it flickers.
+- ✅ (c) and (d) give the fewest hero deaths.
+- ⚠️ The short flights in (c) and (d) are mostly a loop of rule heroes: flee until no enemy is in sight, resume the attack order, see the enemy, flee again. Resting after a flight (d) halves it; the rest are probably full-HP heroes fleeing because outnumbered (not measured separately). AI-commanded heroes can break the loop with a different order.
+- ⚠️ Small samples (12 matches per variant), unseeded; the death counts differ by several between runs of the same variant.
+
+**Conclusion:** adopted (d) as D34. Heroes do not use the soldiers' courage rule.
 
 ---
 

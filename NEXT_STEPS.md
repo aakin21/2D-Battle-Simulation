@@ -15,14 +15,16 @@ Read `CLAUDE.md` (architecture, rules that must not be broken) and `THESIS_DOCUM
   `npx esbuild <file>.ts --bundle --platform=node --outfile=<file>.cjs` and run it with node.
 - Jev key: `.env.local` (git-ignored). Restart `npm run dev` after changing it.
 
-## Just done (D30, needs checking)
-- Objectives: Elimination / Control A-B / Base, selectable in the Battle menu.
-- Battle menu now also shows soldiers per side and terrain (wave setting hidden).
-- Verified so far: control points placed in the main region and points scored.
+## Just done (2026-10-03, see the thesis log)
+- D30 verified headless (control ends at 300 s, base ends when a base falls, rule heroes play
+  the objective).
+- D33 match time limit (elimination and base: 500 s, more total HP wins), D34 hero reflex v2
+  (flee until no enemy in sight, AI/user orders end it, rule heroes rest after), D35 strays wait
+  to be collected, D36 soldiers spawn across their side's area. Measurements in R9.
+- `perf/neighbor-queries` (D31, D32) merged; both equivalence tests ALL PASS (R8).
 
 ## Open items, in order
-1. **Finish verifying D30** (headless): a full control match ends at 300 s on points; a base
-   match ends when a base falls; rule heroes go to points / the enemy base.
+1. **Real tests by the author** of D33–D36 with Jev and the LLM (see item 6).
 2. **Exact objective positions for the AI** (author request): add exact tile coordinates
    (x, y) of points A/B and of both bases to the LLM report (`LlmController.objectiveReport`)
    and Jev's state (`JevController.objectiveState`), next to the sub-sector names. Also show
@@ -30,12 +32,9 @@ Read `CLAUDE.md` (architecture, rules that must not be broken) and `THESIS_DOCUM
 3. **Rulebook per mode** (author request): check `src/ai/GameRules.ts` explains only the
    current mode (goal, orders, scoring). It already uses `goalText(objective)` and
    `objectiveOrders(objective)`; make sure nothing about other modes leaks in.
-4. **Elimination stalemates:** 3 of 8 headless elimination matches (west heroes ordered to
-   attack, east rule heroes) did not end in 900 s, e.g. "west 53 idle vs east 111 idle" and
-   "west 1 fleeing vs east 55 idle". Find out why both sides stand (heroes alive? unreachable
-   attack targets? fleeing unit faster than chasers). Objective modes reduce the impact but
-   elimination should still finish.
-5. **Courage bug P2:** log in the Problems log that battle-mode enemy soldiers started with
+4. ~~Elimination stalemates~~: solved by the time limit (D33); rule heroes still often never
+   meet in elimination (all 10 test matches ended on time).
+5. **Courage bug (next free ID: P4; P2 and P3 are taken):** log in the Problems log that battle-mode enemy soldiers started with
    berserker courage 100 instead of 70 (fixed in commit 0fa3310); it affected the numbers in
    D18 (reflex), D23 (win test) and the first LLM vs LLM match (D3). Re-measure and update.
 6. **Real tests by the author** (port of `npm run dev`): Jev only, Jev + LLM, each objective;

@@ -25,7 +25,7 @@ The three decision layers (D1): rules every frame (`src/engine`), Jev every ~4 s
 
 - **Every hero order goes through `SimulationEngine.issueCommand`** (D20): user clicks, rule heroes, Jev and the LLM alike. Never set `hero.taskPoint` or `hero.command` directly.
 - **Courage is computed only by the engine** (D14). No command or AI layer may change courage or force a fleeing unit to fight.
-- **The rule layer's reflexes come first** (D18): a hero's survival reflex overrides any order.
+- **The rule layer's reflexes come first** (D18, D34): a hero's survival reflex overrides rule-layer orders; only a different order from the user, Jev or the LLM can end a flight. Fleeing soldiers can never be ordered back (D14).
 - **Classic mode keeps Phase 1 behavior** (D19). Battle-mode changes must be guarded by battle mode.
 - **AI layers only see what their decision needs** (D16): Jev gets a hero's surroundings, the LLM gets the whole map.
 - **API keys never reach the browser** (D7). Keys live in `.env.local` (not committed) and are added server-side.
