@@ -1,15 +1,13 @@
 import { BehaviorState, Camera, IUnit, UnitType } from '../../types/types';
 
 // Small icons above units: "!" while fleeing, "z" while resting.
-// Shown only when zoomed in enough for them to be readable; below that zoom the
-// whole pass is skipped. Icons are pre-rendered glyph sprites (fillText per unit
-// per frame would be much slower). Animation uses sim time, so it freezes on pause.
+// Shown at every zoom; the icon scales with the unit so it never dwarfs it when zoomed
+// out. Icons are pre-rendered glyph sprites (fillText per unit per frame would be much
+// slower). Animation uses sim time, so it freezes on pause.
 
-// Minimum zoom (px per tile) for icons; units are 2·zoom px wide
-const MIN_ZOOM = 9;
-// Icon height as a fraction of zoom, clamped to a readable range in px
+// Icon height as a fraction of zoom (units are 2·zoom px wide), clamped in px
 const ICON_SCALE = 1.4;
-const ICON_MIN_PX = 16;
+const ICON_MIN_PX = 7;
 const ICON_MAX_PX = 30;
 
 const GLYPH_PX = 48; // sprite resolution
@@ -56,7 +54,6 @@ export class StatusIcons {
     simTime: number
   ): void {
     const { x: camX, y: camY, zoom } = camera;
-    if (zoom < MIN_ZOOM) return;
     this.prepare();
 
     const icon = Math.min(ICON_MAX_PX, Math.max(ICON_MIN_PX, zoom * ICON_SCALE));

@@ -20,9 +20,6 @@ import heroTenguUrl from '../assets/sprites/hero_tengu.png';
 // silhouette (hit flash) and a darkened copy (corpses), all built once at load time.
 
 export const FRAME = 16;
-// Below this zoom (px per tile; units are 2·zoom px) units stay squares: sprites would be
-// too small to read and there would be many more of them on screen
-export const SPRITE_MIN_ZOOM = 9;
 export const COL_LEFT = 2;
 export const COL_RIGHT = 3;
 export const WALK_FRAMES = 4;
