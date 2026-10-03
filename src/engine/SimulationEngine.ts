@@ -281,7 +281,7 @@ export class SimulationEngine {
     const hpLostFraction = 1 - unit.hp / unit.maxHp;
     const woundedPenalty = -Math.floor(hpLostFraction / WOUND_STEP) * WOUND_PENALTY;
 
-    // Living units in sight per faction, the unit itself included (D27: same counts as a
+    // Living units in sight per faction, the unit itself included (D31: same counts as a
     // full scan, computed from per-cell counters)
     const sight = effectiveSight(this.stateManager, unit);
     const counts = this.factionCounts;

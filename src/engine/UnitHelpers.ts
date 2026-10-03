@@ -23,7 +23,7 @@ export function effectiveSight(sm: StateManager, unit: IUnit): number {
   return unit.sight * (TERRAIN_SIGHT[TerrainType[terrain]] ?? 1.0);
 }
 
-// Nearest living enemy within the unit's sight. Uses the fast ring search (D27); only
+// Nearest living enemy within the unit's sight. Uses the fast ring search (D31); only
 // when several enemies are at exactly the same distance does it fall back to the full scan
 // below, whose order picks the same enemy as the original code.
 export function findNearestEnemy(sm: StateManager, unit: IUnit): IUnit | null {
