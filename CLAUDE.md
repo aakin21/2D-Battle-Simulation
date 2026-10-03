@@ -15,6 +15,7 @@ Browser app (TypeScript + Vite + Canvas). Each folder has its own `CLAUDE.md` wi
 | `src/ui/` | Menu, controls, mouse and keyboard input |
 | `src/types/` | Shared types and constants |
 | `src/maps/` | The fixed map (D5) |
+| `src/assets/` | Unit sprite sheets (CC0, D25) |
 | `server/` | Dev-server only: the LLM endpoint (`/api/llm`) |
 
 The three decision layers (D1): rules every frame (`src/engine`), Jev every ~4 s, LLM every ~20 s (`src/ai`).

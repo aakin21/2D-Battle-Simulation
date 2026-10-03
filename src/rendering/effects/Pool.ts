@@ -31,6 +31,10 @@ export class Pool<T> {
     }
   }
 
+  forEach(fn: (item: T) => void): void {
+    for (let i = 0; i < this.active; i++) fn(this.items[i]);
+  }
+
   clear(): void {
     this.active = 0;
   }
@@ -57,6 +61,12 @@ export class RingBuffer<T> {
     this.head = (this.head + 1) % this.items.length;
     if (this.count < this.items.length) this.count++;
     return item;
+  }
+
+  // i = 0 is the oldest entry; valid for 0 <= i < size
+  get(i: number): T {
+    const cap = this.items.length;
+    return this.items[(this.head - this.count + i + cap * 2) % cap];
   }
 
   forEach(fn: (item: T) => void): void {

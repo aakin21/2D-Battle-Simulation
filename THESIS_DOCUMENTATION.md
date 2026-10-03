@@ -129,6 +129,7 @@ D1–D4 are the professor's proposals from the 2026-09-30 meeting; D5 onwards ca
 | D22 | 2026-10-02 | LLM layer, first version: report format, reply format, interval, model, and the opponent options (Rules / Jev / LLM / Jev + LLM) | See record below | Proposed |
 | D23 | 2026-10-02 | Win condition (Battle mode): the side whose units (heroes and soldiers) all die first loses | Simple and unambiguous; every test match ended. See record below | Accepted (2026-10-02) |
 | D24 | 2026-10-02 | Code organization: split the engine into sibling modules, a CLAUDE.md per folder with a root CLAUDE.md for architecture and rules, Prettier and lint clean-up; tests stay outside the repository | Keeps the code readable and the design rules explicit as the AI layers grow. See record below | Accepted (2026-10-02) |
+| D25 | 2026-10-02 | Unit sprites come from the Ninja Adventure asset pack (CC0) | Free for a public repo, top-down 16×16 with walk and attack animations. See record below and R4 | Accepted (2026-10-02) |
 
 ### Decision records
 
@@ -449,6 +450,23 @@ Each record lists the options we considered, what we chose, and why.
   - **Both sides use the same unit stats** (warrior values). Then the result depends only on how each side is commanded, which keeps AI comparisons fair. Classic mode keeps its original stats.
 - **Implementation:** commit `dfc0df3` (branch `phase2/symmetry`). Headless test: soldiers stay 1–2 tiles from their hero; the hero reflex (D18) triggered 20 times in a 240 s battle with no hero deaths; spawning checked on 600 random maps.
 
+
+#### D25: Sprite pack for units
+- **Context:** Visual polish work on the renderer (hit flash, death animation, blood, status icons, hero aura, sprites, loading screen), tracked in `UI_PLAN.md`. All of it is rendering-only: the simulation engine is not changed, and every effect can be switched off (FX toggle) so measurements stay comparable with Phase 1.
+- **Need:** one sprite each for warriors and berserkers, plus 6 hero sprites (3 per side, see D13).
+- **Options (see R4):**
+  - (a) Ninja Adventure (Pixel-boy), CC0
+  - (b) Tiny Swords (Pixel Frog), free but not CC0
+  - (c) Kenney Tiny Dungeon / Roguelike Characters, CC0
+  - (d) draw simple sprites in code
+- **Chosen:** (a).
+- **Why:**
+  - CC0: the files can go into the public GitHub repo and the public demo with no license risk. Tiny Swords forbids redistributing the files, which a public repo would do.
+  - Top-down view and 16×16 size fit the map. At full-map zoom units are only 10 px, so large art (Tiny Swords, 192 px) would lose its detail anyway.
+  - Includes walk and attack animations; Kenney's characters are static.
+  - Team colors are applied by tinting when the sprites are loaded, so characters are chosen by silhouette, not color.
+- **Note:** At full-map zoom units stay squares; sprites are drawn only when zoomed in (performance and readability).
+
 ---
 
 ## Research log
@@ -549,6 +567,32 @@ Each record lists the options we considered, what we chose, and why.
 **Conclusion:** The proxy is free on the Hobby plan; Jev costs a few dollars per month at most.
 
 **Sources:** [Vercel pricing](https://vercel.com/pricing), [Jev models and pricing](https://docs.typesafe.ai/models.md)
+
+
+### R4: Sprite packs for units (2026-10-02)
+
+**Question:** Which free pixel art pack fits the simulation's units (top-down, small size, animated) and can be used in a public repository?
+
+| Pack | License | Style | Animations | Issue |
+|---|---|---|---|---|
+| Ninja Adventure (Pixel-boy) | CC0 | Top-down, 16×16, 50+ characters, 30+ monsters | Walk, attack, special poses | Ninja/samurai theme |
+| Tiny Swords (Pixel Frog) | Free for personal and commercial use; **no redistribution** of the files | 192 px characters, faction colors included | Yes | Public repo = redistribution; detail lost at 10–20 px |
+| Kenney Tiny Dungeon / Roguelike Characters | CC0 | 16×16 | None (static) | No animation |
+| Drawn in code | n/a | Matches current square style | Any | Less polished |
+
+**Format check (Ninja Adventure):** three character sheets from the official example repository were downloaded and inspected. Each is a 64×112 PNG: 4 columns (facing down, up, left, right) × 7 rows of 16×16 frames (idle, 4-frame walk, attack, special poses). Only left/right are needed; left can be a mirror of right.
+
+**Findings:**
+- ✅ Ninja Adventure is CC0, top-down and animated: the only option that meets all three needs.
+- ⚠️ Tiny Swords looks best, but its license forbids redistributing the files.
+- ⚠️ Licenses are as stated on the pack pages (2026-10-02).
+
+**Conclusion:** Ninja Adventure (D25).
+
+**Sources:**
+- [Ninja Adventure Asset Pack](https://pixel-boy.itch.io/ninja-adventure-asset-pack), [example repository](https://github.com/pixel-boy/NinjaAdventure)
+- [Tiny Swords](https://pixelfrog-assets.itch.io/tiny-swords)
+- [Kenney Tiny Dungeon](https://kenney.nl/assets/tiny-dungeon), [Kenney Roguelike Characters](https://kenney.nl/assets/roguelike-characters)
 
 ---
 

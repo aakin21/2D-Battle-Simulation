@@ -4,6 +4,7 @@
 |---|---|
 | `UIController.ts` | Main menu (Default / Custom / Stress / Battle, map choice, who commands each side, AI timing), control bar, info panel, tooltip, saved settings, match result, attaching AI controllers |
 | `InputHandler.ts` | Mouse and keyboard events (click, drag, scroll, shortcuts) |
+| `LoadingScreen.ts` | "Building simulation" overlay after Start; the run stays paused behind it and shortcuts are ignored while it is shown |
 
 ## Conventions
 
