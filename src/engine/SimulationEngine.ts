@@ -163,7 +163,7 @@ export class SimulationEngine {
     const hpLostFraction = 1 - unit.hp / unit.maxHp;
     const woundedPenalty = -Math.floor(hpLostFraction / 0.2) * 10;
 
-    // Living units in sight per faction, the unit itself included (D27: same counts as a
+    // Living units in sight per faction, the unit itself included (D31: same counts as a
     // full scan, computed from per-cell counters)
     const sight = this.effectiveSight(unit);
     const counts = this.factionCounts;
@@ -192,7 +192,7 @@ export class SimulationEngine {
     unit.courage = Math.max(0, Math.min(100, base + woundedPenalty + ratioModifier + heroBonus));
   }
 
-  // Nearest living enemy within the unit's sight. Uses the fast ring search (D27); only
+  // Nearest living enemy within the unit's sight. Uses the fast ring search (D31); only
   // when several enemies are at exactly the same distance does it fall back to the full scan
   // below, whose order picks the same enemy as the original code.
   private findNearestEnemy(unit: IUnit): IUnit | null {
