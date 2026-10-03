@@ -55,7 +55,78 @@ class MinHeap {
   }
 }
 
+const NO_REGION = -1;
+const DIRS4 = [
+  [1, 0],
+  [-1, 0],
+  [0, 1],
+  [0, -1],
+] as const;
+
 export class Pathfinder {
+  // Walkable region id per tile (NO_REGION for blocked tiles), computed once per grid.
+  // The grid is never modified after the map is generated.
+  private static regionCache = new WeakMap<TerrainType[][], Int32Array>();
+
+  private static regions(grid: TerrainType[][]): Int32Array {
+    let regions = Pathfinder.regionCache.get(grid);
+    if (regions) return regions;
+    regions = new Int32Array(GRID_SIZE * GRID_SIZE).fill(NO_REGION);
+    const stack: number[] = [];
+    let next = 0;
+    for (let i = 0; i < regions.length; i++) {
+      if (regions[i] !== NO_REGION) continue;
+      const x0 = i % GRID_SIZE;
+      const y0 = (i - x0) / GRID_SIZE;
+      if (Pathfinder.isBlocked(grid, x0, y0)) continue;
+      // Flood fill with the same moves A* uses
+      regions[i] = next;
+      stack.push(i);
+      while (stack.length > 0) {
+        const k = stack.pop()!;
+        const x = k % GRID_SIZE;
+        const y = (k - x) / GRID_SIZE;
+        for (const [dx, dy] of DIRS4) {
+          const nx = x + dx;
+          const ny = y + dy;
+          if (nx < 0 || nx >= GRID_SIZE || ny < 0 || ny >= GRID_SIZE) continue;
+          const nk = ny * GRID_SIZE + nx;
+          if (regions[nk] !== NO_REGION || Pathfinder.isBlocked(grid, nx, ny)) continue;
+          regions[nk] = next;
+          stack.push(nk);
+        }
+      }
+      next++;
+    }
+    Pathfinder.regionCache.set(grid, regions);
+    return regions;
+  }
+
+  // True if A* from the start tile can reach the (unblocked) end tile. The start tile
+  // itself may be blocked (see findPath); A* then continues from its unblocked neighbours.
+  private static sameRegion(
+    grid: TerrainType[][],
+    sx: number,
+    sy: number,
+    ex: number,
+    ey: number
+  ): boolean {
+    if (ex < 0 || ex >= GRID_SIZE || ey < 0 || ey >= GRID_SIZE) return false;
+    const regions = Pathfinder.regions(grid);
+    const goal = regions[ey * GRID_SIZE + ex];
+    const inGrid = (x: number, y: number): boolean =>
+      x >= 0 && x < GRID_SIZE && y >= 0 && y < GRID_SIZE;
+    if (inGrid(sx, sy) && !Pathfinder.isBlocked(grid, sx, sy)) {
+      return regions[sy * GRID_SIZE + sx] === goal;
+    }
+    for (const [dx, dy] of DIRS4) {
+      const nx = sx + dx;
+      const ny = sy + dy;
+      if (inGrid(nx, ny) && regions[ny * GRID_SIZE + nx] === goal) return true;
+    }
+    return false;
+  }
+
   static findPath(grid: TerrainType[][], start: Position, end: Position): Position[] {
     const sx = Math.floor(start.x);
     const sy = Math.floor(start.y);
@@ -67,6 +138,9 @@ export class Pathfinder {
     // by definition. Checking it would cause A* to return [] when the unit is
     // adjacent to a mountain, permanently locking it in place.
     if (Pathfinder.isBlocked(grid, ex, ey)) return [];
+    // A target in another walkable region cannot be reached: A* would explore the whole
+    // start region and return []. Return [] at once (same result, no search).
+    if (!Pathfinder.sameRegion(grid, sx, sy, ex, ey)) return [];
 
     const key = (x: number, y: number): number => y * GRID_SIZE + x;
     const heuristic = (x: number, y: number): number => Math.abs(x - ex) + Math.abs(y - ey);
