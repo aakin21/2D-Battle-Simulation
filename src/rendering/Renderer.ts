@@ -14,6 +14,7 @@ import {
   Position,
 } from '../types/types';
 import { EffectsManager } from './effects/EffectsManager';
+import { CONTROL_RADIUS, BASE_RADIUS } from '../engine/Rules';
 import {
   UnitSprites,
   FRAME,
@@ -86,6 +87,7 @@ export class Renderer {
     this.updateEffects(battlefield);
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
     this.drawTerrain();
+    this.drawObjectives(battlefield);
     this.spriteMode = this.decideSpriteMode(battlefield.units);
     this.effects.setSpriteMode(this.spriteMode);
     this.effects.drawUnderUnits(
@@ -439,6 +441,56 @@ export class Renderer {
   }
 
   // Draws an X marker at each hero's current task point (enemy heroes in their own colour).
+  // D30: control points (circle in the colour of the side holding it) and bases (square with
+  // an HP bar), drawn on the ground under the units.
+  private drawObjectives(battlefield: IBattlefield): void {
+    const o = battlefield.objective;
+    const { x: camX, y: camY, zoom } = this.camera;
+    const sideColor = (f: Faction | null) =>
+      f === Faction.FRIENDLY ? '255, 80, 80' : f === Faction.ENEMY ? '0, 229, 255' : '220, 220, 220';
+
+    for (const p of o.points) {
+      const sx = (p.position.x + 0.5 - camX) * zoom;
+      const sy = (p.position.y + 0.5 - camY) * zoom;
+      const r = CONTROL_RADIUS * zoom;
+      if (sx + r < 0 || sx - r > this.canvas.width || sy + r < 0 || sy - r > this.canvas.height) continue;
+      const c = sideColor(p.holder);
+      this.ctx.beginPath();
+      this.ctx.arc(sx, sy, r, 0, Math.PI * 2);
+      this.ctx.fillStyle = `rgba(${c}, 0.12)`;
+      this.ctx.fill();
+      this.ctx.strokeStyle = `rgba(${c}, 0.8)`;
+      this.ctx.lineWidth = 2;
+      this.ctx.stroke();
+      this.ctx.fillStyle = `rgba(${c}, 0.95)`;
+      this.ctx.font = `bold ${Math.max(12, zoom * 2.5)}px monospace`;
+      this.ctx.textAlign = 'center';
+      this.ctx.textBaseline = 'middle';
+      this.ctx.fillText(p.name, sx, sy);
+      this.ctx.textAlign = 'start';
+      this.ctx.textBaseline = 'alphabetic';
+    }
+
+    for (const b of o.bases) {
+      const half = BASE_RADIUS * zoom;
+      const sx = (b.position.x + 0.5 - camX) * zoom;
+      const sy = (b.position.y + 0.5 - camY) * zoom;
+      if (sx + half < 0 || sx - half > this.canvas.width || sy + half < 0 || sy - half > this.canvas.height)
+        continue;
+      const c = sideColor(b.faction);
+      this.ctx.fillStyle = b.hp > 0 ? `rgba(${c}, 0.35)` : 'rgba(60, 60, 60, 0.5)';
+      this.ctx.fillRect(sx - half, sy - half, half * 2, half * 2);
+      this.ctx.strokeStyle = `rgba(${c}, 0.9)`;
+      this.ctx.lineWidth = 2;
+      this.ctx.strokeRect(sx - half, sy - half, half * 2, half * 2);
+      const barH = Math.max(3, zoom * 0.5);
+      this.ctx.fillStyle = '#550000';
+      this.ctx.fillRect(sx - half, sy - half - barH - 2, half * 2, barH);
+      this.ctx.fillStyle = '#00cc44';
+      this.ctx.fillRect(sx - half, sy - half - barH - 2, half * 2 * (b.hp / b.maxHp), barH);
+    }
+  }
+
   private drawTaskPoint(units: IUnit[]): void {
     const { x: camX, y: camY, zoom } = this.camera;
     const half = Math.max(5, zoom * 0.7);

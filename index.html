@@ -500,11 +500,11 @@
 
     <div id="menu-config" class="locked">
       <div class="cfg-row">
-        <label>Warriors</label>
+        <label id="cfg-warriors-label">Warriors</label>
         <input type="range" id="cfg-warriors" min="0" max="2000" step="1" value="300">
         <input type="number" id="cfg-warriors-num" min="0" max="2000" value="300">
       </div>
-      <div class="cfg-row">
+      <div class="cfg-row" id="cfg-wave-row">
         <label>Wave ×</label>
         <input type="range" id="cfg-wave-slider" min="0.5" max="10" step="0.5" value="1">
         <span class="cfg-val" id="cfg-wave-val">1×</span>
@@ -525,8 +525,16 @@
     </div>
 
     <div id="battle-info" style="display:none;">
-      3 heroes + 150 soldiers per side · no waves<br>
+      3 heroes per side · soldiers per side and terrain above · no waves<br>
       Select one of your heroes, right-click to command it
+      <div class="cfg-row" style="justify-content:center;">
+        <label>Objective</label>
+        <div class="cfg-opts" id="cfg-objective">
+          <button data-val="elimination" class="active">Elimination</button>
+          <button data-val="control">Control A-B</button>
+          <button data-val="base">Base</button>
+        </div>
+      </div>
       <div class="cfg-row" style="justify-content:center;">
         <label>West</label>
         <div class="cfg-opts" id="cfg-west">

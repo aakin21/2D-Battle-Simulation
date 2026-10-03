@@ -19,6 +19,7 @@ import {
 import { llmSystemPrompt } from './GameRules';
 import { armyHp, formatRatio, groupStats, localForce } from './Observations';
 import { strayClusters } from '../engine/Strays';
+import { enemyBase, pointCounts } from '../engine/Objectives';
 
 const MAX_STRAY_CLUSTERS = 5;
 
@@ -104,7 +105,8 @@ export class LlmController {
     this.system = llmSystemPrompt(
       this.side,
       this.opts.jevAssessment !== null,
-      this.opts.intervalSec
+      this.opts.intervalSec,
+      stateManager.getBattlefield().objective.mode
     );
   }
 
@@ -250,7 +252,16 @@ export class LlmController {
     switch (raw.command) {
       case 'move': {
         const place = typeof raw.place === 'string' ? raw.place : raw.sector;
-        const target = typeof place === 'string' ? sectorTarget(place) : null;
+        const point = this.stateManager
+          .getBattlefield()
+          .objective.points.find(
+            (p) => typeof place === 'string' && p.name === place.trim().toUpperCase()
+          );
+        const target = point
+          ? point.position
+          : typeof place === 'string'
+            ? sectorTarget(place)
+            : null;
         return target ? { type: 'move', target } : `invalid place ${String(place)}`;
       }
       case 'hold':
@@ -264,6 +275,10 @@ export class LlmController {
         return { type: 'attack' };
       case 'regroup':
         return { type: 'regroup' };
+      case 'attack_base':
+        return enemyBase(this.stateManager, hero.faction)
+          ? { type: 'attackBase' }
+          : 'there is no enemy base in this mode';
       case 'attack_hero': {
         const index = Number(raw.target_hero);
         const alive = this.stateManager
@@ -411,6 +426,7 @@ export class LlmController {
                 ? 'enemy'
                 : 'contested',
         })),
+      objective: this.objectiveReport(),
       terrain_by_sector: this.terrainMap(),
     };
 
@@ -424,6 +440,52 @@ export class LlmController {
     );
     this.events = [];
     return report;
+  }
+
+  // D30: control points (holder, units near, scores, time left) or bases (HP, units near).
+  private objectiveReport(): unknown {
+    const bf = this.stateManager.getBattlefield();
+    const o = bf.objective;
+    const mineF = this.faction;
+    if (o.mode === 'control') {
+      const yours = mineF === Faction.FRIENDLY ? o.scores.friendly : o.scores.enemy;
+      const theirs = mineF === Faction.FRIENDLY ? o.scores.enemy : o.scores.friendly;
+      return {
+        mode: 'control points',
+        your_points: Math.round(yours),
+        enemy_points: Math.round(theirs),
+        seconds_left:
+          o.timeLimit === null ? 'n/a' : Math.max(0, Math.round(o.timeLimit - bf.elapsedTime)),
+        points: o.points.map((p) => {
+          const c = pointCounts(this.stateManager, p);
+          return {
+            point: p.name,
+            place: positionToSubsector(p.position),
+            held_by: p.holder === null ? 'nobody' : p.holder === mineF ? 'you' : 'enemy',
+            your_units_near: mineF === Faction.FRIENDLY ? c.friendly : c.enemy,
+            enemy_units_near: mineF === Faction.FRIENDLY ? c.enemy : c.friendly,
+          };
+        }),
+      };
+    }
+    if (o.mode === 'base') {
+      const describe = (faction: Faction) => {
+        const b = o.bases.find((x) => x.faction === faction);
+        if (!b) return 'none';
+        let attackers = 0;
+        this.stateManager.forEachInRadius(b.position.x, b.position.y, 15, (u) => {
+          if (u.hp > 0 && u.faction !== faction) attackers++;
+        });
+        return {
+          place: positionToSubsector(b.position),
+          hp_percent: Math.round((100 * b.hp) / b.maxHp),
+          enemy_units_within_15_tiles: attackers,
+        };
+      };
+      const enemyF = mineF === Faction.FRIENDLY ? Faction.ENEMY : Faction.FRIENDLY;
+      return { mode: 'destroy the base', your_base: describe(mineF), enemy_base: describe(enemyF) };
+    }
+    return { mode: 'elimination' };
   }
 
   // Stray soldiers as clusters (D28): the 5 largest, the rest summed up.
@@ -496,6 +558,8 @@ export class LlmController {
         return `attack enemy hero ${c.heroIndex}`;
       case 'regroup':
         return 'regroup stray soldiers';
+      case 'attackBase':
+        return 'attack the enemy base';
       case 'continueLlm':
         return "follow the commander's order";
     }

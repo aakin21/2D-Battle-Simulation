@@ -26,6 +26,13 @@ export const REST_HEAL_PER_SEC = 10;
 // Breaking off a fight (D27): a hero that breaks off ignores enemies until none is this close
 export const DISENGAGE_CLEAR_RADIUS = 6;
 
+// Objectives (D30)
+export const CONTROL_RADIUS = 8; // tiles: units this close to a point count for it
+export const CONTROL_POINTS_PER_SEC = 1; // per point held
+export const CONTROL_TIME_LIMIT = 300; // seconds
+export const BASE_HP = 3000;
+export const BASE_RADIUS = 3; // tiles: units within BASE_RADIUS + COMBAT_RANGE can hit the base
+
 // Hero survival reflex (D18)
 export const HERO_RETREAT_HP_RATIO = 0.5;
 export const HERO_RECOVER_HP_RATIO = 0.8;

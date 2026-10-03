@@ -116,7 +116,7 @@ D1–D4 are the professor's proposals from the 2026-09-30 meeting; D5 onwards ca
 | D9 | 2026-10-01 | The AI demo is online (public link), but only the author uses it | Must run online; no other users to plan for. See record below | Accepted (2026-10-01) |
 | D10 | 2026-10-01 | LLM layer: Claude Agent SDK during development, Claude API for final experiments | Fastest option without extra cost now; API gives real latency later. See record below | Accepted (2026-10-01) |
 | D11 | 2026-10-01 | LLM memory: in-match memory + learning across matches | Lets the LLM improve over time; a measurable thesis result. See record below | Accepted in principle: research first, build if feasible |
-| D12 | 2026-10-01 | Add objectives: a base for each side + 2–3 control points | Without objectives the only strategy is "group up and attack". See record below | Proposed (idea kept for later) |
+| D12 | 2026-10-01 | Add objectives: a base for each side + 2–3 control points | Without objectives the only strategy is "group up and attack". See record below | Superseded by D30 (2026-10-03) |
 | D13 | 2026-10-01 | AI commands heroes only; each side has 2–3 heroes | Keeps the Phase 1 charisma mechanic; heroes allow the army to split. See record below | Accepted (2026-10-01) |
 | D14 | 2026-10-01 | Command set: move, hold, retreat, attack, flank left/right, attack a target, continue LLM order. Commands never change courage | Rich enough for real tactics; courage stays an independent system. See record below | Superseded by D20 (2026-10-02) |
 | D15 | 2026-10-01 | LLM and Jev both command heroes (latest command wins); each knows the other's latest decision | Two independent algorithms that do not blindly override each other. See record below | Accepted (2026-10-01) |
@@ -134,6 +134,7 @@ D1–D4 are the professor's proposals from the 2026-09-30 meeting; D5 onwards ca
 | D27 | 2026-10-03 | Fighting and breaking off: heroes fight what they meet on a move; a different order during a fight breaks off until clear of enemies; repeated orders change nothing | Orders like retreat were ignored while a hero was fighting. See record below | Accepted (2026-10-03) |
 | D28 | 2026-10-03 | Stray soldiers walk back to their side's nearest hero (attack if no heroes are left); new `regroup` order; strays reported to both AI layers as clusters. No time limit: objectives (D12) will create the pressure to act | Leaderless soldiers stood still forever and some matches never ended; the AI had no way to gather scattered soldiers. See record below | Accepted (2026-10-03) |
 | D29 | 2026-10-03 | LLM model selectable per side in the Battle menu: Haiku / Sonnet / Opus | Testing and a possible model comparison in the thesis. See record below | Accepted (2026-10-03) |
+| D30 | 2026-10-03 | Battle objectives as selectable modes: Elimination, Control A-B (majority near a point scores 1 point/s, 300 s match), Base (passive base with 3000 HP); new orders move A/B and attack_base; rulebook and reports per mode | Gives the AI a reason to act instead of waiting (see D28). See record below | Accepted (2026-10-03), implementation in progress |
 
 ### Decision records
 
@@ -433,6 +434,16 @@ Each record lists the options we considered, what we chose, and why.
 #### D29: LLM model per side
 - **Chosen:** the Battle menu lets each side's LLM be Haiku, Sonnet or Opus (default Sonnet). The model is sent with each request; the server accepts only these three and starts a new session when the model changes. Every LLM decision records which model answered.
 - **Why:** quicker or cheaper testing (Haiku), stronger play (Opus), and a possible model comparison in the thesis (e.g. Opus vs Haiku commanders). Note: on the subscription, Opus uses the usage limit faster.
+
+#### D30: Battle objectives (replaces D12)
+- **Modes (Battle menu → Objective):**
+  - **Elimination:** destroy every enemy unit (as before).
+  - **Control A-B:** two points, A (north) and B (south), on the centre line. At every moment the side with more non-fleeing units within 8 tiles of a point scores 1 point per second for it. The match lasts 300 s; the side with more points wins (equal points: more total HP). Destroying every enemy unit also wins.
+  - **Base:** each side has a passive base (3000 HP) at its start area. Units within 5 tiles of the enemy base hit it with their normal damage when not fighting a unit; bases do not fight back. A destroyed base loses; elimination also wins.
+- **Why:** with only elimination, waiting as a compact group is the rational strategy and both AIs wait (D28 observation). Objectives make waiting costly. A time limit for elimination was rejected in favour of these modes.
+- **AI:** new orders `move A` / `move B` and `attack_base` (base mode). The rulebook explains only the current mode's goal and orders. The LLM report and Jev's state include the objective (control: points, holders, units near each point, scores, time left; base: base HP and attackers nearby). Jev gets `move_to_A` / `move_to_B` / `attack_base` options. When Jev runs without an LLM it now also gets the goal ("you command alone; standing still never wins"), fixing the passive Jev-only behaviour seen in testing.
+- **Rule-based heroes play the objective:** control → hero 1 to A, hero 2 to B, others to the point not held; base → march on the enemy base; all attack enemies in sight.
+- **Status (2026-10-03):** implemented and compiling; first headless check: points placed in the main region and scored. Still to verify: full control and base matches, and the open items in `NEXT_STEPS.md`.
 
 #### D15: How the LLM and Jev work together
 - **Options:**

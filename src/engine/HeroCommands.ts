@@ -9,6 +9,7 @@ import {
 } from '../types/types';
 import { findNearestEnemyAnywhere, nearestReachableTile, tileOf } from './UnitHelpers';
 import { strayClusters, regroupTarget, StrayCluster } from './Strays';
+import { enemyBase } from './Objectives';
 
 const STRAY_CACHE_SEC = 0.5; // stray clusters are recomputed at most this often
 
@@ -71,7 +72,12 @@ export class HeroCommands {
   // Orders that send the hero somewhere: move, retreat, or resuming an LLM move/retreat.
   private isMovement(hero: IHero, command: HeroCommand): boolean {
     const c = command.type === 'continueLlm' ? hero.lastLlmCommand : command;
-    return c?.type === 'move' || c?.type === 'retreat' || c?.type === 'regroup';
+    return (
+      c?.type === 'move' ||
+      c?.type === 'retreat' ||
+      c?.type === 'regroup' ||
+      c?.type === 'attackBase'
+    );
   }
 
   // null means "no destination": the hero stays where it is.
@@ -98,6 +104,10 @@ export class HeroCommands {
       case 'regroup': {
         const cluster = regroupTarget(this.straysOf(hero.faction), hero);
         return cluster ? tileOf(cluster.center) : null; // no strays: stay
+      }
+      case 'attackBase': {
+        const base = enemyBase(this.sm, hero.faction);
+        return base && base.hp > 0 ? base.position : null;
       }
       case 'continueLlm':
         return null; // no LLM command yet

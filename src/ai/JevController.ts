@@ -14,6 +14,7 @@ import { jevGameRules } from './GameRules';
 import { formatRatio, groupStats, localForce, LOCAL_RADIUS } from './Observations';
 import type { JevAssessment } from './LlmController';
 import { strayClusters } from '../engine/Strays';
+import { enemyBase } from '../engine/Objectives';
 
 // Layer 2 (D6, D21, D26): Jev makes tactical decisions for each hero of one side every few
 // seconds. Jev has no memory, so every request carries the relevant rules (game_rules) and
@@ -36,6 +37,7 @@ export interface JevOptions {
   intervalSec: number; // how often to ask (3–5 s, D1)
   minConfidence: number; // below this the hero keeps its current command
   fallbackToRules: boolean; // on failure, hand heroes to the rule layer (when Jev is the only AI layer)
+  withCommander: boolean; // an LLM commands the same side (changes Jev's role and goal)
   endpoint: string;
   fetchFn: typeof fetch;
 }
@@ -44,6 +46,7 @@ const DEFAULTS: JevOptions = {
   intervalSec: 4,
   minConfidence: 0.4,
   fallbackToRules: true,
+  withCommander: false,
   endpoint: '/api/jev',
   fetchFn: (...args) => fetch(...args),
 };
@@ -133,7 +136,11 @@ export class JevController {
     const forceNow = new Map<number, number>();
     const questions: Record<string, unknown> = {};
     const state: Record<string, unknown> = {
-      game_rules: jevGameRules(),
+      game_rules: jevGameRules(
+        this.opts.withCommander,
+        this.stateManager.getBattlefield().objective.mode
+      ),
+      objective: this.objectiveState(),
       time_seconds: Math.round(time),
       your_side: this.faction === Faction.FRIENDLY ? 'west' : 'east',
     };
@@ -295,6 +302,33 @@ export class JevController {
       });
     }
 
+    const objective = this.stateManager.getBattlefield().objective;
+    for (const p of objective.points) {
+      const d = Math.round(
+        Math.hypot(p.position.x - hero.position.x, p.position.y - hero.position.y)
+      );
+      const held = p.holder === null ? 'nobody' : p.holder === hero.faction ? 'us' : 'the enemy';
+      opts.push({
+        key: `move_to_${p.name}`,
+        what: `Go to control point ${p.name} (${d} tiles away, held by ${held} now) and stay; the side with more units there scores.`,
+        notFor:
+          'When the hero is needed in the fight it is in, or the point is held strongly by the enemy.',
+        command: { type: 'move', target: p.position },
+      });
+    }
+    const target = enemyBase(this.stateManager, hero.faction);
+    if (target && target.hp > 0) {
+      const d = Math.round(
+        Math.hypot(target.position.x - hero.position.x, target.position.y - hero.position.y)
+      );
+      opts.push({
+        key: 'attack_base',
+        what: `March on the enemy base (${d} tiles away, ${Math.round((100 * target.hp) / target.maxHp)}% HP) and attack it.`,
+        notFor: 'When enemy units nearby are stronger, or our own base is under attack.',
+        command: { type: 'attackBase' },
+      });
+    }
+
     const strays = this.nearbyStrays(hero);
     if (strays.length > 0) {
       const s = strays[0];
@@ -443,6 +477,39 @@ export class JevController {
     };
   }
 
+  // D30: objective status in the state, from this side's point of view.
+  private objectiveState(): unknown {
+    const bf = this.stateManager.getBattlefield();
+    const o = bf.objective;
+    const mine = this.faction;
+    if (o.mode === 'control') {
+      return {
+        mode: 'control points',
+        our_points: Math.round(mine === Faction.FRIENDLY ? o.scores.friendly : o.scores.enemy),
+        enemy_points: Math.round(mine === Faction.FRIENDLY ? o.scores.enemy : o.scores.friendly),
+        seconds_left:
+          o.timeLimit === null ? 'n/a' : Math.max(0, Math.round(o.timeLimit - bf.elapsedTime)),
+        points: o.points.map(
+          (p) =>
+            `${p.name} held by ${p.holder === null ? 'nobody' : p.holder === mine ? 'us' : 'the enemy'}`
+        ),
+      };
+    }
+    if (o.mode === 'base') {
+      const pct = (f: Faction) => {
+        const b = o.bases.find((x) => x.faction === f);
+        return b ? Math.round((100 * b.hp) / b.maxHp) : 0;
+      };
+      const enemyF = mine === Faction.FRIENDLY ? Faction.ENEMY : Faction.FRIENDLY;
+      return {
+        mode: 'destroy the base',
+        our_base_hp_percent: pct(mine),
+        enemy_base_hp_percent: pct(enemyF),
+      };
+    }
+    return { mode: 'elimination' };
+  }
+
   // Clusters of this side's stray soldiers within reach of the hero, nearest first (D28).
   private nearbyStrays(
     hero: IHero
@@ -491,6 +558,8 @@ export class JevController {
         return `attack enemy hero ${c.heroIndex}`;
       case 'regroup':
         return 'regroup stray soldiers';
+      case 'attackBase':
+        return 'attack the enemy base';
       case 'continueLlm':
         return "follow the commander's order";
     }

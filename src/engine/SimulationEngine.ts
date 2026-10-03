@@ -21,6 +21,7 @@ import {
 } from './Rules';
 import { GroupPatrol } from './GroupPatrol';
 import { updateRuleHeroes } from './RuleHeroes';
+import { updateControl, damageBases, objectiveEnd, EndReason } from './Objectives';
 import { updateHeroReflex, moveHeroRetreat } from './HeroReflex';
 import {
   effectiveSight,
@@ -56,9 +57,11 @@ export interface AIController {
 
 // Battle mode result: the side whose units (heroes and soldiers) all die first loses.
 export interface MatchResult {
-  winner: Faction | null; // null: both sides died in the same step (draw)
+  winner: Faction | null; // null: draw
   time: number; // simulation seconds
   survivors: number; // units left on the winning side
+  reason: EndReason; // how the match was decided (D30)
+  scores?: { friendly: number; enemy: number }; // control mode
 }
 
 export class SimulationEngine {
@@ -223,6 +226,11 @@ export class SimulationEngine {
 
     this.processRest(units, deltaTime);
     this.processCombat(units, deltaTime);
+    if (this.battleMode) {
+      const mode = this.stateManager.getBattlefield().objective.mode;
+      if (mode === 'control') updateControl(this.stateManager, deltaTime);
+      if (mode === 'base') damageBases(this.stateManager, units, deltaTime);
+    }
     this.removeDeadUnits();
     if (this.battleMode) this.checkMatchEnd();
     this.updateWaveSpawner(this.stateManager.getBattlefield());
@@ -264,12 +272,31 @@ export class SimulationEngine {
       if (u.faction === Faction.FRIENDLY) friendly++;
       else enemy++;
     }
-    if (friendly > 0 && enemy > 0) return;
+    const bf = this.stateManager.getBattlefield();
+    let winner: Faction | null;
+    let reason: EndReason;
+    if (friendly === 0 || enemy === 0) {
+      winner = friendly > 0 ? Faction.FRIENDLY : enemy > 0 ? Faction.ENEMY : null;
+      reason = 'elimination';
+    } else {
+      const end = objectiveEnd(this.stateManager);
+      if (!end) return;
+      ({ winner, reason } = end);
+    }
 
     this.result = {
-      winner: friendly > 0 ? Faction.FRIENDLY : enemy > 0 ? Faction.ENEMY : null,
-      time: this.stateManager.getBattlefield().elapsedTime,
-      survivors: Math.max(friendly, enemy),
+      winner,
+      time: bf.elapsedTime,
+      survivors: winner === Faction.FRIENDLY ? friendly : winner === Faction.ENEMY ? enemy : 0,
+      reason,
+      ...(bf.objective.mode === 'control'
+        ? {
+            scores: {
+              friendly: Math.round(bf.objective.scores.friendly),
+              enemy: Math.round(bf.objective.scores.enemy),
+            },
+          }
+        : {}),
     };
     this.paused = true;
     this.onMatchEnd?.(this.result);

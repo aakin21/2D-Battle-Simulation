@@ -70,6 +70,7 @@ export type HeroCommand =
   | { type: 'attack' }
   | { type: 'attackHero'; heroIndex: number }
   | { type: 'regroup' } // walk to the nearest group of stray soldiers of the hero's side (D28)
+  | { type: 'attackBase' } // walk to the enemy base and attack it (base mode, D30)
   | { type: 'continueLlm' }; // Jev only: keep following the LLM's latest command
 
 export type CommandSource = 'user' | 'rule' | 'jev' | 'llm';
@@ -89,10 +90,36 @@ export interface IHero extends IUnit {
   disengaging: boolean; // breaking off a fight: ignores enemies until clear of them (D27)
 }
 
+// D30: battle objectives. 'elimination': destroy every enemy unit. 'control': hold points
+// A and B for points, the match lasts a fixed time. 'base': destroy the enemy base.
+export type Objective = 'elimination' | 'control' | 'base';
+
+export interface ControlPoint {
+  name: string; // "A" or "B"
+  position: Position;
+  holder: Faction | null; // side with the most units in range right now (null: tie or empty)
+}
+
+export interface Base {
+  faction: Faction;
+  position: Position;
+  hp: number;
+  maxHp: number;
+}
+
+export interface ObjectiveState {
+  mode: Objective;
+  points: ControlPoint[]; // control mode
+  scores: { friendly: number; enemy: number }; // control mode
+  timeLimit: number | null; // seconds; control mode only
+  bases: Base[]; // base mode
+}
+
 export interface IBattlefield {
   grid: TerrainType[][];
   units: IUnit[];
   elapsedTime: number;
+  objective: ObjectiveState;
   waveNumber: number;
   nextWaveTime: number; // simulation seconds at which the next wave spawns
   stats: {
@@ -160,6 +187,7 @@ export interface SimConfig {
   friendlyAI?: SideAI; // battle only: AI layers for the west side (default 'none' = the user)
   enemyAI?: SideAI; // battle only: AI layers for the east side (default 'none' = rule-based)
   aiTiming?: AITiming; // battle only: does the simulation wait for AI answers (D4)
+  objective?: Objective; // battle only (D30), default 'elimination'
   friendlyModel?: LlmModel; // battle only: LLM model for each side (D29)
   enemyModel?: LlmModel;
 }

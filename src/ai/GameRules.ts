@@ -1,4 +1,4 @@
-import { UNIT_STATS, TERRAIN_SPEED, TERRAIN_SIGHT, GRID_SIZE } from '../types/types';
+import { UNIT_STATS, TERRAIN_SPEED, TERRAIN_SIGHT, GRID_SIZE, Objective } from '../types/types';
 import { SECTOR_SIZE, SECTORS_PER_SIDE } from '../engine/Sectors';
 import * as R from '../engine/Rules';
 
@@ -31,14 +31,35 @@ const MAP = `The map is ${GRID_SIZE}x${GRID_SIZE} tiles, split into ${SECTORS_PE
 
 const JEV_FOR_LLM = `A fast tactical system (Jev) watches each of your heroes and decides every 4 seconds, using only what is around that hero. It can briefly override your order to handle the local situation (hold, retreat, attack, attack a nearby enemy hero, or step a short distance in some direction), and returns to your order when the situation allows. The report shows Jev's recent decisions and its assessment of each hero (surrounded, threat level, whether your order still fits). You set the plan; Jev handles the moment.`;
 
+// D30: what wins the match, per objective.
+export function goalText(objective: Objective): string {
+  switch (objective) {
+    case 'control':
+      return `Control points A and B. At every moment, the side with more units (not counting fleeing ones) within ${R.CONTROL_RADIUS} tiles of a point scores ${R.CONTROL_POINTS_PER_SEC} point per second for it. The match lasts ${R.CONTROL_TIME_LIMIT} seconds; then the side with more points wins (equal points: more total HP left). Destroying every enemy unit also wins at once. Points are only scored while you hold them, so waiting away from the points loses.`;
+    case 'base':
+      return `Destroy the enemy base. Each side has a base (${R.BASE_HP} HP) at its start area. Units within ${R.BASE_RADIUS + R.COMBAT_RANGE} tiles of the enemy base hit it with their normal damage when they are not fighting a unit; bases do not fight back. The side whose base is destroyed loses. Destroying every enemy unit also wins.`;
+    default:
+      return 'Destroy every enemy unit (heroes and soldiers). The side that loses all its units loses.';
+  }
+}
+
+function objectiveOrders(objective: Objective): string {
+  if (objective === 'control')
+    return '\n- move A / move B: walk to control point A or B and stay there (same as move to its place).';
+  if (objective === 'base')
+    return '\n- attack_base: walk to the enemy base and attack it; the hero and its soldiers still fight enemy units they meet.';
+  return '';
+}
+
 export function llmSystemPrompt(
   side: 'west' | 'east',
   withJev: boolean,
-  intervalSec: number
+  intervalSec: number,
+  objective: Objective = 'elimination'
 ): string {
   return `You are the strategic commander of the ${side} side in a 2D battle simulation. Every ${intervalSec} seconds you receive a report of the whole battlefield and give one order to each of your living heroes.
 
-GOAL: destroy every enemy unit (heroes and soldiers). The side that loses all its units loses.
+GOAL: ${goalText(objective)}
 
 MAP: ${MAP}
 
@@ -60,7 +81,7 @@ ORDERS:
 - retreat: walk back to the hero's start position.
 - attack: walk toward the nearest enemy unit, wherever it is.
 - attack_hero <n>: walk toward enemy hero n's current position and keep following it as it moves. Your hero and its soldiers still fight every enemy they meet on the way. Killing a hero removes its +${R.CHARISMA_BONUS} courage bonus from its soldiers.
-- regroup: walk to the nearest group of your stray soldiers (bigger groups are preferred); they follow the hero again once it is within ${H.sight} tiles and regain the courage bonus near it. If you have no strays, the hero stays where it is.
+- regroup: walk to the nearest group of your stray soldiers (bigger groups are preferred); they follow the hero again once it is within ${H.sight} tiles and regain the courage bonus near it. If you have no strays, the hero stays where it is.${objectiveOrders(objective)}
 FIGHTING AND BREAKING OFF: ${BREAK_OFF}
 
 STANCE: keep one stance and change it only when its condition is met.
@@ -74,10 +95,14 @@ Reply with ONLY this JSON, no other text:
 }
 
 // The part of the rulebook Jev needs for local decisions (D16): no goal or stance.
-export function jevGameRules(): Record<string, string> {
+// withCommander: an LLM sets the plan on the same side. Without one, Jev also gets the goal,
+// otherwise it has no reason to do anything but wait.
+export function jevGameRules(withCommander: boolean, objective: Objective): Record<string, string> {
   return {
-    your_role:
-      'You are the tactical layer. A strategic commander (an LLM) sets the overall plan; you decide what each hero should do right now, based only on its surroundings. You may override the commander briefly to handle danger or opportunity, and return to its order when it fits again.',
+    your_role: withCommander
+      ? 'You are the tactical layer. A strategic commander (an LLM) sets the overall plan; you decide what each hero should do right now, based only on its surroundings. You may override the commander briefly to handle danger or opportunity, and return to its order when it fits again.'
+      : 'You command these heroes alone; there is no strategic commander. Decide what each hero should do right now to win. Standing still never wins.',
+    goal: goalText(objective),
     units: UNITS,
     following: FOLLOWING,
     courage: COURAGE,

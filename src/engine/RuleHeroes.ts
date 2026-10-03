@@ -22,6 +22,22 @@ export function updateRuleHeroes(
       continue;
     }
 
+    const objective = sm.getBattlefield().objective;
+    if (objective.mode === 'control' && objective.points.length > 0) {
+      // Hero 1 takes A, hero 2 takes B, others go to the point their side is not holding.
+      const points = objective.points;
+      const point =
+        hero.heroIndex <= points.length
+          ? points[hero.heroIndex - 1]
+          : (points.find((p) => p.holder !== hero.faction) ?? points[0]);
+      commands.issue(hero, { type: 'move', target: point.position }, 'rule');
+      continue;
+    }
+    if (objective.mode === 'base' && objective.bases.some((b) => b.faction !== hero.faction)) {
+      commands.issue(hero, { type: 'attackBase' }, 'rule');
+      continue;
+    }
+
     const key = `hero_${hero.id}`;
     const dest = patrol.destination(key, hero.position, elapsed);
     const dx = dest.x - hero.position.x;

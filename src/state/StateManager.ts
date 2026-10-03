@@ -7,6 +7,7 @@ import {
   IUnit,
   IHero,
   HeroController,
+  Objective,
   Position,
   UNIT_STATS,
   GRID_SIZE,
@@ -17,7 +18,12 @@ import {
 import { Pathfinder } from '../engine/Pathfinder';
 import { SpatialGrid } from '../engine/SpatialGrid';
 import { BerserkerPool } from '../engine/BerserkerPool';
-import { CHARISMA_RADIUS, CHARISMA_BONUS } from '../engine/Rules';
+import {
+  CHARISMA_RADIUS,
+  CHARISMA_BONUS,
+  CONTROL_TIME_LIMIT,
+  BASE_HP,
+} from '../engine/Rules';
 
 export class StateManager {
   private battlefield: IBattlefield;
@@ -451,7 +457,10 @@ export class StateManager {
     if (config.presetGrid) this.battlefield.grid = config.presetGrid.map((row) => row.slice());
     else this.initGrid(config.terrainDensity);
     this.computeMainRegion();
-    if (this.battleMode) this.spawnBattleUnits(config);
+    if (this.battleMode) {
+      this.setupObjective(config.objective ?? 'elimination');
+      this.spawnBattleUnits(config);
+    }
     else this.spawnInitialUnits(config.warriorCount);
   }
 
@@ -463,6 +472,44 @@ export class StateManager {
       waveNumber: 0,
       nextWaveTime: 30,
       stats: { totalSpawned: 0, casualties: 0 },
+      objective: {
+        mode: 'elimination',
+        points: [],
+        scores: { friendly: 0, enemy: 0 },
+        timeLimit: null,
+        bases: [],
+      },
     };
+  }
+
+  // D30: control points A (north) and B (south) on the centre line, or one base per side at
+  // its start area. Placed on the nearest tile of the main walkable region.
+  private setupObjective(mode: Objective): void {
+    const o = this.battlefield.objective;
+    o.mode = mode;
+    if (mode === 'control') {
+      o.points = [
+        { name: 'A', position: this.nearestMainTile(75, 45), holder: null },
+        { name: 'B', position: this.nearestMainTile(75, 105), holder: null },
+      ];
+      o.timeLimit = CONTROL_TIME_LIMIT;
+    } else if (mode === 'base') {
+      o.bases = [
+        { faction: Faction.FRIENDLY, position: this.nearestMainTile(14, 75), hp: BASE_HP, maxHp: BASE_HP },
+        { faction: Faction.ENEMY, position: this.nearestMainTile(135, 75), hp: BASE_HP, maxHp: BASE_HP },
+      ];
+    }
+  }
+
+  private nearestMainTile(x: number, y: number): Position {
+    for (let r = 0; r < GRID_SIZE; r++) {
+      for (let dy = -r; dy <= r; dy++) {
+        for (let dx = -r; dx <= r; dx++) {
+          if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+          if (this.isInMainRegion(x + dx, y + dy)) return { x: x + dx, y: y + dy };
+        }
+      }
+    }
+    return { x, y };
   }
 }

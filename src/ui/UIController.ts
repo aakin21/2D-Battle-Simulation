@@ -16,6 +16,7 @@ import {
   TerrainType,
   SideAI,
   LlmModel,
+  Objective,
 } from '../types/types';
 import { decodeGrid, listSavedMaps, loadSavedMap, saveMap } from '../state/MapStore';
 import { FIXED_MAP } from '../maps/fixedMap';
@@ -127,9 +128,13 @@ export class UIController {
       active.classList.add('active');
       const isStress = active === tabStress;
       const isCustom = active === tabCustom;
-      config.classList.toggle('locked', !isCustom);
+      const isBattle = active === tabBattle;
+      // Battle uses the soldier count (per side) and terrain settings, but not waves.
+      config.classList.toggle('locked', !isCustom && !isBattle);
+      document.getElementById('cfg-wave-row')!.style.display = isBattle ? 'none' : '';
+      document.getElementById('cfg-warriors-label')!.textContent = isBattle ? 'Soldiers/side' : 'Warriors';
       stressInfo.style.display = isStress ? 'block' : 'none';
-      battleInfo.style.display = active === tabBattle ? 'block' : 'none';
+      battleInfo.style.display = isBattle ? 'block' : 'none';
     };
 
     tabDefault.addEventListener('click', () => {
@@ -143,7 +148,11 @@ export class UIController {
 
     tabCustom.addEventListener('click', () => setTab(tabCustom));
     tabStress.addEventListener('click', () => setTab(tabStress));
-    tabBattle.addEventListener('click', () => setTab(tabBattle));
+    tabBattle.addEventListener('click', () => {
+      setTab(tabBattle);
+      warriorSlider.value = String(BATTLE_CONFIG.warriorCount);
+      warriorNum.value = String(BATTLE_CONFIG.warriorCount);
+    });
 
     // Warrior slider + number input — keep in sync
     warriorSlider.addEventListener('input', () => {
@@ -177,7 +186,7 @@ export class UIController {
     this.refreshSavedMaps();
 
     // Battle opponent (rules / AI layers) and AI timing (D4)
-    for (const id of ['cfg-west', 'cfg-opponent', 'cfg-timing', 'cfg-west-model', 'cfg-east-model']) {
+    for (const id of ['cfg-west', 'cfg-opponent', 'cfg-timing', 'cfg-west-model', 'cfg-east-model', 'cfg-objective']) {
       document.getElementById(id)!.addEventListener('click', (e) => {
         const btn = (e.target as HTMLElement).closest('button');
         if (btn) this.setOptActive(id, btn.dataset.val!);
@@ -198,7 +207,14 @@ export class UIController {
       } else {
         const isDefault = tabDefault.classList.contains('active');
         const isBattle = tabBattle.classList.contains('active');
-        const base: SimConfig = isBattle ? BATTLE_CONFIG : isDefault ? DEFAULT_CONFIG : {
+        const base: SimConfig = isBattle
+          ? {
+              ...BATTLE_CONFIG,
+              warriorCount: parseInt(warriorSlider.value),
+              terrainDensity: this.getOptActive('cfg-terrain') as TerrainDensity,
+              objective: this.getOptActive('cfg-objective') as Objective,
+            }
+          : isDefault ? DEFAULT_CONFIG : {
           ...DEFAULT_CONFIG,
           warriorCount: parseInt(warriorSlider.value),
           waveMultiplier: parseFloat(waveSlider.value),
@@ -561,8 +577,14 @@ export class UIController {
     const east = label(this.lastConfig.enemyAI, 'rules');
     const who =
       r.winner === null ? 'Draw' : r.winner === Faction.FRIENDLY ? `West (${west}) wins` : `East (${east}) wins`;
+    const how =
+      r.reason === 'base'
+        ? 'base destroyed'
+        : r.reason === 'points'
+          ? `time up, points ${r.scores?.friendly ?? 0}–${r.scores?.enemy ?? 0}`
+          : 'all enemy units destroyed';
     el.innerHTML =
-      `<b>${who}</b><br>West: ${west} · East: ${east}<br>` +
+      `<b>${who}</b> (${how})<br>West: ${west} · East: ${east}<br>` +
       `Time: ${Math.round(r.time)} s · Units left: ${r.survivors}<br>` +
       `<span style="color:#888">R: restart · Menu: new battle</span>`;
     el.style.display = 'block';
@@ -588,7 +610,10 @@ export class UIController {
       const both = ai === 'jev+llm';
       const side: { jev?: JevController; llm?: LlmController } = {};
       if (ai === 'jev' || both) {
-        side.jev = new JevController(this.engine, this.stateManager, faction, { fallbackToRules: !both });
+        side.jev = new JevController(this.engine, this.stateManager, faction, {
+          fallbackToRules: !both,
+          withCommander: both,
+        });
         controllers.push(side.jev);
       }
       if (ai === 'llm' || both) {
@@ -638,6 +663,27 @@ export class UIController {
         : BehaviorState[unit.state];
   }
 
+  // D30: points and time left (control) or base HP (base mode) for the control bar.
+  private objectiveStatus(): string | null {
+    if (!this.engine.isBattleMode()) return null;
+    const bf = this.stateManager.getBattlefield();
+    const o = bf.objective;
+    if (o.mode === 'control') {
+      const left = o.timeLimit === null ? 0 : Math.max(0, Math.ceil(o.timeLimit - bf.elapsedTime));
+      const holder = (f: Faction | null) => (f === null ? '-' : f === Faction.FRIENDLY ? 'W' : 'E');
+      const pts = o.points.map((p) => `${p.name}:${holder(p.holder)}`).join(' ');
+      return `W ${Math.floor(o.scores.friendly)} – ${Math.floor(o.scores.enemy)} E · ${pts} · ${left}s`;
+    }
+    if (o.mode === 'base') {
+      const pct = (f: Faction) => {
+        const b = o.bases.find((x) => x.faction === f);
+        return b ? Math.round((100 * b.hp) / b.maxHp) : 0;
+      };
+      return `Base W ${pct(Faction.FRIENDLY)}% – ${pct(Faction.ENEMY)}% E`;
+    }
+    return 'Elimination';
+  }
+
   private updateControlBar(): void {
     const bf = this.stateManager.getBattlefield();
     let warriors = 0;
@@ -646,7 +692,7 @@ export class UIController {
       if (u.unitType === UnitType.WARRIOR) warriors++;
       else if (u.unitType === UnitType.BERSERKER) berserkers++;
     }
-    this.elWaveCounter.textContent = `Wave: ${bf.waveNumber}`;
+    this.elWaveCounter.textContent = this.objectiveStatus() ?? `Wave: ${bf.waveNumber}`;
     this.elWarriorCount.textContent = `W: ${warriors}`;
     this.elBerserkerCount.textContent = `B: ${berserkers}`;
     this.elElapsedTime.textContent = `T: ${Math.floor(bf.elapsedTime)}s${this.engine.isWaitingForAI() ? " · waiting for AI…" : ""}`;
