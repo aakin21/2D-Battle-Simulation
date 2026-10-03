@@ -13,7 +13,7 @@ const pct = (x: number) => `${Math.round(x * 100)}%`;
 // Battle-mode heroes move at their soldiers' speed (D18).
 const UNITS = `Both sides are identical. Soldier: ${W.hp} HP, ${W.damage} damage per second, moves ${W.speed} tiles/s, sees ${W.sight} tiles. Hero: ${H.hp} HP, ${H.damage} damage per second, moves ${W.speed} tiles/s (same as its soldiers), sees ${H.sight} tiles. Units fight any enemy within ${R.COMBAT_RANGE} tiles automatically; damage is the same from every direction.`;
 
-const FOLLOWING = `A soldier follows the nearest hero of its side if that hero is within ${H.sight} tiles. A soldier with no hero of its side that close is a stray: it walks back toward the nearest hero of its side and follows it again once within ${H.sight} tiles; strays also miss the charisma bonus. When a side has no heroes left, its soldiers attack the nearest enemy. A hero that runs too far ahead leaves its soldiers behind as strays.`;
+const FOLLOWING = `A soldier follows the nearest hero of its side if that hero is within ${H.sight} tiles. A soldier with no hero of its side that close is a stray: it stays where it is and only fights enemies that come into its sight, until a hero comes within ${H.sight} tiles of it again (use regroup to collect strays); strays also miss the charisma bonus. When a side has no heroes left, its soldiers attack the nearest enemy. A hero that runs too far ahead leaves its soldiers behind as strays.`;
 
 const COURAGE = `Courage (soldiers only, recalculated all the time) = ${W.courage}, minus ${R.WOUND_PENALTY} for every ${pct(R.WOUND_STEP)} of HP lost, plus ${R.ALLY_SHARE_HIGH_BONUS} if more than ${pct(R.ALLY_SHARE_HIGH)} of the units it sees are allies, minus ${R.ALLY_SHARE_LOW_PENALTY} if fewer than ${pct(R.ALLY_SHARE_LOW)} are allies (minus ${R.ALLY_SHARE_VERY_LOW_PENALTY} if fewer than ${pct(R.ALLY_SHARE_VERY_LOW)}), plus ${R.CHARISMA_BONUS} if one of its heroes is within ${R.CHARISMA_RADIUS} tiles. A soldier with courage ${R.FLEE_THRESHOLD} or less flees from enemies at ${R.FLEE_SPEED_MULT}x speed and cannot be ordered back. Orders never change courage.`;
 
@@ -21,7 +21,7 @@ const CHARISMA = `A hero's charisma gives +${R.CHARISMA_BONUS} COURAGE (not dama
 
 const REST = `A unit below ${R.REST_TRIGGER_HP} HP with no enemy in sight stops to rest and heals ${R.REST_HEAL_PER_SEC} HP/s.`;
 
-const REFLEX = `Hero survival reflex: a hero automatically retreats toward its start position when its HP falls below ${pct(R.HERO_RETREAT_HP_RATIO)}, or when at least ${R.HERO_OUTNUMBERED_MIN_ENEMIES} enemies outnumber its allies ${R.HERO_OUTNUMBERED_RATIO} to 1 in its sight. It obeys orders again at ${pct(R.HERO_RECOVER_HP_RATIO)} HP when no longer outnumbered. The current order is kept and resumes afterwards.`;
+const REFLEX = `Hero survival reflex: when enemies are in a hero's sight and its HP is below ${pct(R.HERO_RETREAT_HP_RATIO)}, or at least ${R.HERO_OUTNUMBERED_MIN_ENEMIES} enemies outnumber its allies ${R.HERO_OUTNUMBERED_RATIO} to 1 in its sight, the hero automatically flees: it moves straight away from the enemies (not home) until none is in its sight, then resumes its order. Its soldiers do not flee with it; they keep fighting. You can end the flight by giving the hero a different order (repeating its current order does not); the reflex then stays off for that hero until no enemy is in its sight.`;
 
 const BREAK_OFF = `A hero on a move or retreat order fights enemies it meets on the way and then continues to its target. If a different order arrives while it is fighting, it breaks off: it ignores enemies until none is within ${R.DISENGAGE_CLEAR_RADIUS} tiles, then fights normally again; retreat always breaks off. Its soldiers do not break off with it and keep fighting. Repeating the same order changes nothing; it is how you keep a plan.`;
 
@@ -37,9 +37,9 @@ export function goalText(objective: Objective): string {
     case 'control':
       return `Control points A and B. At every moment, the side with more units (not counting fleeing ones) within ${R.CONTROL_RADIUS} tiles of a point scores ${R.CONTROL_POINTS_PER_SEC} point per second for it. The match lasts ${R.CONTROL_TIME_LIMIT} seconds; then the side with more points wins (equal points: more total HP left). Destroying every enemy unit also wins at once. Points are only scored while you hold them, so waiting away from the points loses.`;
     case 'base':
-      return `Destroy the enemy base. Each side has a base (${R.BASE_HP} HP) at its start area. Units within ${R.BASE_RADIUS + R.COMBAT_RANGE} tiles of the enemy base hit it with their normal damage when they are not fighting a unit; bases do not fight back. The side whose base is destroyed loses. Destroying every enemy unit also wins.`;
+      return `Destroy the enemy base. Each side has a base (${R.BASE_HP} HP) at its start area. Units within ${R.BASE_RADIUS + R.COMBAT_RANGE} tiles of the enemy base hit it with their normal damage when they are not fighting a unit; bases do not fight back. The side whose base is destroyed loses. Destroying every enemy unit also wins. The match lasts at most ${R.MATCH_TIME_LIMIT} seconds; if no base has fallen by then, the side with more total HP left wins.`;
     default:
-      return 'Destroy every enemy unit (heroes and soldiers). The side that loses all its units loses.';
+      return `Destroy every enemy unit (heroes and soldiers). The side that loses all its units loses. The match lasts at most ${R.MATCH_TIME_LIMIT} seconds; then the side with more total HP left wins.`;
   }
 }
 

@@ -45,6 +45,13 @@ export class HeroCommands {
     if (command && hero.command && sameCommand(hero.command, command)) return;
     if (!command && !hero.command) return;
 
+    // D18: a new order from the user, Jev or the LLM ends the survival reflex.
+    if (command && source !== 'rule' && hero.state === BehaviorState.FLEE) {
+      hero.state = BehaviorState.IDLE;
+      hero.path = [];
+      hero.reflexOverridden = true;
+    }
+
     hero.command = command;
     hero.commandSource = command ? source : null;
     hero.commandTime = this.sm.getBattlefield().elapsedTime;

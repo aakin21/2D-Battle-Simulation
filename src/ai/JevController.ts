@@ -482,13 +482,14 @@ export class JevController {
     const bf = this.stateManager.getBattlefield();
     const o = bf.objective;
     const mine = this.faction;
+    const secondsLeft =
+      o.timeLimit === null ? 'n/a' : Math.max(0, Math.round(o.timeLimit - bf.elapsedTime));
     if (o.mode === 'control') {
       return {
         mode: 'control points',
         our_points: Math.round(mine === Faction.FRIENDLY ? o.scores.friendly : o.scores.enemy),
         enemy_points: Math.round(mine === Faction.FRIENDLY ? o.scores.enemy : o.scores.friendly),
-        seconds_left:
-          o.timeLimit === null ? 'n/a' : Math.max(0, Math.round(o.timeLimit - bf.elapsedTime)),
+        seconds_left: secondsLeft,
         points: o.points.map(
           (p) =>
             `${p.name} held by ${p.holder === null ? 'nobody' : p.holder === mine ? 'us' : 'the enemy'}`
@@ -503,11 +504,12 @@ export class JevController {
       const enemyF = mine === Faction.FRIENDLY ? Faction.ENEMY : Faction.FRIENDLY;
       return {
         mode: 'destroy the base',
+        seconds_left: secondsLeft,
         our_base_hp_percent: pct(mine),
         enemy_base_hp_percent: pct(enemyF),
       };
     }
-    return { mode: 'elimination' };
+    return { mode: 'elimination', seconds_left: secondsLeft };
   }
 
   // Clusters of this side's stray soldiers within reach of the hero, nearest first (D28).

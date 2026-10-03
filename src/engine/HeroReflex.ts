@@ -1,19 +1,19 @@
 import { StateManager } from '../state/StateManager';
-import { IHero, IUnit, BehaviorState, TerrainType } from '../types/types';
+import { IHero, BehaviorState, TerrainType } from '../types/types';
 import { effectiveSight, stepToward } from './UnitHelpers';
 import {
   HERO_RETREAT_HP_RATIO as RETREAT_HP_RATIO,
-  HERO_RECOVER_HP_RATIO as RECOVER_HP_RATIO,
   HERO_OUTNUMBERED_MIN_ENEMIES as OUTNUMBERED_MIN_ENEMIES,
   HERO_OUTNUMBERED_RATIO as OUTNUMBERED_RATIO,
 } from './Rules';
 
-// D18 hero survival reflex (battle mode). Rules come first: whatever the hero was ordered,
-// it falls back when badly hurt or heavily outnumbered, and resumes once it has recovered.
-const HOME_RADIUS = 2;
+// D18 hero survival reflex (battle mode). A hero that is badly hurt or heavily outnumbered
+// with enemies in sight moves away from them until none is in sight. A different order from
+// the user, Jev or the LLM ends the flight; the reflex then stays off until the hero's sight
+// is clear once (see HeroCommands.issue).
 
 // Returns true when the reflex decided the hero's state this frame.
-export function updateHeroReflex(sm: StateManager, hero: IUnit): boolean {
+export function updateHeroReflex(sm: StateManager, hero: IHero): boolean {
   let allies = 0;
   let enemies = 0;
   sm.forEachInRadius(hero.position.x, hero.position.y, effectiveSight(sm, hero), (other) => {
@@ -22,11 +22,13 @@ export function updateHeroReflex(sm: StateManager, hero: IUnit): boolean {
     else enemies++;
   });
 
-  const outnumbered = enemies >= OUTNUMBERED_MIN_ENEMIES && enemies >= OUTNUMBERED_RATIO * allies;
-  const hpRatio = hero.hp / hero.maxHp;
+  if (hero.reflexOverridden) {
+    if (enemies === 0) hero.reflexOverridden = false;
+    return false;
+  }
 
   if (hero.state === BehaviorState.FLEE) {
-    if (enemies === 0 || (hpRatio >= RECOVER_HP_RATIO && !outnumbered)) {
+    if (enemies === 0) {
       hero.state = BehaviorState.IDLE;
       hero.target = null;
       hero.path = [];
@@ -35,7 +37,8 @@ export function updateHeroReflex(sm: StateManager, hero: IUnit): boolean {
     return true;
   }
 
-  if (enemies > 0 && (hpRatio < RETREAT_HP_RATIO || outnumbered)) {
+  const outnumbered = enemies >= OUTNUMBERED_MIN_ENEMIES && enemies >= OUTNUMBERED_RATIO * allies;
+  if (enemies > 0 && (hero.hp / hero.maxHp < RETREAT_HP_RATIO || outnumbered)) {
     hero.state = BehaviorState.FLEE;
     hero.target = null;
     hero.path = [];
@@ -44,9 +47,8 @@ export function updateHeroReflex(sm: StateManager, hero: IUnit): boolean {
   return false;
 }
 
-// Retreating hero moves away from the enemies around it and back toward its own side
-// (its start position). Running to its soldiers' centre is not safe: they may be
-// fighting in the middle of the enemy.
+// A fleeing hero moves straight away from the enemies it sees. It does not run home and it
+// sets no task point, so its soldiers keep their fight.
 export function moveHeroRetreat(
   sm: StateManager,
   hero: IHero,
@@ -62,24 +64,9 @@ export function moveHeroRetreat(
     ey += other.position.y;
     n++;
   });
-
-  let dx = 0;
-  let dy = 0;
-  if (n > 0) {
-    const ax = hero.position.x - ex / n;
-    const ay = hero.position.y - ey / n;
-    const al = Math.hypot(ax, ay) || 1;
-    dx += ax / al;
-    dy += ay / al;
-  }
-  const hx = hero.home.x + 0.5 - hero.position.x;
-  const hy = hero.home.y + 0.5 - hero.position.y;
-  const hl = Math.hypot(hx, hy);
-  if (hl > HOME_RADIUS) {
-    dx += hx / hl;
-    dy += hy / hl;
-  }
-
-  if (dx === 0 && dy === 0) return; // safe at home
-  stepToward(sm, hero, Math.atan2(dy, dx), deltaTime, grid);
+  if (n === 0) return;
+  const ax = hero.position.x - ex / n;
+  const ay = hero.position.y - ey / n;
+  if (ax === 0 && ay === 0) return;
+  stepToward(sm, hero, Math.atan2(ay, ax), deltaTime, grid);
 }

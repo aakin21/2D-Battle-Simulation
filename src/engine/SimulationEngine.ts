@@ -346,7 +346,12 @@ export class SimulationEngine {
   }
 
   private updateBehavior(unit: IUnit): void {
-    if (this.battleMode && unit.unitType === UnitType.HERO && this.updateHeroReflex(unit)) return;
+    if (
+      this.battleMode &&
+      unit.unitType === UnitType.HERO &&
+      updateHeroReflex(this.stateManager, unit as IHero)
+    )
+      return;
 
     if (unit.unitType === UnitType.BERSERKER && !this.battleMode) {
       const enemy = findNearestEnemy(this.stateManager, unit);
@@ -450,11 +455,6 @@ export class SimulationEngine {
       unit.state = BehaviorState.IDLE;
       unit.target = enemy.id;
     }
-  }
-
-  // D18 survival reflex; returns true when it decided the hero's state this frame.
-  private updateHeroReflex(hero: IUnit): boolean {
-    return updateHeroReflex(this.stateManager, hero);
   }
 
   private moveFlee(unit: IUnit, deltaTime: number, grid: TerrainType[][]): void {
@@ -752,21 +752,14 @@ export class SimulationEngine {
     return null;
   }
 
-  // D28: a soldier with no hero in range walks back to the nearest hero of its side (it
-  // follows that hero again once within its sight). With no heroes left, it attacks the
-  // nearest enemy, so a battle always reaches an end.
+  // A soldier with no hero of its side within sight is a stray: it stays where it is (and
+  // fights what comes close) until a hero comes to collect it (regroup order). Only when its
+  // side has no heroes left does it attack the nearest enemy, so a battle can still end (D28).
   private strayDestination(unit: IUnit): Position | null {
-    let nearest: IHero | undefined;
-    let best = Infinity;
-    for (const h of this.stateManager.getHeroes()) {
-      if (h.faction !== unit.faction || h.hp <= 0) continue;
-      const d2 = (h.position.x - unit.position.x) ** 2 + (h.position.y - unit.position.y) ** 2;
-      if (d2 < best) {
-        best = d2;
-        nearest = h;
-      }
-    }
-    if (nearest) return nearest.position;
+    const heroLeft = this.stateManager
+      .getHeroes()
+      .some((h) => h.faction === unit.faction && h.hp > 0);
+    if (heroLeft) return null;
     const enemy = findNearestEnemyAnywhere(this.stateManager, unit);
     return enemy ? enemy.position : null;
   }

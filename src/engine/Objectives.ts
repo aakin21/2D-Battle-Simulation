@@ -10,7 +10,7 @@ import {
 
 // Battle objectives (D30): control points scored by majority, and bases that units attack.
 
-export type EndReason = 'elimination' | 'base' | 'points';
+export type EndReason = 'elimination' | 'base' | 'points' | 'time';
 
 const other = (f: Faction) => (f === Faction.FRIENDLY ? Faction.ENEMY : Faction.FRIENDLY);
 
@@ -80,24 +80,22 @@ export function objectiveEnd(
     if (fallen.length === 2) return { winner: null, reason: 'base' };
     if (fallen.length === 1) return { winner: other(fallen[0].faction), reason: 'base' };
   }
-  if (o.mode === 'control' && o.timeLimit !== null && bf.elapsedTime >= o.timeLimit) {
-    if (o.scores.friendly !== o.scores.enemy) {
+  if (o.timeLimit !== null && bf.elapsedTime >= o.timeLimit) {
+    // Time up: control is decided on points, every mode then on total HP left.
+    const reason: EndReason = o.mode === 'control' ? 'points' : 'time';
+    if (o.mode === 'control' && o.scores.friendly !== o.scores.enemy) {
       return {
         winner: o.scores.friendly > o.scores.enemy ? Faction.FRIENDLY : Faction.ENEMY,
-        reason: 'points',
+        reason,
       };
     }
-    // Equal points: the side with more total HP left wins.
     let fh = 0;
     let eh = 0;
     for (const u of bf.units) {
       if (u.faction === Faction.FRIENDLY) fh += u.hp;
       else eh += u.hp;
     }
-    return {
-      winner: fh > eh ? Faction.FRIENDLY : eh > fh ? Faction.ENEMY : null,
-      reason: 'points',
-    };
+    return { winner: fh > eh ? Faction.FRIENDLY : eh > fh ? Faction.ENEMY : null, reason };
   }
   return null;
 }

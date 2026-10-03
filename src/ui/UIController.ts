@@ -582,7 +582,9 @@ export class UIController {
         ? 'base destroyed'
         : r.reason === 'points'
           ? `time up, points ${r.scores?.friendly ?? 0}–${r.scores?.enemy ?? 0}`
-          : 'all enemy units destroyed';
+          : r.reason === 'time'
+            ? 'time up, more HP left'
+            : 'all enemy units destroyed';
     el.innerHTML =
       `<b>${who}</b> (${how})<br>West: ${west} · East: ${east}<br>` +
       `Time: ${Math.round(r.time)} s · Units left: ${r.survivors}<br>` +
@@ -668,8 +670,8 @@ export class UIController {
     if (!this.engine.isBattleMode()) return null;
     const bf = this.stateManager.getBattlefield();
     const o = bf.objective;
+    const left = o.timeLimit === null ? 0 : Math.max(0, Math.ceil(o.timeLimit - bf.elapsedTime));
     if (o.mode === 'control') {
-      const left = o.timeLimit === null ? 0 : Math.max(0, Math.ceil(o.timeLimit - bf.elapsedTime));
       const holder = (f: Faction | null) => (f === null ? '-' : f === Faction.FRIENDLY ? 'W' : 'E');
       const pts = o.points.map((p) => `${p.name}:${holder(p.holder)}`).join(' ');
       return `W ${Math.floor(o.scores.friendly)} – ${Math.floor(o.scores.enemy)} E · ${pts} · ${left}s`;
@@ -679,9 +681,9 @@ export class UIController {
         const b = o.bases.find((x) => x.faction === f);
         return b ? Math.round((100 * b.hp) / b.maxHp) : 0;
       };
-      return `Base W ${pct(Faction.FRIENDLY)}% – ${pct(Faction.ENEMY)}% E`;
+      return `Base W ${pct(Faction.FRIENDLY)}% – ${pct(Faction.ENEMY)}% E · ${left}s`;
     }
-    return 'Elimination';
+    return `Elimination · ${left}s`;
   }
 
   private updateControlBar(): void {

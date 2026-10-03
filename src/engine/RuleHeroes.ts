@@ -1,10 +1,13 @@
 import { StateManager } from '../state/StateManager';
-import { BehaviorState } from '../types/types';
+import { BehaviorState, IHero } from '../types/types';
 import { HeroCommands } from './HeroCommands';
 import { GroupPatrol } from './GroupPatrol';
 import { findNearestEnemy } from './UnitHelpers';
 
 const ARRIVE_RADIUS = 2;
+
+// Rule heroes whose survival reflex is running; kept per hero object, so a restart forgets them.
+const fled = new WeakSet<IHero>();
 
 // Rule-controlled heroes (battle mode, no AI): attack when an enemy is in sight, otherwise
 // patrol like a berserker group. Orders go through the command interface like any other.
@@ -15,7 +18,22 @@ export function updateRuleHeroes(
 ): void {
   const elapsed = sm.getBattlefield().elapsedTime;
   for (const hero of sm.getHeroes()) {
-    if (hero.controller !== 'rule' || hero.hp <= 0 || hero.state === BehaviorState.FLEE) continue;
+    if (hero.controller !== 'rule' || hero.hp <= 0) continue;
+    if (hero.state === BehaviorState.FLEE) {
+      fled.add(hero);
+      continue;
+    }
+    // D18: after a flight a rule hero rests until its HP is full, so it does not walk
+    // straight back into the fight. An enemy coming into sight ends the rest (engine rule).
+    if (fled.has(hero)) {
+      fled.delete(hero);
+      if (hero.hp < hero.maxHp && !findNearestEnemy(sm, hero)) {
+        hero.state = BehaviorState.REST;
+        hero.target = null;
+        hero.path = [];
+      }
+    }
+    if (hero.state === BehaviorState.REST) continue;
 
     if (findNearestEnemy(sm, hero)) {
       if (hero.command?.type !== 'attack') commands.issue(hero, { type: 'attack' }, 'rule');

@@ -22,8 +22,13 @@ import {
   CHARISMA_RADIUS,
   CHARISMA_BONUS,
   CONTROL_TIME_LIMIT,
+  MATCH_TIME_LIMIT,
   BASE_HP,
 } from '../engine/Rules';
+
+// Battle mode: soldiers start at random tiles within this many columns of their side's
+// hero column (west x = 20, east x = 129), over the full height of the map.
+const SPAWN_AREA_HALF_WIDTH = 20;
 
 export class StateManager {
   private battlefield: IBattlefield;
@@ -210,6 +215,7 @@ export class StateManager {
       lastLlmCommand: null,
       lastLlmTime: 0,
       disengaging: false,
+      reflexOverridden: false,
     };
   }
 
@@ -240,6 +246,7 @@ export class StateManager {
     ];
 
     for (const side of sides) {
+      const heroTiles = new Set<string>();
       for (let h = 0; h < heroCount; h++) {
         const cy = Math.round(((h + 1) * GRID_SIZE) / (heroCount + 1));
         const heroPos = this.clearSpotsAround(side.x, cy, 3, 1, 40)[0];
@@ -251,13 +258,22 @@ export class StateManager {
         hero.position = { x: heroPos.x + 0.5, y: heroPos.y + 0.5 };
         hero.home = { x: heroPos.x, y: heroPos.y };
         this.addUnit(hero);
+        heroTiles.add(`${heroPos.x},${heroPos.y}`);
+      }
 
-        const spots = this.clearSpotsAround(heroPos.x, heroPos.y, 8, perHero);
-        for (let i = 0; i < perHero && i < spots.length; i++) {
-          const unit = this.createUnit(side.type, side.faction, UNIT_STATS.WARRIOR);
-          unit.position = { x: spots[i].x + 0.5, y: spots[i].y + 0.5 };
-          this.addUnit(unit);
-        }
+      // Soldiers start at random tiles in their side's area, not around a hero: heroes have
+      // to collect the ones out of their sight first.
+      const spots = this.getShuffledPositions(
+        Math.max(1, side.x - SPAWN_AREA_HALF_WIDTH),
+        Math.min(GRID_SIZE - 1, side.x + SPAWN_AREA_HALF_WIDTH + 1),
+        1,
+        GRID_SIZE - 1
+      ).filter((p) => this.isInMainRegion(p.x, p.y) && !heroTiles.has(`${p.x},${p.y}`));
+      const soldiers = perHero * heroCount;
+      for (let i = 0; i < soldiers && i < spots.length; i++) {
+        const unit = this.createUnit(side.type, side.faction, UNIT_STATS.WARRIOR);
+        unit.position = { x: spots[i].x + 0.5, y: spots[i].y + 0.5 };
+        this.addUnit(unit);
       }
     }
   }
@@ -460,8 +476,7 @@ export class StateManager {
     if (this.battleMode) {
       this.setupObjective(config.objective ?? 'elimination');
       this.spawnBattleUnits(config);
-    }
-    else this.spawnInitialUnits(config.warriorCount);
+    } else this.spawnInitialUnits(config.warriorCount);
   }
 
   private emptyBattlefield(): IBattlefield {
@@ -487,16 +502,26 @@ export class StateManager {
   private setupObjective(mode: Objective): void {
     const o = this.battlefield.objective;
     o.mode = mode;
+    o.timeLimit = mode === 'control' ? CONTROL_TIME_LIMIT : MATCH_TIME_LIMIT;
     if (mode === 'control') {
       o.points = [
         { name: 'A', position: this.nearestMainTile(75, 45), holder: null },
         { name: 'B', position: this.nearestMainTile(75, 105), holder: null },
       ];
-      o.timeLimit = CONTROL_TIME_LIMIT;
     } else if (mode === 'base') {
       o.bases = [
-        { faction: Faction.FRIENDLY, position: this.nearestMainTile(14, 75), hp: BASE_HP, maxHp: BASE_HP },
-        { faction: Faction.ENEMY, position: this.nearestMainTile(135, 75), hp: BASE_HP, maxHp: BASE_HP },
+        {
+          faction: Faction.FRIENDLY,
+          position: this.nearestMainTile(14, 75),
+          hp: BASE_HP,
+          maxHp: BASE_HP,
+        },
+        {
+          faction: Faction.ENEMY,
+          position: this.nearestMainTile(135, 75),
+          hp: BASE_HP,
+          maxHp: BASE_HP,
+        },
       ];
     }
   }

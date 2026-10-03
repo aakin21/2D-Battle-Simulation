@@ -447,6 +447,8 @@ export class LlmController {
     const bf = this.stateManager.getBattlefield();
     const o = bf.objective;
     const mineF = this.faction;
+    const secondsLeft =
+      o.timeLimit === null ? 'n/a' : Math.max(0, Math.round(o.timeLimit - bf.elapsedTime));
     if (o.mode === 'control') {
       const yours = mineF === Faction.FRIENDLY ? o.scores.friendly : o.scores.enemy;
       const theirs = mineF === Faction.FRIENDLY ? o.scores.enemy : o.scores.friendly;
@@ -454,8 +456,7 @@ export class LlmController {
         mode: 'control points',
         your_points: Math.round(yours),
         enemy_points: Math.round(theirs),
-        seconds_left:
-          o.timeLimit === null ? 'n/a' : Math.max(0, Math.round(o.timeLimit - bf.elapsedTime)),
+        seconds_left: secondsLeft,
         points: o.points.map((p) => {
           const c = pointCounts(this.stateManager, p);
           return {
@@ -483,9 +484,14 @@ export class LlmController {
         };
       };
       const enemyF = mineF === Faction.FRIENDLY ? Faction.ENEMY : Faction.FRIENDLY;
-      return { mode: 'destroy the base', your_base: describe(mineF), enemy_base: describe(enemyF) };
+      return {
+        mode: 'destroy the base',
+        seconds_left: secondsLeft,
+        your_base: describe(mineF),
+        enemy_base: describe(enemyF),
+      };
     }
-    return { mode: 'elimination' };
+    return { mode: 'elimination', seconds_left: secondsLeft };
   }
 
   // Stray soldiers as clusters (D28): the 5 largest, the rest summed up.
