@@ -4,7 +4,7 @@ const CELL_SIZE = 15;
 const CELL_COUNT = 10; // ceil(150 / 15)
 
 // Fine grid for the two per-unit, per-frame queries: counting allies and enemies in sight
-// (courage) and finding the nearest enemy (D27). Both return exactly what a scan over the
+// (courage) and finding the nearest enemy (D31). Both return exactly what a scan over the
 // coarse grid would return; the coarse grid and forEach() are unchanged, so every other
 // caller keeps its iteration order.
 const FINE_SIZE = 4;
