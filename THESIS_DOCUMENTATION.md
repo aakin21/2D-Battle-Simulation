@@ -131,7 +131,7 @@ D1–D4 are the professor's proposals from the 2026-09-30 meeting; D5 onwards ca
 | D24 | 2026-10-02 | Code organization: split the engine into sibling modules, a CLAUDE.md per folder with a root CLAUDE.md for architecture and rules, Prettier and lint clean-up; tests stay outside the repository | Keeps the code readable and the design rules explicit as the AI layers grow. See record below | Accepted (2026-10-02) |
 | D25 | 2026-10-02 | Unit sprites come from the Ninja Adventure asset pack (CC0) | Free for a public repo, top-down 16×16 with walk and attack animations. See record below and R4 | Accepted (2026-10-02) |
 | D26 | 2026-10-03 | AI inputs v2: complete rulebook for both layers built from the engine's constants, computed summaries instead of raw data, stance and plan memory for the LLM, sub-sector targets, Jev assessments reported to the LLM | Applies R5; fixes the missing rules and repeated decisions seen in the first LLM vs LLM match. See record below | Accepted (2026-10-03) |
-| D27 | 2026-10-03 | Speed up neighbor queries with an algorithm that gives exactly the same results (finer grid, per-cell faction counts, ring search for the nearest enemy) | Fixes the FPS collapse in dense clusters (P2, R6) without changing any rule; update frequency and approximations were rejected because they change the model. See record below | Proposed |
+| D27 | 2026-10-03 | Speed up neighbor queries with an algorithm that gives exactly the same results (finer grid, per-cell faction counts, ring search for the nearest enemy) | Fixes the FPS collapse in dense clusters (P2, R6) without changing any rule; update frequency and approximations were rejected because they change the model. See record below | Proposed (implemented and verified on branch `perf/neighbor-queries`, R7; awaiting the author's confirmation) |
 
 ### Decision records
 
@@ -673,6 +673,42 @@ Each record lists the options we considered, what we chose, and why.
 
 **Conclusion:** the collapse comes from the engine's neighbor queries, whose cost grows with the square of local density (see P2). The proposed fix is D27.
 
+### R7: D27 equivalence and speed (2026-10-03)
+
+**Question:** Does the new neighbor-query code (D27) give exactly the same simulation as before, and how much faster is it?
+
+**Implementation:** `SpatialGrid` keeps the original 15-tile grid and `forEach()` unchanged (so every other caller keeps its order) and adds a 4-tile grid with per-cell friendly/enemy counts. Courage counts add whole cells that lie inside the sight circle and check only edge cells unit by unit. Nearest enemy searches cells ring by ring and stops when no closer unit can exist; on an exact distance tie it falls back to the original scan, so the same unit is chosen. When the coarse cells around a query hold ≤ 48 units, both queries use the original scan (cheaper in sparse areas). Cell size and threshold were chosen by measurement (2, 3, 4 tiles × 48, 160 units).
+
+**Equivalence test** (Node.js, outside the repository; seeded random numbers so both runs start identically):
+- Per query: in a run with the new code, every unit's courage counts and nearest enemy are also computed the original way and compared.
+- Full trajectory: the same match is run once with the original queries and once with the new ones; after every frame, the position, HP, courage, state, target and path length of every unit are compared.
+
+| Scenario | Frames | Queries checked | Mismatches | Trajectory |
+|---|---|---|---|---|
+| Classic, default (waves) | 4,000 | 1.51 M | 0 | identical |
+| Classic, 1,000 warriors, waves ×4 | 3,000 | 3.99 M | 0 | identical |
+| Battle mode | 4,000 | 0.84 M | 0 | identical |
+| Stress (4,200 units) | 1,500 | 3.77 M | 0 | identical |
+
+Exact distance ties were frequent (e.g. ~17,000 in the stress run), mostly from integer spawn positions. Without the tie fallback the trajectories would have diverged.
+
+**Speed** (engine update time per frame, same seed, so both versions compute exactly the same states; Node.js):
+
+| Scenario | Original | New | |
+|---|---|---|---|
+| Stress | 10.4 ms | 4.3 ms | 2.4× faster; spikes of 24–38 ms reduced to ≤ 16 ms |
+| Classic default | 0.15 ms | 0.16 ms | same |
+| Battle | 0.26 ms | 0.22 ms | 1.2× faster |
+
+**In the browser** (stress, FX on): FPS now rises as units die (92 → 108 → 250 → 370 → ~540) instead of falling while the unit count stays constant (143 → 68 before, R6).
+
+**Findings:**
+- ✅ Identical results in all four scenarios, ~10 M queries, 0 mismatches.
+- ✅ Stress mode engine time 2.4× lower; no regression in sparse scenarios.
+- ⚠️ One ~165 ms frame remains in the stress run (frame 1,061 of 1,500, both versions): a separate engine event, probably many units re-pathing at once when one side is wiped out (Q17).
+
+**Conclusion:** D27 meets its acceptance condition.
+
 ---
 
 ## Problems log
@@ -697,8 +733,8 @@ Problems encountered during the project, how they were found, and how they were 
 - **Problem:** FPS drops to single digits late in the battle, also when units die and the count goes down.
 - **Cause:** every frame, each unit checks every unit within its sight radius one by one, for courage and for the nearest enemy. When units crowd together (berserkers gathering at their rally point), this grows with the square of local density: about 1,500² checks per frame (R6).
 - **Impact:** stress mode becomes unplayable late in the battle. Battle mode with large armies could hit the same limit.
-- **Resolution:** proposed: faster neighbor queries with identical results (D27). Staggered updates were rejected because they change the model.
-- **Status:** Open
+- **Resolution:** faster neighbor queries with identical results (D27), implemented on branch `perf/neighbor-queries` and verified (R7): identical simulation, stress mode 2.4× faster engine time, FPS now rises as units die instead of collapsing. Staggered updates were rejected because they change the model.
+- **Status:** Resolved on branch `perf/neighbor-queries` (2026-10-03); not yet merged into `phase2/symmetry`
 
 ---
 
@@ -722,3 +758,4 @@ Problems encountered during the project, how they were found, and how they were 
 | Q14 | How large is the Vercel cold start in practice? | Measure after deployment (D8) |
 | Q15 | Is cross-match learning (D11) feasible, and how should it be built? | Research: lesson format and size limit, summarizing old lessons, effect of a fixed vs varied map (risk of map-specific lessons), fairness in Agent vs Agent, keeping other experiments independent (learning off). Related work: Reflexion (Shinn et al., 2023) |
 | Q16 | Does the persistent LLM session slow down as history grows over a match? | Repeat R2 measurement over a full-length match; reset the session periodically if needed |
+| Q17 | What causes the one-time ~165 ms frame in stress mode (R7)? | Same in both versions, so not D27. Likely many berserkers re-pathing at once when the warriors are wiped out. Profile that frame |

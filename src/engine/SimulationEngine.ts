@@ -62,6 +62,8 @@ export class SimulationEngine {
   private patrol = new GroupPatrol();
   private commands: HeroCommands;
 
+  // Reused buffer for courage counts: [friendly, enemy]
+  private factionCounts = new Int32Array(2);
   private paused: boolean = false;
   private stressMode: boolean = false;
   private battleMode: boolean = false;
@@ -279,14 +281,13 @@ export class SimulationEngine {
     const hpLostFraction = 1 - unit.hp / unit.maxHp;
     const woundedPenalty = -Math.floor(hpLostFraction / WOUND_STEP) * WOUND_PENALTY;
 
+    // Living units in sight per faction, the unit itself included (D27: same counts as a
+    // full scan, computed from per-cell counters)
     const sight = effectiveSight(this.stateManager, unit);
-    let allies = 0;
-    let enemies = 0;
-    this.stateManager.forEachInRadius(unit.position.x, unit.position.y, sight, (other) => {
-      if (other.hp <= 0) return;
-      if (other.faction === unit.faction) allies++;
-      else enemies++;
-    });
+    const counts = this.factionCounts;
+    this.stateManager.countByFactionInRadius(unit.position.x, unit.position.y, sight, counts);
+    const allies = counts[unit.faction];
+    const enemies = counts[0] + counts[1] - allies;
 
     let ratioModifier = 0;
     const total = allies + enemies;
