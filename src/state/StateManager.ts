@@ -203,6 +203,7 @@ export class StateManager {
       commandTime: 0,
       lastLlmCommand: null,
       lastLlmTime: 0,
+      disengaging: false,
     };
   }
 

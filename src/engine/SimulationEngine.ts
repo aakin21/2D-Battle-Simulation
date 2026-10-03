@@ -17,6 +17,7 @@ import {
   ALLY_SHARE_VERY_LOW_PENALTY,
   REST_TRIGGER_HP,
   REST_HEAL_PER_SEC,
+  DISENGAGE_CLEAR_RADIUS,
 } from './Rules';
 import { GroupPatrol } from './GroupPatrol';
 import { updateRuleHeroes } from './RuleHeroes';
@@ -158,7 +159,7 @@ export class SimulationEngine {
   // Single entry point for hero orders (D20): user clicks, rule heroes, Jev and the LLM
   // all come through here, so a hero behaves the same whoever gave the order.
   issueCommand(hero: IHero, command: HeroCommand | null, source: CommandSource): void {
-    this.commands.issue(hero, command, source);
+    this.commands.issue(hero, command, source, this.battleMode);
   }
 
   restart(): void {
@@ -268,6 +269,14 @@ export class SimulationEngine {
     this.onMatchEnd?.(this.result);
   }
 
+  private enemyWithin(unit: IUnit, radius: number): boolean {
+    let found = false;
+    this.stateManager.forEachInRadius(unit.position.x, unit.position.y, radius, (other) => {
+      if (!found && other.hp > 0 && other.faction !== unit.faction) found = true;
+    });
+    return found;
+  }
+
   private updateCourage(unit: IUnit): void {
     if (!this.isSoldier(unit)) return;
 
@@ -364,6 +373,17 @@ export class SimulationEngine {
     }
 
     if (unit.unitType === UnitType.HERO) {
+      // D27: a hero breaking off a fight walks on without engaging until it is clear of
+      // enemies, then behaves normally again (so it does not march into the next group).
+      const hero = unit as IHero;
+      if (hero.disengaging) {
+        if (this.enemyWithin(hero, DISENGAGE_CLEAR_RADIUS)) {
+          hero.state = BehaviorState.IDLE;
+          hero.target = null;
+          return;
+        }
+        hero.disengaging = false;
+      }
       if (enemy) {
         const dx = enemy.position.x - unit.position.x;
         const dy = enemy.position.y - unit.position.y;

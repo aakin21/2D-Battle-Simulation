@@ -1,5 +1,5 @@
 import { StateManager } from '../state/StateManager';
-import { IHero, HeroCommand, CommandSource, Position } from '../types/types';
+import { IHero, HeroCommand, CommandSource, Position, BehaviorState } from '../types/types';
 import { findNearestEnemyAnywhere, nearestReachableTile, tileOf } from './UnitHelpers';
 
 // The command interface (D20). Every order — user click, rule hero, Jev, LLM — goes through
@@ -8,10 +8,21 @@ import { findNearestEnemyAnywhere, nearestReachableTile, tileOf } from './UnitHe
 export class HeroCommands {
   constructor(private sm: StateManager) {}
 
-  issue(hero: IHero, command: HeroCommand | null, source: CommandSource): void {
+  // breakOffAllowed (battle mode, D27): a *different* movement order given while the hero is
+  // fighting makes it break off the fight; retreat always does. A repeated order is not a new
+  // decision (the LLM restates its orders every report), so it changes nothing.
+  issue(
+    hero: IHero,
+    command: HeroCommand | null,
+    source: CommandSource,
+    breakOffAllowed = false
+  ): void {
     if (command?.type === 'move') {
       command = { type: 'move', target: nearestReachableTile(this.sm, command.target) };
     }
+    if (command && hero.command && sameCommand(hero.command, command)) return;
+    if (!command && !hero.command) return;
+
     hero.command = command;
     hero.commandSource = command ? source : null;
     hero.commandTime = this.sm.getBattlefield().elapsedTime;
@@ -19,6 +30,12 @@ export class HeroCommands {
       hero.lastLlmCommand = command;
       hero.lastLlmTime = hero.commandTime;
     }
+
+    const movement = command !== null && this.isMovement(hero, command);
+    hero.disengaging =
+      breakOffAllowed &&
+      movement &&
+      (command?.type === 'retreat' || hero.state === BehaviorState.ATTACK);
   }
 
   // Re-evaluated every frame because some targets move (nearest enemy, an enemy hero).
@@ -28,6 +45,12 @@ export class HeroCommands {
       const command = hero.command?.type === 'continueLlm' ? hero.lastLlmCommand : hero.command;
       hero.taskPoint = this.target(hero, command);
     }
+  }
+
+  // Orders that send the hero somewhere: move, retreat, or resuming an LLM move/retreat.
+  private isMovement(hero: IHero, command: HeroCommand): boolean {
+    const c = command.type === 'continueLlm' ? hero.lastLlmCommand : command;
+    return c?.type === 'move' || c?.type === 'retreat';
   }
 
   // null means "no destination": the hero stays where it is.
@@ -55,4 +78,15 @@ export class HeroCommands {
         return null; // no LLM command yet
     }
   }
+}
+
+// Two orders are the same if they would send the hero to the same place in the same way.
+// A repeated hold keeps the original hold position.
+export function sameCommand(a: HeroCommand, b: HeroCommand): boolean {
+  if (a.type !== b.type) return false;
+  if (a.type === 'move' && b.type === 'move') {
+    return a.target.x === b.target.x && a.target.y === b.target.y;
+  }
+  if (a.type === 'attackHero' && b.type === 'attackHero') return a.heroIndex === b.heroIndex;
+  return true;
 }

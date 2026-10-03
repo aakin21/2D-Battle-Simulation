@@ -214,9 +214,8 @@ export class JevController {
 
         const confidence = answer.confidence ?? 0;
         const applied = confidence >= this.opts.minConfidence;
-        if (applied && !this.sameCommand(hero.command, option.command)) {
-          this.engine.issueCommand(hero, option.command, 'jev');
-        }
+        // A repeated order is ignored by the command interface (D27).
+        if (applied) this.engine.issueCommand(hero, option.command, 'jev');
         if (applied) this.lastChoice.set(hero.heroIndex, option.key);
         this.decisions.push({
           time,
@@ -244,15 +243,6 @@ export class JevController {
       ? 'heroes switched to rule-based control'
       : 'tactical layer stopped';
     console.warn(`Jev unavailable (${reason}); ${what}. ${hint}`);
-  }
-
-  private sameCommand(a: HeroCommand | null, b: HeroCommand): boolean {
-    if (!a || a.type !== b.type) return false;
-    if (a.type === 'move' && b.type === 'move')
-      return a.target.x === b.target.x && a.target.y === b.target.y;
-    if (a.type === 'attackHero' && b.type === 'attackHero') return a.heroIndex === b.heroIndex;
-    if (a.type === 'hold' && b.type === 'hold') return true; // keep the original hold position
-    return true; // retreat, attack, continueLlm: same type is the same order
   }
 
   // The options Jev can choose from for one hero (D20, D26), each with what it is for and

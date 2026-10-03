@@ -23,6 +23,8 @@ const REST = `A unit below ${R.REST_TRIGGER_HP} HP with no enemy in sight stops 
 
 const REFLEX = `Hero survival reflex: a hero automatically retreats toward its start position when its HP falls below ${pct(R.HERO_RETREAT_HP_RATIO)}, or when at least ${R.HERO_OUTNUMBERED_MIN_ENEMIES} enemies outnumber its allies ${R.HERO_OUTNUMBERED_RATIO} to 1 in its sight. It obeys orders again at ${pct(R.HERO_RECOVER_HP_RATIO)} HP when no longer outnumbered. The current order is kept and resumes afterwards.`;
 
+const BREAK_OFF = `A hero on a move or retreat order fights enemies it meets on the way and then continues to its target. If a different order arrives while it is fighting, it breaks off: it ignores enemies until none is within ${R.DISENGAGE_CLEAR_RADIUS} tiles, then fights normally again; retreat always breaks off. Its soldiers do not break off with it and keep fighting. Repeating the same order changes nothing; it is how you keep a plan.`;
+
 const TERRAIN = `Terrain: forest slows movement to ${pct(TERRAIN_SPEED.FOREST)} and sight to ${pct(TERRAIN_SIGHT.FOREST)}; swamp slows movement to ${pct(TERRAIN_SPEED.SWAMP)} and sight to ${pct(TERRAIN_SIGHT.SWAMP)}; mountains are impassable.`;
 
 const MAP = `The map is ${GRID_SIZE}x${GRID_SIZE} tiles, split into ${SECTORS_PER_SIDE}x${SECTORS_PER_SIDE} sectors of ${SECTOR_SIZE}x${SECTOR_SIZE} tiles. Columns A-J run west to east, rows 1-10 north to south. Each sector is split 3x3 into sub-sectors of 5x5 tiles named NW, N, NE, W, C, E, SW, S, SE, e.g. "D4-NE" is the north-east corner of D4; "D4" alone means its centre.`;
@@ -58,6 +60,7 @@ ORDERS:
 - retreat: walk back to the hero's start position.
 - attack: walk toward the nearest enemy unit, wherever it is.
 - attack_hero <n>: walk toward enemy hero n's current position and keep following it as it moves. Your hero and its soldiers still fight every enemy they meet on the way. Killing a hero removes its +${R.CHARISMA_BONUS} courage bonus from its soldiers.
+FIGHTING AND BREAKING OFF: ${BREAK_OFF}
 
 STANCE: keep one stance and change it only when its condition is met.
 - aggressive: seek battle. Switch to defensive if your army's total HP falls below 70% of the enemy's.
@@ -80,6 +83,7 @@ export function jevGameRules(): Record<string, string> {
     charisma: CHARISMA,
     rest: REST,
     hero_reflex: REFLEX,
+    breaking_off: BREAK_OFF,
     terrain: TERRAIN,
     force_ratio:
       'force_ratio is the total HP of your units divided by the total HP of enemy units within 15 tiles of the hero. Above 1 you are stronger here; the trend compares it with 4 seconds ago.',

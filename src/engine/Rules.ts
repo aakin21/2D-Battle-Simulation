@@ -23,6 +23,9 @@ export const CHARISMA_BONUS = 20; // courage, not damage
 export const REST_TRIGGER_HP = 50; // below this HP, with no enemy in sight, a unit rests
 export const REST_HEAL_PER_SEC = 10;
 
+// Breaking off a fight (D27): a hero that breaks off ignores enemies until none is this close
+export const DISENGAGE_CLEAR_RADIUS = 6;
+
 // Hero survival reflex (D18)
 export const HERO_RETREAT_HP_RATIO = 0.5;
 export const HERO_RECOVER_HP_RATIO = 0.8;

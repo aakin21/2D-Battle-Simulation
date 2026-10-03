@@ -82,6 +82,7 @@ export interface IHero extends IUnit {
   commandTime: number; // simulation time of the last command
   lastLlmCommand: HeroCommand | null; // kept so Jev can see and resume the LLM's plan (D15)
   lastLlmTime: number; // simulation time of the LLM's latest command
+  disengaging: boolean; // breaking off a fight: ignores enemies until clear of them (D27)
 }
 
 export interface IBattlefield {

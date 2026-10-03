@@ -131,6 +131,7 @@ D1–D4 are the professor's proposals from the 2026-09-30 meeting; D5 onwards ca
 | D24 | 2026-10-02 | Code organization: split the engine into sibling modules, a CLAUDE.md per folder with a root CLAUDE.md for architecture and rules, Prettier and lint clean-up; tests stay outside the repository | Keeps the code readable and the design rules explicit as the AI layers grow. See record below | Accepted (2026-10-02) |
 | D25 | 2026-10-02 | Unit sprites come from the Ninja Adventure asset pack (CC0) | Free for a public repo, top-down 16×16 with walk and attack animations. See record below and R4 | Accepted (2026-10-02) |
 | D26 | 2026-10-03 | AI inputs v2: complete rulebook for both layers built from the engine's constants, computed summaries instead of raw data, stance and plan memory for the LLM, sub-sector targets, Jev assessments reported to the LLM | Applies R5; fixes the missing rules and repeated decisions seen in the first LLM vs LLM match. See record below | Accepted (2026-10-03) |
+| D27 | 2026-10-03 | Fighting and breaking off: heroes fight what they meet on a move; a different order during a fight breaks off until clear of enemies; repeated orders change nothing | Orders like retreat were ignored while a hero was fighting. See record below | Accepted (2026-10-03) |
 
 ### Decision records
 
@@ -395,6 +396,25 @@ Each record lists the options we considered, what we chose, and why.
 - **LLM reply:** situation → change → stance → plan → orders (structured reasoning order, R5). Stances: aggressive / defensive / regroup, each with an explicit switch condition (MASMP-style state machine, R5): defensive below 70% of the enemy's total HP, aggressive above 120% or after 60 s of enemy passivity, regroup after heavy losses.
 - **Jev request (every 4 s):** `game_rules`; per hero: HP, status, sub-sector, current order, the LLM's order and its age, its own previous decision, group stats, nearby allies and enemies, local force ratio and its value 4 s earlier, nearest enemy, enemy heroes within 30 tiles, 15×15 local text map. Options, each with "what" and "not for": continue LLM order (only when one exists), hold, retreat, attack, attack enemy hero N (within 30 tiles), and 8 short steps of ~10 tiles. Plus three assessment questions per hero: surrounded (yes/no probability), threat level (0–3), and whether the LLM's order still fits (only when one exists). The assessments do not change Jev's choice; they are logged and sent up to the LLM (R5: lower layers report up). Size ≈ 3,200 tokens per request for three heroes (≈ $0.01 per match).
 - **Tested** with a fake Jev and a fake LLM (request contents, parsing, sub-sector moves, stance memory, assessments reported up). A real LLM vs LLM comparison with v1 is still to be run.
+
+#### D27: Fighting and breaking off (battle mode)
+- **Problem:** a hero with an enemy within 2 tiles switched to attack and never moved until the fight ended. A "retreat" or "move" order from the user, Jev or the LLM had no effect during a fight; only the survival reflex could pull the hero out.
+- **Options considered:**
+  - (a) movement orders always ignore enemies (pure "move" as in RTS games): the hero would march straight into the next enemy group and die.
+  - (b) attack while walking: no cost to leaving a fight; rejected.
+  - (c) a separate "disengage" order: a bigger order set for the AI to learn.
+  - (d) context rule, adapted from RTS move / attack-move.
+- **Chosen:** (d):
+  - A move order given while **not** fighting: the hero advances, fights enemies it meets on the way (with its soldiers), then continues to its target.
+  - A **different** movement order given **while fighting**: the hero breaks off and ignores enemies **only until none is within 6 tiles**, then behaves normally again, so it does not march into the next enemy group.
+  - Retreat always breaks off.
+  - **A repeated order is not a new order:** the LLM restates its orders every 20 s, and without this rule every restatement would pull heroes out of their fights. Identical orders are ignored by the command interface.
+  - The survival reflex (D18) still comes first; an order received during the reflex is kept and carried out afterwards.
+  - Soldiers do not break off with the hero; they keep fighting by their own rules (D14). Leaving them costs their charisma bonus (beyond 10 tiles) and their following (beyond 15 tiles): a real trade-off for the AI.
+  - Classic mode keeps Phase 1 behavior (D19).
+- **Rulebook:** both layers are told this rule in about 80 tokens (built from `DISENGAGE_CLEAR_RADIUS` in `Rules.ts`).
+- **Research basis:** RTS games separate "move" (ignore enemies, used to escape) from "attack-move" (engage on the way); breaking off is meant to be temporary; the tactical layer (Jev, every 4 s) is what avoids walking into enemy groups, as squads do in Killzone 3 (R5). Threat-aware pathfinding (avoiding enemy-dense areas in A*) was noted as a possible later addition.
+- **Tested (headless):** a repeated order keeps the hero fighting; a different move order breaks it off, it never attacks while breaking off, and it returns to normal after 3.5 s once clear; retreat always breaks off; Classic is unaffected.
 
 #### D15: How the LLM and Jev work together
 - **Options:**
