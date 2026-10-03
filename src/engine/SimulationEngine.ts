@@ -260,7 +260,10 @@ export class SimulationEngine {
   private updateCourage(unit: IUnit): void {
     if (!this.isSoldier(unit)) return;
 
-    const base = UNIT_STATS[UnitType[unit.unitType] as keyof typeof UNIT_STATS].courage;
+    // Battle mode: both sides use warrior stats (D19), courage included.
+    const base = this.battleMode
+      ? UNIT_STATS.WARRIOR.courage
+      : UNIT_STATS[UnitType[unit.unitType] as keyof typeof UNIT_STATS].courage;
 
     const hpLostFraction = 1 - unit.hp / unit.maxHp;
     const woundedPenalty = -Math.floor(hpLostFraction / 0.2) * 10;
