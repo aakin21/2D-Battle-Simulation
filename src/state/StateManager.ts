@@ -17,6 +17,7 @@ import {
 import { Pathfinder } from '../engine/Pathfinder';
 import { SpatialGrid } from '../engine/SpatialGrid';
 import { BerserkerPool } from '../engine/BerserkerPool';
+import { CHARISMA_RADIUS, CHARISMA_BONUS } from '../engine/Rules';
 
 export class StateManager {
   private battlefield: IBattlefield;
@@ -192,8 +193,8 @@ export class StateManager {
     return {
       ...base,
       taskPoint: null,
-      charismaRadius: 10,
-      charismaBonus: 20,
+      charismaRadius: CHARISMA_RADIUS,
+      charismaBonus: CHARISMA_BONUS,
       controller,
       heroIndex,
       home: { x: 0, y: 0 },
@@ -201,6 +202,7 @@ export class StateManager {
       commandSource: null,
       commandTime: 0,
       lastLlmCommand: null,
+      lastLlmTime: 0,
     };
   }
 

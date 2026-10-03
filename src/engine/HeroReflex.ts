@@ -1,13 +1,15 @@
 import { StateManager } from '../state/StateManager';
 import { IHero, IUnit, BehaviorState, TerrainType } from '../types/types';
 import { effectiveSight, stepToward } from './UnitHelpers';
+import {
+  HERO_RETREAT_HP_RATIO as RETREAT_HP_RATIO,
+  HERO_RECOVER_HP_RATIO as RECOVER_HP_RATIO,
+  HERO_OUTNUMBERED_MIN_ENEMIES as OUTNUMBERED_MIN_ENEMIES,
+  HERO_OUTNUMBERED_RATIO as OUTNUMBERED_RATIO,
+} from './Rules';
 
 // D18 hero survival reflex (battle mode). Rules come first: whatever the hero was ordered,
 // it falls back when badly hurt or heavily outnumbered, and resumes once it has recovered.
-const RETREAT_HP_RATIO = 0.5;
-const RECOVER_HP_RATIO = 0.8;
-const OUTNUMBERED_MIN_ENEMIES = 5;
-const OUTNUMBERED_RATIO = 2;
 const HOME_RADIUS = 2;
 
 // Returns true when the reflex decided the hero's state this frame.

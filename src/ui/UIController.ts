@@ -591,7 +591,7 @@ export class UIController {
       if (ai === 'llm' || both) {
         side.llm = new LlmController(this.engine, this.stateManager, faction, {
           fallbackToRules: !both,
-          recentTactical: (heroIndex) => side.jev?.recentFor(heroIndex) ?? [],
+          jevAssessment: side.jev ? (heroIndex) => side.jev!.assessmentFor(heroIndex) : null,
         });
         controllers.push(side.llm);
       }

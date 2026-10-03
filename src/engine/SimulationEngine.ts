@@ -3,6 +3,21 @@ import { Renderer } from '../rendering/Renderer';
 import { MinimapRenderer } from '../rendering/MinimapRenderer';
 import { Pathfinder } from './Pathfinder';
 import { HeroCommands } from './HeroCommands';
+import {
+  COMBAT_RANGE,
+  ATTACK_INTERVAL,
+  FLEE_THRESHOLD,
+  WOUND_STEP,
+  WOUND_PENALTY,
+  ALLY_SHARE_HIGH,
+  ALLY_SHARE_HIGH_BONUS,
+  ALLY_SHARE_LOW,
+  ALLY_SHARE_LOW_PENALTY,
+  ALLY_SHARE_VERY_LOW,
+  ALLY_SHARE_VERY_LOW_PENALTY,
+  REST_TRIGGER_HP,
+  REST_HEAL_PER_SEC,
+} from './Rules';
 import { GroupPatrol } from './GroupPatrol';
 import { updateRuleHeroes } from './RuleHeroes';
 import { updateHeroReflex, moveHeroRetreat } from './HeroReflex';
@@ -25,10 +40,6 @@ import {
 } from '../types/types';
 
 const WARRIOR_ARRIVE_RADIUS = 2;
-const COMBAT_RANGE = 2;
-const ATTACK_INTERVAL = 1.0;
-const FLEE_THRESHOLD = 25;
-const REST_TRIGGER_HP = 50;
 
 // An AI layer that gives heroes orders (Jev or the LLM). Ticked every simulation step.
 export interface AIController {
@@ -266,7 +277,7 @@ export class SimulationEngine {
       : UNIT_STATS[UnitType[unit.unitType] as keyof typeof UNIT_STATS].courage;
 
     const hpLostFraction = 1 - unit.hp / unit.maxHp;
-    const woundedPenalty = -Math.floor(hpLostFraction / 0.2) * 10;
+    const woundedPenalty = -Math.floor(hpLostFraction / WOUND_STEP) * WOUND_PENALTY;
 
     const sight = effectiveSight(this.stateManager, unit);
     let allies = 0;
@@ -281,9 +292,9 @@ export class SimulationEngine {
     const total = allies + enemies;
     if (total > 0) {
       const ratio = allies / total;
-      if (ratio > 0.6) ratioModifier = 15;
-      else if (ratio < 0.2) ratioModifier = -30;
-      else if (ratio < 0.4) ratioModifier = -15;
+      if (ratio > ALLY_SHARE_HIGH) ratioModifier = ALLY_SHARE_HIGH_BONUS;
+      else if (ratio < ALLY_SHARE_VERY_LOW) ratioModifier = -ALLY_SHARE_VERY_LOW_PENALTY;
+      else if (ratio < ALLY_SHARE_LOW) ratioModifier = -ALLY_SHARE_LOW_PENALTY;
     }
 
     const charismaHero = this.findLeader(unit, (h) => h.charismaRadius);
@@ -505,7 +516,7 @@ export class SimulationEngine {
   private processRest(units: IUnit[], deltaTime: number): void {
     for (const unit of units) {
       if (unit.state !== BehaviorState.REST) continue;
-      unit.hp = Math.min(unit.maxHp, unit.hp + 10 * deltaTime);
+      unit.hp = Math.min(unit.maxHp, unit.hp + REST_HEAL_PER_SEC * deltaTime);
     }
   }
 

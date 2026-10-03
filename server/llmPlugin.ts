@@ -7,23 +7,10 @@ import { query, type Query, type SDKUserMessage } from '@anthropic-ai/claude-age
 // takes ~1–2 s instead of ~8 s (R2), and the LLM remembers earlier decisions within a match
 // (in-match memory, D11). A new match id starts a fresh session.
 //
-// POST /api/llm  { side, matchId, prompt }  →  { text, latencyMs, model }
+// POST /api/llm  { side, matchId, system, prompt }  →  { text, latencyMs, model }
 
-const SYSTEM_PROMPT = `You are the strategic commander of one side in a 2D battle simulation.
-Every message is a JSON report of the whole battlefield at one moment. Reply with orders for your heroes.
-
-How the battle works:
-- Each side has heroes and soldiers. Soldiers follow the nearest hero of their side.
-- Soldiers have courage. It drops when wounded or outnumbered and rises near a hero. Soldiers with low courage flee; nobody can force them to fight.
-- A hero's death removes its courage bonus from its soldiers, so heroes are valuable targets and must be protected.
-- A fast tactical system adjusts each hero every few seconds based on its surroundings. You set the overall plan.
-- Terrain: forest and swamp slow movement and reduce sight; mountains are impassable.
-- Locations are sectors of a 10x10 grid: columns A-J from west to east, rows 1-10 from north to south.
-
-Reply with ONLY a JSON object, no other text:
-{"plan": "<one short sentence>", "orders": [{"hero": <number>, "command": "<command>", "sector": "<sector, only for move>", "target_hero": <number, only for attack_hero>}]}
-Commands: "move" (needs sector), "hold", "retreat", "attack" (nearest enemy), "attack_hero" (needs target_hero).
-Give exactly one order per living hero of yours.`;
+// The system prompt (rulebook) is built in the browser from the engine's own constants
+// (src/ai/GameRules.ts) and sent with each request; it is used when a session starts.
 
 const MODEL = process.env.LLM_MODEL || 'sonnet';
 
@@ -36,12 +23,15 @@ class Session {
   private waiting: Array<{ resolve: (text: string) => void; reject: (err: Error) => void }> = [];
   private q: Query;
 
-  constructor(readonly matchId: string) {
+  constructor(
+    readonly matchId: string,
+    systemPrompt: string
+  ) {
     this.q = query({
       prompt: this.input(),
       options: {
         model: MODEL,
-        systemPrompt: SYSTEM_PROMPT,
+        systemPrompt,
         tools: [],
         settingSources: [],
         persistSession: false,
@@ -120,18 +110,19 @@ export function llmPlugin(): Plugin {
       server.middlewares.use('/api/llm', async (req, res) => {
         if (req.method !== 'POST') return send(res, 405, { error: 'POST only' });
         try {
-          const { side, matchId, prompt } = JSON.parse(await readBody(req)) as {
+          const { side, matchId, system, prompt } = JSON.parse(await readBody(req)) as {
             side: string;
             matchId: string;
+            system: string;
             prompt: string;
           };
-          if (!side || !matchId || !prompt)
-            return send(res, 400, { error: 'side, matchId and prompt are required' });
+          if (!side || !matchId || !system || !prompt)
+            return send(res, 400, { error: 'side, matchId, system and prompt are required' });
 
           let session = sessions.get(side);
           if (!session || session.matchId !== matchId) {
             session?.close();
-            session = new Session(matchId);
+            session = new Session(matchId, system);
             sessions.set(side, session);
           }
 

@@ -1,9 +1,8 @@
 import { StateManager } from '../state/StateManager';
 import { IUnit, Position, TerrainType, TERRAIN_SPEED, TERRAIN_SIGHT } from '../types/types';
+import { FLEE_SPEED_MULT } from './Rules';
 
 // Small queries and movement helpers shared by the engine and its hero modules.
-
-export const FLEE_SPEED_MULT = 1.5;
 
 // Mountains are impassable for pathfinding, but a unit can still clip a mountain tile's
 // corner while moving. Speed 0 there would trap it forever, so it crawls out instead.

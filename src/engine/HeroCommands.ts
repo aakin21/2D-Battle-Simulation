@@ -15,7 +15,10 @@ export class HeroCommands {
     hero.command = command;
     hero.commandSource = command ? source : null;
     hero.commandTime = this.sm.getBattlefield().elapsedTime;
-    if (source === 'llm' && command) hero.lastLlmCommand = command;
+    if (source === 'llm' && command) {
+      hero.lastLlmCommand = command;
+      hero.lastLlmTime = hero.commandTime;
+    }
   }
 
   // Re-evaluated every frame because some targets move (nearest enemy, an enemy hero).

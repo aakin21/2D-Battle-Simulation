@@ -1,6 +1,6 @@
 import { SimulationEngine } from '../engine/SimulationEngine';
 import { StateManager } from '../state/StateManager';
-import { positionToSector, sectorCenter, SECTOR_SIZE } from '../engine/Sectors';
+import { positionToSubsector } from '../engine/Sectors';
 import {
   Faction,
   IHero,
@@ -8,13 +8,16 @@ import {
   HeroCommand,
   BehaviorState,
   TerrainType,
-  UnitType,
   GRID_SIZE,
 } from '../types/types';
+import { jevGameRules } from './GameRules';
+import { formatRatio, groupStats, localForce, LOCAL_RADIUS } from './Observations';
+import type { JevAssessment } from './LlmController';
 
-// Layer 2 (D6): Jev makes tactical decisions for each hero of one side every few seconds.
-// Jev only sees each hero's surroundings (D16) and picks one option per hero from a list
-// we define (D20), so it can never return an invalid command.
+// Layer 2 (D6, D21, D26): Jev makes tactical decisions for each hero of one side every few
+// seconds. Jev has no memory, so every request carries the relevant rules (game_rules) and
+// each hero's surroundings (D16). For each hero Jev picks one option from a list we define,
+// and answers three small assessment questions that are logged and reported to the LLM.
 
 export interface JevDecision {
   time: number; // simulation time when the request was sent
@@ -23,6 +26,9 @@ export interface JevDecision {
   confidence: number;
   applied: boolean; // false when confidence was below the threshold
   latencyMs: number;
+  surrounded?: number;
+  threat?: number;
+  orderStillFits?: number;
 }
 
 export interface JevOptions {
@@ -41,8 +47,9 @@ const DEFAULTS: JevOptions = {
   fetchFn: (...args) => fetch(...args),
 };
 
-const VIEW_RADIUS = 15; // tiles around the hero that Jev gets to see
 const MAP_CELL = 2; // local map: one character per 2×2 tiles
+const STEP_TILES = 10; // length of a "step" move
+const HERO_SCAN = LOCAL_RADIUS * 2; // enemy heroes within this distance can be targeted
 const DIRS = [
   'east',
   'south-east',
@@ -56,8 +63,9 @@ const DIRS = [
 
 interface Option {
   key: string;
-  description: string;
-  command: HeroCommand | null; // null: keep the current command
+  what: string;
+  notFor: string;
+  command: HeroCommand;
 }
 
 export class JevController {
@@ -67,6 +75,9 @@ export class JevController {
   private failed = false;
   readonly decisions: JevDecision[] = [];
   skippedRequests = 0; // a new request was due while the previous one was still open (Q7)
+  private lastForce = new Map<number, number>(); // force ratio per hero at the previous request
+  private lastChoice = new Map<number, string>();
+  private assessments = new Map<number, Omit<JevAssessment, 'recentDecisions'>>();
 
   constructor(
     private engine: SimulationEngine,
@@ -100,6 +111,11 @@ export class JevController {
       .map((d) => `t=${Math.round(d.time)}s ${d.choice}`);
   }
 
+  // What Jev reports upward about one hero (R5).
+  assessmentFor(heroIndex: number): JevAssessment {
+    return { recentDecisions: this.recentFor(heroIndex), ...this.assessments.get(heroIndex) };
+  }
+
   private heroes(): IHero[] {
     return this.stateManager
       .getHeroes()
@@ -110,29 +126,49 @@ export class JevController {
     const heroes = this.heroes();
     if (heroes.length === 0) return;
 
+    const groups = groupStats(this.stateManager, this.faction);
     const options = new Map<number, Option[]>();
+    const forceNow = new Map<number, number>();
     const questions: Record<string, unknown> = {};
     const state: Record<string, unknown> = {
-      side: this.faction === Faction.FRIENDLY ? 'west' : 'east',
+      game_rules: jevGameRules(),
       time_seconds: Math.round(time),
-      sector_grid: `${GRID_SIZE / SECTOR_SIZE}x${GRID_SIZE / SECTOR_SIZE}, columns A-J west to east, rows 1-10 north to south`,
+      your_side: this.faction === Faction.FRIENDLY ? 'west' : 'east',
     };
 
     for (const hero of heroes) {
       const key = `hero${hero.heroIndex}`;
       const opts = this.optionsFor(hero);
       options.set(hero.heroIndex, opts);
-      state[key] = this.describeHero(hero);
+      const force = localForce(this.stateManager, hero);
+      forceNow.set(hero.heroIndex, force.ratio);
+      state[key] = this.describeHero(hero, time, force, groups.get(hero.id));
+
       questions[key] = {
         type: 'choice',
-        instructions: {
-          hero: key,
-          question:
-            `Choose the best tactical action for \`${key}\` right now, based on its surroundings. ` +
-            'Soldiers near a hero follow it. Losing the hero costs its soldiers their courage bonus.',
-        },
-        criteria: Object.fromEntries(opts.map((o) => [o.key, o.description])),
+        instructions: { hero: key, question: `What should \`${key}\` do right now?` },
+        criteria: Object.fromEntries(opts.map((o) => [o.key, { what: o.what, not_for: o.notFor }])),
       };
+      questions[`${key}_surrounded`] = {
+        type: 'noul',
+        instructions: `Is \`${key}\` being surrounded: enemies on several sides and its way back closing?`,
+      };
+      questions[`${key}_threat`] = {
+        type: 'score',
+        instructions: `How dangerous is the situation around \`${key}\` right now?`,
+        criteria: [
+          'Safe: no enemies near',
+          'Low: enemies near, but we are clearly stronger here',
+          'High: enemies about as strong as us or stronger here',
+          'Critical: the hero is about to die or lose its soldiers',
+        ],
+      };
+      if (hero.lastLlmCommand) {
+        questions[`${key}_order_fits`] = {
+          type: 'noul',
+          instructions: `Does the commander's order for \`${key}\` (${this.describeCommand(hero.lastLlmCommand)}) still make sense in its current situation?`,
+        };
+      }
     }
 
     this.pending = true;
@@ -156,18 +192,32 @@ export class JevController {
       }
 
       const body = (await res.json()) as {
-        answers?: Record<string, { choice?: string; confidence?: number }>;
+        answers?: Record<
+          string,
+          { choice?: string; confidence?: number; score?: number; noul?: number }
+        >;
       };
+      const a = body.answers ?? {};
       for (const hero of heroes) {
-        const answer = body.answers?.[`hero${hero.heroIndex}`];
+        const key = `hero${hero.heroIndex}`;
+        const assessment = {
+          surrounded: a[`${key}_surrounded`]?.noul,
+          threat: a[`${key}_threat`]?.score,
+          orderStillFits: a[`${key}_order_fits`]?.noul,
+        };
+        this.assessments.set(hero.heroIndex, assessment);
+        this.lastForce.set(hero.heroIndex, forceNow.get(hero.heroIndex) ?? Infinity);
+
+        const answer = a[key];
         const option = options.get(hero.heroIndex)?.find((o) => o.key === answer?.choice);
         if (!answer || !option || hero.hp <= 0) continue;
 
         const confidence = answer.confidence ?? 0;
         const applied = confidence >= this.opts.minConfidence;
-        if (applied && option.command && !this.sameCommand(hero.command, option.command)) {
+        if (applied && !this.sameCommand(hero.command, option.command)) {
           this.engine.issueCommand(hero, option.command, 'jev');
         }
+        if (applied) this.lastChoice.set(hero.heroIndex, option.key);
         this.decisions.push({
           time,
           heroIndex: hero.heroIndex,
@@ -175,6 +225,7 @@ export class JevController {
           confidence,
           applied,
           latencyMs,
+          ...assessment,
         });
       }
     } catch (err) {
@@ -190,7 +241,7 @@ export class JevController {
     this.failed = true;
     if (this.opts.fallbackToRules) for (const hero of this.heroes()) hero.controller = 'rule';
     const what = this.opts.fallbackToRules
-      ? 'enemy heroes switched to rule-based control'
+      ? 'heroes switched to rule-based control'
       : 'tactical layer stopped';
     console.warn(`Jev unavailable (${reason}); ${what}. ${hint}`);
   }
@@ -200,115 +251,129 @@ export class JevController {
     if (a.type === 'move' && b.type === 'move')
       return a.target.x === b.target.x && a.target.y === b.target.y;
     if (a.type === 'attackHero' && b.type === 'attackHero') return a.heroIndex === b.heroIndex;
-    return true; // hold, retreat, attack, continueLlm: same type is the same order
+    if (a.type === 'hold' && b.type === 'hold') return true; // keep the original hold position
+    return true; // retreat, attack, continueLlm: same type is the same order
   }
 
-  // The options Jev can choose from for one hero (D20). Moves are limited to the hero's
-  // own sector and its neighbours: Jev decides locally, the LLM plans map-wide moves.
+  // The options Jev can choose from for one hero (D20, D26), each with what it is for and
+  // what it is not for. Moves are short steps: Jev decides locally, the LLM moves map-wide.
   private optionsFor(hero: IHero): Option[] {
     const here = { x: Math.floor(hero.position.x), y: Math.floor(hero.position.y) };
-    const opts: Option[] = [
-      {
-        key: 'hold',
-        description: 'Stay here and defend this position',
-        command: { type: 'hold', at: here },
-      },
-      {
-        key: 'retreat',
-        description: 'Fall back toward our own side, away from the enemy',
-        command: { type: 'retreat' },
-      },
-      { key: 'attack', description: 'Advance on the nearest enemy', command: { type: 'attack' } },
-    ];
-
-    for (const enemy of this.stateManager.getHeroes()) {
-      if (enemy.faction === hero.faction || enemy.hp <= 0) continue;
-      opts.push({
-        key: `attack_hero_${enemy.heroIndex}`,
-        description: `Go after enemy hero ${enemy.heroIndex} (in sector ${positionToSector(enemy.position)})`,
-        command: { type: 'attackHero', heroIndex: enemy.heroIndex },
-      });
-    }
+    const opts: Option[] = [];
 
     if (hero.lastLlmCommand) {
       opts.push({
         key: 'continue_llm',
-        description: `Keep following the strategic order: ${this.describeCommand(hero.lastLlmCommand)}`,
+        what: `Keep following the commander's order: ${this.describeCommand(hero.lastLlmCommand)}.`,
+        notFor: 'When the hero is in danger or the order no longer fits the local situation.',
         command: { type: 'continueLlm' },
       });
     }
-
-    const col = Math.floor(hero.position.x / SECTOR_SIZE);
-    const row = Math.floor(hero.position.y / SECTOR_SIZE);
-    for (let dr = -1; dr <= 1; dr++) {
-      for (let dc = -1; dc <= 1; dc++) {
-        const c = col + dc;
-        const r = row + dr;
-        if (c < 0 || r < 0 || c >= GRID_SIZE / SECTOR_SIZE || r >= GRID_SIZE / SECTOR_SIZE)
-          continue;
-        const name = `${'ABCDEFGHIJ'[c]}${r + 1}`;
-        const center = sectorCenter(name)!;
-        const where =
-          dr === 0 && dc === 0
-            ? 'the centre of its current sector'
-            : `the sector to the ${DIRS[this.dirIndex(dc, dr)]}`;
-        opts.push({
-          key: `move_${name}`,
-          description: `Move to sector ${name} (${where})`,
-          command: { type: 'move', target: center },
-        });
+    opts.push(
+      {
+        key: 'hold',
+        what: 'Stay at the current position and fight what comes.',
+        notFor:
+          'When clearly outnumbered and losing, or when enemies are slipping around the group.',
+        command: { type: 'hold', at: here },
+      },
+      {
+        key: 'retreat',
+        what: 'Fall back to the start position, away from the enemy, to save the hero and its soldiers.',
+        notFor: 'When winning the local fight or when the enemy is weak.',
+        command: { type: 'retreat' },
+      },
+      {
+        key: 'attack',
+        what: 'Advance on the nearest enemy unit.',
+        notFor: 'When the enemy is clearly stronger nearby or the soldiers are fleeing.',
+        command: { type: 'attack' },
       }
+    );
+
+    for (const enemy of this.stateManager.getHeroes()) {
+      if (enemy.faction === hero.faction || enemy.hp <= 0) continue;
+      const d = Math.hypot(enemy.position.x - hero.position.x, enemy.position.y - hero.position.y);
+      if (d > HERO_SCAN) continue;
+      opts.push({
+        key: `attack_hero_${enemy.heroIndex}`,
+        what: `Chase enemy hero ${enemy.heroIndex} (${Math.round(d)} tiles ${this.direction(hero, enemy)}, ${Math.round((100 * enemy.hp) / enemy.maxHp)}% HP); killing it takes away its soldiers' courage bonus.`,
+        notFor: 'When that hero is protected by a stronger group, or our own hero is badly hurt.',
+        command: { type: 'attackHero', heroIndex: enemy.heroIndex },
+      });
     }
+
+    DIRS.forEach((dir, i) => {
+      const angle = (i * Math.PI) / 4;
+      const target = {
+        x: Math.round(
+          Math.max(1, Math.min(GRID_SIZE - 2, hero.position.x + Math.cos(angle) * STEP_TILES))
+        ),
+        y: Math.round(
+          Math.max(1, Math.min(GRID_SIZE - 2, hero.position.y + Math.sin(angle) * STEP_TILES))
+        ),
+      };
+      opts.push({
+        key: `step_${dir.replace('-', '_')}`,
+        what: `Move about ${STEP_TILES} tiles ${dir}: reposition to better ground, join allies, or avoid being surrounded.`,
+        notFor: "Long moves across the map; that is the commander's job.",
+        command: { type: 'move', target },
+      });
+    });
     return opts;
   }
 
-  // Everything Jev knows about one hero: its own status and what is around it (D16).
-  private describeHero(hero: IHero): Record<string, unknown> {
-    let allies = 0,
-      enemies = 0,
-      alliesFleeing = 0,
-      enemiesFleeing = 0,
-      allyCourage = 0;
+  // Everything Jev knows about one hero: its status, orders and surroundings (D16, D26).
+  private describeHero(
+    hero: IHero,
+    time: number,
+    force: { allies: number; enemies: number; ratio: number },
+    group:
+      | { followers: number; avgHpPercent: number; avgCourage: number; fleeing: number }
+      | undefined
+  ): Record<string, unknown> {
     let nearest: IUnit | null = null;
     let nearestD = Infinity;
     const enemyHeroes: string[] = [];
-
-    this.stateManager.forEachInRadius(hero.position.x, hero.position.y, VIEW_RADIUS, (u) => {
-      if (u.hp <= 0 || u.id === hero.id) return;
+    this.stateManager.forEachInRadius(hero.position.x, hero.position.y, LOCAL_RADIUS, (u) => {
+      if (u.hp <= 0 || u.faction === hero.faction) return;
       const d = Math.hypot(u.position.x - hero.position.x, u.position.y - hero.position.y);
-      if (u.faction === hero.faction) {
-        if (u.unitType === UnitType.HERO) return;
-        allies++;
-        allyCourage += u.courage;
-        if (u.state === BehaviorState.FLEE) alliesFleeing++;
-      } else {
-        enemies++;
-        if (u.state === BehaviorState.FLEE) enemiesFleeing++;
-        if (u.unitType === UnitType.HERO) {
-          enemyHeroes.push(
-            `enemy hero ${(u as IHero).heroIndex}, ${Math.round(d)} tiles ${this.direction(hero, u)}, ${Math.round((100 * u.hp) / u.maxHp)}% hp`
-          );
-        }
-        if (d < nearestD) {
-          nearestD = d;
-          nearest = u;
-        }
+      if (d < nearestD) {
+        nearestD = d;
+        nearest = u;
       }
     });
+    for (const e of this.stateManager.getHeroes()) {
+      if (e.faction === hero.faction || e.hp <= 0) continue;
+      const d = Math.hypot(e.position.x - hero.position.x, e.position.y - hero.position.y);
+      if (d <= HERO_SCAN) {
+        enemyHeroes.push(
+          `enemy hero ${e.heroIndex}, ${Math.round(d)} tiles ${this.direction(hero, e)}, ${Math.round((100 * e.hp) / e.maxHp)}% HP`
+        );
+      }
+    }
+    const prevForce = this.lastForce.get(hero.heroIndex);
 
     return {
       hp_percent: Math.round((100 * hero.hp) / hero.maxHp),
       status: this.heroStatus(hero),
-      sector: positionToSector(hero.position),
+      place: positionToSubsector(hero.position),
       current_order: hero.command
         ? `${this.describeCommand(hero.command)} (from ${hero.commandSource})`
         : 'none',
-      strategic_order: hero.lastLlmCommand ? this.describeCommand(hero.lastLlmCommand) : 'none',
-      allies_nearby: allies,
-      allies_fleeing: alliesFleeing,
-      allies_average_courage: allies ? Math.round(allyCourage / allies) : 0,
-      enemies_nearby: enemies,
-      enemies_fleeing: enemiesFleeing,
+      commander_order: hero.lastLlmCommand ? this.describeCommand(hero.lastLlmCommand) : 'none',
+      commander_order_age_seconds: hero.lastLlmCommand
+        ? Math.round(time - hero.lastLlmTime)
+        : 'n/a',
+      my_previous_decision: this.lastChoice.get(hero.heroIndex) ?? 'none',
+      soldiers_following: group?.followers ?? 0,
+      soldiers_avg_hp_percent: group?.avgHpPercent ?? 0,
+      soldiers_avg_courage: group?.avgCourage ?? 0,
+      soldiers_fleeing: group?.fleeing ?? 0,
+      allies_nearby: force.allies,
+      enemies_nearby: force.enemies,
+      force_ratio: formatRatio(force.ratio),
+      force_ratio_4s_ago: prevForce === undefined ? 'n/a' : formatRatio(prevForce),
       nearest_enemy: nearest
         ? `${Math.round(nearestD)} tiles ${this.direction(hero, nearest)}`
         : 'none in sight',
@@ -321,12 +386,12 @@ export class JevController {
   // area: H hero, e enemies, a allies, M mountain, f forest, s swamp, . open ground.
   private localMap(hero: IHero): Record<string, unknown> {
     const grid = this.stateManager.getBattlefield().grid;
-    const half = Math.floor(VIEW_RADIUS / MAP_CELL);
+    const half = Math.floor(LOCAL_RADIUS / MAP_CELL);
     const hx = Math.floor(hero.position.x / MAP_CELL);
     const hy = Math.floor(hero.position.y / MAP_CELL);
 
     const marks = new Map<number, string>();
-    this.stateManager.forEachInRadius(hero.position.x, hero.position.y, VIEW_RADIUS * 1.5, (u) => {
+    this.stateManager.forEachInRadius(hero.position.x, hero.position.y, LOCAL_RADIUS * 1.5, (u) => {
       if (u.hp <= 0) return;
       const k = Math.floor(u.position.y / MAP_CELL) * 1000 + Math.floor(u.position.x / MAP_CELL);
       if (u.faction !== hero.faction) marks.set(k, 'e');
@@ -366,7 +431,7 @@ export class JevController {
     }
     return {
       legend:
-        'H this hero, e enemy, a ally, M mountain (impassable), f forest (slow, less sight), s swamp (very slow), . open, # map edge; north is up',
+        'H this hero, e enemy, a ally, M mountain (impassable), f forest, s swamp, . open, # map edge; north is up, each character is 2x2 tiles',
       rows,
     };
   }
@@ -387,17 +452,17 @@ export class JevController {
   private describeCommand(c: HeroCommand): string {
     switch (c.type) {
       case 'move':
-        return `move to sector ${positionToSector(c.target)}`;
+        return `move to ${positionToSubsector(c.target)}`;
       case 'hold':
-        return `hold position in sector ${positionToSector(c.at)}`;
+        return `hold position in ${positionToSubsector(c.at)}`;
       case 'retreat':
-        return 'retreat';
+        return 'retreat to the start position';
       case 'attack':
         return 'attack the nearest enemy';
       case 'attackHero':
         return `attack enemy hero ${c.heroIndex}`;
       case 'continueLlm':
-        return 'follow the strategic order';
+        return "follow the commander's order";
     }
   }
 
@@ -407,9 +472,5 @@ export class JevController {
     const idx =
       Math.round(((Math.atan2(dy, dx) + 2 * Math.PI) % (2 * Math.PI)) / (Math.PI / 4)) % 8;
     return `to the ${DIRS[idx]}`;
-  }
-
-  private dirIndex(dc: number, dr: number): number {
-    return Math.round(((Math.atan2(dr, dc) + 2 * Math.PI) % (2 * Math.PI)) / (Math.PI / 4)) % 8;
   }
 }

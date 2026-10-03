@@ -1,18 +1,39 @@
 import { SimulationEngine } from '../engine/SimulationEngine';
 import { StateManager } from '../state/StateManager';
-import { positionToSector, sectorCenter, SECTORS_PER_SIDE, SECTOR_SIZE } from '../engine/Sectors';
+import {
+  positionToSector,
+  positionToSubsector,
+  sectorTarget,
+  SECTORS_PER_SIDE,
+  SECTOR_SIZE,
+} from '../engine/Sectors';
 import { Faction, IHero, HeroCommand, BehaviorState, TerrainType, UnitType } from '../types/types';
+import { llmSystemPrompt } from './GameRules';
+import { armyHp, formatRatio, groupStats, localForce } from './Observations';
 
-// Layer 3 (D1, D10): the LLM plans the overall strategy every 15–30 s from a summary of the
-// whole map (D16). It runs in the dev server through the Claude Agent SDK (/api/llm).
+// Layer 3 (D1, D10): the LLM plans the overall strategy every 20 s from a computed summary
+// of the whole map (D16, R5). It runs in the dev server through the Claude Agent SDK.
+
+export type Stance = 'aggressive' | 'defensive' | 'regroup';
 
 export interface LlmDecision {
   time: number; // simulation time when the request was sent
   latencyMs: number;
+  situation: string;
+  change: string;
+  stance: Stance | '';
   plan: string;
-  orders: string[]; // orders that were valid and applied, e.g. "hero 1: move D4"
+  orders: string[]; // orders that were valid and applied, e.g. "hero 1: move D4-NE"
   rejected: string[]; // orders that could not be used, with the reason
   raw: string;
+}
+
+// What Jev reports upward about one hero (R5: lower layers report to the commander).
+export interface JevAssessment {
+  recentDecisions: string[];
+  surrounded?: number; // 0–1
+  threat?: number; // 0–3
+  orderStillFits?: number; // 0–1
 }
 
 export interface LlmOptions {
@@ -20,7 +41,7 @@ export interface LlmOptions {
   fallbackToRules: boolean; // on failure, hand heroes to the rule layer (when the LLM is the only AI layer)
   endpoint: string;
   fetchFn: typeof fetch;
-  recentTactical: (heroIndex: number) => string[]; // Jev's latest decisions per hero (D15)
+  jevAssessment: ((heroIndex: number) => JevAssessment) | null; // set when Jev runs on the same side
 }
 
 const DEFAULTS: LlmOptions = {
@@ -28,12 +49,13 @@ const DEFAULTS: LlmOptions = {
   fallbackToRules: true,
   endpoint: '/api/llm',
   fetchFn: (...args) => fetch(...args),
-  recentTactical: () => [],
+  jevAssessment: null,
 };
 
 interface RawOrder {
   hero?: unknown;
   command?: unknown;
+  place?: unknown;
   sector?: unknown;
   target_hero?: unknown;
 }
@@ -44,8 +66,18 @@ export class LlmController {
   private pending = false;
   private failed = false;
   private readonly matchId = `match_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  private readonly side: 'west' | 'east';
+  readonly system: string; // the rulebook sent as the session's system prompt
   readonly decisions: LlmDecision[] = [];
   skippedRequests = 0;
+
+  // Memory between reports
+  private lastForceRatio: number | null = null;
+  private lastFollowers = new Map<number, number>();
+  private lastSoldiers: { yours: number; enemy: number } | null = null;
+  private events: string[] = [];
+  private heroAlive = new Map<string, IHero>();
+  private heroFleeing = new Set<string>();
 
   constructor(
     private engine: SimulationEngine,
@@ -54,6 +86,12 @@ export class LlmController {
     opts: Partial<LlmOptions> = {}
   ) {
     this.opts = { ...DEFAULTS, ...opts };
+    this.side = faction === Faction.FRIENDLY ? 'west' : 'east';
+    this.system = llmSystemPrompt(
+      this.side,
+      this.opts.jevAssessment !== null,
+      this.opts.intervalSec
+    );
   }
 
   isWaiting(): boolean {
@@ -61,6 +99,7 @@ export class LlmController {
   }
 
   tick(elapsed: number): void {
+    this.watchEvents(elapsed);
     if (this.failed || elapsed < this.nextAt) return;
     this.nextAt = elapsed + this.opts.intervalSec;
     if (this.pending) {
@@ -68,6 +107,34 @@ export class LlmController {
       return;
     }
     void this.decide(elapsed);
+  }
+
+  // Notes hero deaths and survival-reflex retreats as they happen, for the next report.
+  private watchEvents(elapsed: number): void {
+    const t = Math.round(elapsed);
+    const current = new Map(this.stateManager.getHeroes().map((h) => [h.id, h]));
+    for (const [id, h] of this.heroAlive) {
+      if (!current.has(id))
+        this.events.push(`t=${t}s ${this.owner(h)} hero ${h.heroIndex} was killed`);
+    }
+    for (const h of current.values()) {
+      const fleeing = h.state === BehaviorState.FLEE;
+      if (fleeing && !this.heroFleeing.has(h.id)) {
+        this.events.push(
+          `t=${t}s ${this.owner(h)} hero ${h.heroIndex} started retreating (survival reflex, ${this.pct(h)}% HP)`
+        );
+        this.heroFleeing.add(h.id);
+      } else if (!fleeing) this.heroFleeing.delete(h.id);
+    }
+    this.heroAlive = current;
+  }
+
+  private owner(h: IHero): string {
+    return h.faction === this.faction ? 'your' : 'enemy';
+  }
+
+  private pct(h: IHero): number {
+    return Math.round((100 * h.hp) / h.maxHp);
   }
 
   private myHeroes(): IHero[] {
@@ -87,8 +154,9 @@ export class LlmController {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          side: this.faction === Faction.FRIENDLY ? 'west' : 'east',
+          side: this.side,
           matchId: this.matchId,
+          system: this.system,
           prompt: JSON.stringify(this.report(time)),
         }),
       });
@@ -109,49 +177,55 @@ export class LlmController {
     }
   }
 
-  // Validates the LLM's orders and applies the usable ones through the command interface.
+  // Validates the LLM's reply and applies the usable orders through the command interface.
   private apply(time: number, latencyMs: number, text: string): void {
-    const decision: LlmDecision = {
+    const d: LlmDecision = {
       time,
       latencyMs,
+      situation: '',
+      change: '',
+      stance: '',
       plan: '',
       orders: [],
       rejected: [],
       raw: text,
     };
-    this.decisions.push(decision);
+    this.decisions.push(d);
 
-    const start = text.indexOf('{');
-    const end = text.lastIndexOf('}');
-    let parsed: { plan?: unknown; orders?: unknown };
+    let parsed: Record<string, unknown>;
     try {
-      parsed = JSON.parse(text.slice(start, end + 1));
+      parsed = JSON.parse(text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1));
     } catch {
-      decision.rejected.push('reply was not valid JSON');
+      d.rejected.push('reply was not valid JSON');
       return;
     }
-    decision.plan = typeof parsed.plan === 'string' ? parsed.plan : '';
-    if (!Array.isArray(parsed.orders)) {
-      decision.rejected.push('no "orders" list');
-      return;
-    }
+    const str = (v: unknown) => (typeof v === 'string' ? v : '');
+    d.situation = str(parsed.situation);
+    d.change = str(parsed.change);
+    d.plan = str(parsed.plan);
+    const stance = str(parsed.stance);
+    if (stance === 'aggressive' || stance === 'defensive' || stance === 'regroup')
+      d.stance = stance;
+    else d.rejected.push(`unknown stance ${stance || '(none)'}`);
 
+    if (!Array.isArray(parsed.orders)) {
+      d.rejected.push('no "orders" list');
+      return;
+    }
     for (const raw of parsed.orders as RawOrder[]) {
       const hero = this.myHeroes().find((h) => h.heroIndex === Number(raw.hero));
       if (!hero) {
-        decision.rejected.push(`unknown or dead hero ${String(raw.hero)}`);
+        d.rejected.push(`unknown or dead hero ${String(raw.hero)}`);
         continue;
       }
       const command = this.toCommand(hero, raw);
       if (typeof command === 'string') {
-        decision.rejected.push(`hero ${hero.heroIndex}: ${command}`);
+        d.rejected.push(`hero ${hero.heroIndex}: ${command}`);
         continue;
       }
       // Always issued, even if unchanged: the LLM's latest order wins when it arrives (D15).
       this.engine.issueCommand(hero, command, 'llm');
-      decision.orders.push(
-        `hero ${hero.heroIndex}: ${String(raw.command)}${raw.sector ? ' ' + String(raw.sector) : ''}${raw.target_hero ? ' ' + String(raw.target_hero) : ''}`
-      );
+      d.orders.push(`hero ${hero.heroIndex}: ${this.describe(command)}`);
     }
   }
 
@@ -159,8 +233,9 @@ export class LlmController {
   private toCommand(hero: IHero, raw: RawOrder): HeroCommand | string {
     switch (raw.command) {
       case 'move': {
-        const center = typeof raw.sector === 'string' ? sectorCenter(raw.sector) : null;
-        return center ? { type: 'move', target: center } : `invalid sector ${String(raw.sector)}`;
+        const place = typeof raw.place === 'string' ? raw.place : raw.sector;
+        const target = typeof place === 'string' ? sectorTarget(place) : null;
+        return target ? { type: 'move', target } : `invalid place ${String(place)}`;
       }
       case 'hold':
         return {
@@ -189,82 +264,146 @@ export class LlmController {
     this.failed = true;
     if (this.opts.fallbackToRules) for (const hero of this.myHeroes()) hero.controller = 'rule';
     const what = this.opts.fallbackToRules
-      ? 'enemy heroes switched to rule-based control'
+      ? 'heroes switched to rule-based control'
       : 'strategic layer stopped';
-    console.warn(`LLM unavailable (${reason}); ${what}. ${hint}`);
+    console.warn(`LLM (${this.side}) unavailable (${reason}); ${what}. ${hint}`);
   }
 
-  // The whole battlefield as the LLM sees it (Q4): heroes of both sides, army totals,
-  // where the soldiers are by sector, and the terrain of each sector.
+  // The whole battlefield as computed values (R5, D26).
   private report(time: number): Record<string, unknown> {
-    const units = this.stateManager.getBattlefield().units;
+    const sm = this.stateManager;
     const mine = (f: Faction) => f === this.faction;
-    const perSector = new Map<string, { yours: number; enemy: number }>();
-    const totals = {
-      yours: 0,
-      enemy: 0,
-      yoursFleeing: 0,
-      enemyFleeing: 0,
-      yoursCourage: 0,
-      enemyCourage: 0,
-    };
+    const heroes = sm.getHeroes().filter((h) => h.hp > 0);
+    const myGroups = groupStats(sm, this.faction);
+    const enemyFaction = this.faction === Faction.FRIENDLY ? Faction.ENEMY : Faction.FRIENDLY;
+    const enemyGroups = groupStats(sm, enemyFaction);
 
-    for (const u of units) {
+    // Armies and sectors: [count, sum of HP share, sum of courage, fleeing]
+    const perSector = new Map<string, { y: number[]; e: number[] }>();
+    const army = { yours: [0, 0, 0, 0], enemy: [0, 0, 0, 0] };
+    for (const u of sm.getBattlefield().units) {
       if (u.hp <= 0 || u.unitType === UnitType.HERO) continue;
-      const s = positionToSector(u.position);
-      const cell = perSector.get(s) ?? { yours: 0, enemy: 0 };
-      const fleeing = u.state === BehaviorState.FLEE ? 1 : 0;
-      if (mine(u.faction)) {
-        cell.yours++;
-        totals.yours++;
-        totals.yoursFleeing += fleeing;
-        totals.yoursCourage += u.courage;
-      } else {
-        cell.enemy++;
-        totals.enemy++;
-        totals.enemyFleeing += fleeing;
-        totals.enemyCourage += u.courage;
-      }
-      perSector.set(s, cell);
+      const a = mine(u.faction) ? army.yours : army.enemy;
+      a[0]++;
+      a[1] += u.hp / u.maxHp;
+      a[2] += u.courage;
+      if (u.state === BehaviorState.FLEE) a[3]++;
+      const key = positionToSector(u.position);
+      const cell = perSector.get(key) ?? { y: [0, 0, 0], e: [0, 0, 0] };
+      const c = mine(u.faction) ? cell.y : cell.e;
+      c[0]++;
+      c[1] += u.hp / u.maxHp;
+      c[2] += u.courage;
+      perSector.set(key, cell);
     }
+    const avg = (sum: number, n: number, scale = 1) => (n ? Math.round((sum * scale) / n) : 0);
+    const hp = armyHp(sm);
+    const myHp = mine(Faction.FRIENDLY) ? hp.friendly : hp.enemy;
+    const enemyHp = mine(Faction.FRIENDLY) ? hp.enemy : hp.friendly;
+    const forceRatio = enemyHp > 0 ? myHp / enemyHp : Infinity;
+    const cellInfo = (c: number[]) =>
+      c[0]
+        ? { soldiers: c[0], avg_hp_percent: avg(c[1], c[0], 100), avg_courage: avg(c[2], c[0]) }
+        : 0;
 
-    const heroInfo = (h: IHero) => ({
-      hero: h.heroIndex,
-      sector: positionToSector(h.position),
-      hp_percent: Math.round((100 * h.hp) / h.maxHp),
-      status: this.status(h),
-    });
-
-    return {
+    const last = this.decisions[this.decisions.length - 1];
+    const report = {
       time_seconds: Math.round(time),
-      your_side: this.faction === Faction.FRIENDLY ? 'west' : 'east',
-      your_heroes: this.stateManager
-        .getHeroes()
-        .filter((h) => mine(h.faction) && h.hp > 0)
-        .map((h) => ({
-          ...heroInfo(h),
-          current_order: h.command
-            ? `${this.describe(h.command)} (from ${h.commandSource})`
-            : 'none',
-          recent_tactical_decisions: this.opts.recentTactical(h.heroIndex),
-        })),
-      enemy_heroes: this.stateManager
-        .getHeroes()
-        .filter((h) => !mine(h.faction) && h.hp > 0)
-        .map(heroInfo),
+      your_previous_decision: last
+        ? { stance: last.stance, plan: last.plan, seconds_ago: Math.round(time - last.time) }
+        : 'none (first report)',
+      your_groups: heroes
+        .filter((h) => mine(h.faction))
+        .map((h) => {
+          const g = myGroups.get(h.id);
+          const jev = this.opts.jevAssessment?.(h.heroIndex);
+          const prev = this.lastFollowers.get(h.heroIndex);
+          return {
+            hero: h.heroIndex,
+            place: positionToSubsector(h.position),
+            hero_hp_percent: this.pct(h),
+            hero_status: this.status(h),
+            current_order: h.command
+              ? `${this.describe(h.command)} (from ${h.commandSource})`
+              : 'none',
+            soldiers_following: g?.followers ?? 0,
+            soldiers_change_since_last_report:
+              prev === undefined ? 'n/a' : (g?.followers ?? 0) - prev,
+            soldiers_avg_hp_percent: g?.avgHpPercent ?? 0,
+            soldiers_avg_courage: g?.avgCourage ?? 0,
+            soldiers_fleeing: g?.fleeing ?? 0,
+            local_force_ratio: formatRatio(localForce(sm, h).ratio),
+            ...(jev
+              ? {
+                  jev_recent_decisions: jev.recentDecisions,
+                  jev_surrounded_probability: jev.surrounded,
+                  jev_threat_0_to_3: jev.threat,
+                  jev_your_order_still_fits_probability: jev.orderStillFits,
+                }
+              : {}),
+          };
+        }),
+      enemy_groups: heroes
+        .filter((h) => !mine(h.faction))
+        .map((h) => {
+          const g = enemyGroups.get(h.id);
+          return {
+            hero: h.heroIndex,
+            place: positionToSubsector(h.position),
+            hero_hp_percent: this.pct(h),
+            hero_status: this.status(h),
+            soldiers_following: g?.followers ?? 0,
+            soldiers_avg_hp_percent: g?.avgHpPercent ?? 0,
+            soldiers_avg_courage: g?.avgCourage ?? 0,
+            soldiers_fleeing: g?.fleeing ?? 0,
+          };
+        }),
       armies: {
-        your_soldiers: totals.yours,
-        your_soldiers_fleeing: totals.yoursFleeing,
-        your_average_courage: totals.yours ? Math.round(totals.yoursCourage / totals.yours) : 0,
-        enemy_soldiers: totals.enemy,
-        enemy_soldiers_fleeing: totals.enemyFleeing,
-        enemy_average_courage: totals.enemy ? Math.round(totals.enemyCourage / totals.enemy) : 0,
+        your_soldiers: army.yours[0],
+        enemy_soldiers: army.enemy[0],
+        your_soldiers_lost_since_last_report: this.lastSoldiers
+          ? this.lastSoldiers.yours - army.yours[0]
+          : 'n/a',
+        enemy_soldiers_lost_since_last_report: this.lastSoldiers
+          ? this.lastSoldiers.enemy - army.enemy[0]
+          : 'n/a',
+        your_avg_hp_percent: avg(army.yours[1], army.yours[0], 100),
+        enemy_avg_hp_percent: avg(army.enemy[1], army.enemy[0], 100),
+        your_avg_courage: avg(army.yours[2], army.yours[0]),
+        enemy_avg_courage: avg(army.enemy[2], army.enemy[0]),
+        your_fleeing: army.yours[3],
+        enemy_fleeing: army.enemy[3],
+        force_ratio_total_hp: formatRatio(forceRatio),
+        force_ratio_at_last_report:
+          this.lastForceRatio === null ? 'n/a' : formatRatio(this.lastForceRatio),
       },
-      soldiers_by_sector: [...perSector.entries()]
+      events_since_last_report: this.events.length ? this.events : ['none'],
+      sectors: [...perSector.entries()]
         .sort(([a], [b]) => a.localeCompare(b))
-        .map(([sector, c]) => ({ sector, yours: c.yours, enemy: c.enemy })),
+        .map(([sector, c]) => ({
+          sector,
+          yours: cellInfo(c.y),
+          enemy: cellInfo(c.e),
+          control:
+            c.y[0] > 0 && c.y[0] >= 2 * c.e[0]
+              ? 'yours'
+              : c.e[0] > 0 && c.e[0] >= 2 * c.y[0]
+                ? 'enemy'
+                : 'contested',
+        })),
       terrain_by_sector: this.terrainMap(),
     };
+
+    // Remember for the next report
+    this.lastForceRatio = forceRatio;
+    this.lastSoldiers = { yours: army.yours[0], enemy: army.enemy[0] };
+    this.lastFollowers = new Map(
+      heroes
+        .filter((h) => mine(h.faction))
+        .map((h) => [h.heroIndex, myGroups.get(h.id)?.followers ?? 0])
+    );
+    this.events = [];
+    return report;
   }
 
   // Dominant terrain per sector, one row per grid row (north first), columns A-J.
@@ -300,7 +439,7 @@ export class LlmController {
       case BehaviorState.ATTACK:
         return 'fighting';
       case BehaviorState.FLEE:
-        return 'retreating';
+        return 'retreating (survival reflex)';
       case BehaviorState.REST:
         return 'resting';
       default:
@@ -311,9 +450,9 @@ export class LlmController {
   private describe(c: HeroCommand): string {
     switch (c.type) {
       case 'move':
-        return `move to ${positionToSector(c.target)}`;
+        return `move ${positionToSubsector(c.target)}`;
       case 'hold':
-        return `hold in ${positionToSector(c.at)}`;
+        return `hold in ${positionToSubsector(c.at)}`;
       case 'retreat':
         return 'retreat';
       case 'attack':
@@ -321,7 +460,7 @@ export class LlmController {
       case 'attackHero':
         return `attack enemy hero ${c.heroIndex}`;
       case 'continueLlm':
-        return 'follow strategic order';
+        return "follow the commander's order";
     }
   }
 }
