@@ -133,10 +133,10 @@ Effect time is simulation time (`battlefield.elapsedTime`): effects freeze while
 | `v1.9.1-ui-no-sprite-budget` | 6.1 Sprite budget removed |
 | `v1.9.2-ui-sprites-all-zoom` | 6.2 Sprites and icons at every zoom |
 | `v1.9.3-ui-smaller-blood` | Blood pools halved |
+| `v1.12-ui-label-fixes` | Hero sight circle naming, stress menu count |
 
 ## Open points
-- The red circle shown for a selected hero uses `hero.sight` (15 tiles) but its code comment calls it the influence area; the aura shows the real charisma radius (10 tiles).
-- Stress mode spawns 2200 warriors while the menu says 2000 (pre-existing).
+- None. Resolved 2026-10-03 (`v1.12-ui-label-fixes`): the red circle around a selected hero is its sight range (15 tiles), now named and commented as such; the charisma radius (10 tiles) is shown by the hero aura. The stress menu now says 2200 warriors, which is what stress mode spawns (300 default + 1,900).
 
 ## Out of scope
 - Screen shake (rejected).
