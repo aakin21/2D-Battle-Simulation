@@ -135,6 +135,8 @@ D1–D4 are the professor's proposals from the 2026-09-30 meeting; D5 onwards ca
 | D28 | 2026-10-03 | Stray soldiers walk back to their side's nearest hero (attack if no heroes are left); new `regroup` order; strays reported to both AI layers as clusters. No time limit: objectives (D12) will create the pressure to act | Leaderless soldiers stood still forever and some matches never ended; the AI had no way to gather scattered soldiers. See record below | Accepted (2026-10-03) |
 | D29 | 2026-10-03 | LLM model selectable per side in the Battle menu: Haiku / Sonnet / Opus | Testing and a possible model comparison in the thesis. See record below | Accepted (2026-10-03) |
 | D30 | 2026-10-03 | Battle objectives as selectable modes: Elimination, Control A-B (majority near a point scores 1 point/s, 300 s match), Base (passive base with 3000 HP); new orders move A/B and attack_base; rulebook and reports per mode | Gives the AI a reason to act instead of waiting (see D28). See record below | Accepted (2026-10-03), implementation in progress |
+| D31 | 2026-10-03 | Speed up neighbor queries with an algorithm that gives exactly the same results (finer grid, per-cell faction counts, ring search for the nearest enemy) | Fixes the FPS collapse in dense clusters (P2, R6) without changing any rule; update frequency and approximations were rejected because they change the model. See record below | Accepted (2026-10-03). Numbered D27 on branch `perf/neighbor-queries` until 2026-10-03; renumbered because `phase2/symmetry` uses D27 for another decision |
+| D32 | 2026-10-03 | Pathfinding skips A* when the target lies in a different walkable region than the start (regions labeled once per map) | Fixes the stress-mode drop to ~1 FPS (P3, R8). A* returns "no path" in that case anyway, so results are identical. See record below | Accepted (2026-10-03) |
 
 ### Decision records
 
@@ -527,7 +529,32 @@ Each record lists the options we considered, what we chose, and why.
   - Top-down view and 16×16 size fit the map. At full-map zoom units are only 10 px, so large art (Tiny Swords, 192 px) would lose its detail anyway.
   - Includes walk and attack animations; Kenney's characters are static.
   - Team colors are applied by tinting when the sprites are loaded, so characters are chosen by silhouette, not color.
-- **Note:** At full-map zoom units stay squares; sprites are drawn only when zoomed in (performance and readability).
+- **Note:** At first, units stayed squares at full-map zoom and sprites were drawn only when zoomed in. **Update (2026-10-03):** at the author's request sprites are now drawn at every zoom. This costs ~16% FPS in stress mode (see `UI_PLAN.md`, steps 6.1–6.2).
+
+
+#### D31: Faster neighbor queries without changing the rules
+- **Problem:** FPS collapses when many units crowd together (P2). Profiling shows the cost is the engine's neighbor queries, not rendering (R6).
+- **Current algorithm:** the map is split into 15×15-tile cells. Every frame, each unit looks at every unit in the cells around its sight radius (10–12 tiles) and checks the distance one by one: once for courage (count allies and enemies) and once more to find the nearest enemy. With 1,500 units in one area this is about 1,500 × 1,500 ≈ 2 million checks per frame.
+- **Options:**
+  - (a) Update courage and targets every ~0.2 s instead of every frame (staggered updates). **Rejected:** it changes the model. Units would react with a delay, and results would no longer be comparable with Phase 1.
+  - (b) Stop after a fixed number of neighbors. **Rejected:** courage would be computed from an approximate ratio.
+  - (c) An algorithm that returns exactly the same answers with fewer checks.
+- **Chosen:** (c).
+  - **Courage counts:** smaller cells (e.g. 3×3 tiles), each keeping a count of friendly and enemy units, updated when a unit enters or leaves the cell. For a query, a cell whose farthest corner is within the sight radius is entirely inside, so its counts are added directly; a cell whose nearest point is outside the radius is skipped; only cells on the edge of the circle are checked unit by unit. The result is exactly the same, because a cell is counted as a whole only if every point in it is within range.
+  - **Nearest enemy:** search cells ring by ring outward from the unit, and stop once the next ring cannot contain anything closer than the best enemy found so far. In a crowd the nearest enemy is usually found in the first ring.
+- **Condition for acceptance:** the old and new code are run on the same simulation states, and every courage value and every chosen target must be identical. One known risk: when two enemies are at exactly the same distance, the ring search may pick the other one. If the test finds such differences, either the old tie-breaking order is reproduced, or the nearest-enemy search is left unchanged and only the counting is optimized. If any difference remains, the change is not adopted.
+- **Why:** the rules and results of the simulation stay the same, only the work needed to compute them shrinks. It continues the Phase 1 performance work (weeks 9–11: spatial grid, object pool, binary heap).
+- **Note:** numbered D27 on branch `perf/neighbor-queries` until 2026-10-03 (code comments and commit messages there say D27). Renumbered to D31 because `phase2/symmetry` had meanwhile used D27 for another decision. Also ported to `main` and deployed (tag `v1.10-perf-neighbor-queries`); the equivalence test passed there as well (classic default, classic 1,000 warriors with waves ×4, stress: ~9.3 M queries, 0 mismatches; stress engine time 10.6 → 4.3 ms per frame).
+
+#### D32: Skip pathfinding to unreachable targets
+- **Problem:** stress mode drops to ~1 FPS on some maps and stays there until certain targets die (P3, R8).
+- **Cause:** a berserker locked on a target it cannot reach (e.g. behind mountains) calls A* every frame. A* cannot know the target is unreachable until it has explored every tile the berserker can reach, and then returns "no path". The next frame repeats the same search.
+- **Options:**
+  - (a) Remember failed searches per unit and retry later. **Rejected:** "later" is a new rule; the unit would react differently than before when a path opens up.
+  - (b) Label the walkable regions of the map once, with the same moves A* uses. When start and target lie in different regions, return "no path" without searching.
+- **Chosen:** (b).
+- **Why:** the result is exactly what A* returns, only the wasted search is skipped. The terrain does not change after the map is generated, so the labels stay valid for the whole match. Reachable targets are searched by A* as before.
+- **Condition for acceptance:** every pathfinding result identical to the original A*, and identical same-seed trajectories (R8).
 
 ---
 
@@ -692,6 +719,80 @@ Each record lists the options we considered, what we chose, and why.
 - [TypeSafe documentation](https://docs.typesafe.ai/llms.txt)
 - Also found in the search, not yet read: The Road to War: The AI of Total War (Game Developer); Killzone's AI: Dynamic Procedural Tactics (GDC Europe 2005); Adaptive Command (2025); A Survey on LLM-Based Game Agents.
 
+
+### R6: Why FPS collapses late in stress mode (2026-10-03)
+
+**Question:** In stress mode FPS drops to single digits as the battle goes on, even while the number of units goes down. Is the cause rendering (the new visual effects, D25) or the simulation?
+
+**Setup:** headless Chrome without a frame-rate cap, stress mode at 4× speed, measured with `requestAnimationFrame` counts and the Chrome DevTools CPU profiler (sampling every 0.2 ms, 3 s windows). Absolute FPS depends on the machine; the comparisons below are within the same setup.
+
+**Findings:**
+- ⚠️ **FPS falls while the unit count is constant.** In one run, after warriors were wiped out, 1,644 units remained for over 90 s of simulated time and FPS kept falling (143 → 94 → 80 → 76 → 68). The surviving berserkers keep crowding into the same area, so density grows even though the count does not.
+- ✅ **Rendering is not the bottleneck.** With the simulation paused (rendering only), effects and sprites together cost ~0.7–0.8 ms per frame (FX on 592–664 FPS vs off 1,122–1,271 FPS, same moment of the same run).
+- ✅ **CPU profile points to the neighbor queries.** At the dense stage: `SpatialGrid.forEach` 32–37% of CPU time, the courage-counting callback ~13%, `updateBehavior` ~8%, canvas `drawImage` 6–11%, the effects update ~1%.
+- ⚠️ A first comparison of FX on vs FX off in separate runs was misleading: each run is random and ends differently. Only measurements within the same run are comparable.
+
+**Conclusion:** the collapse comes from the engine's neighbor queries, whose cost grows with the square of local density (see P2). The proposed fix is D31.
+
+### R7: D31 equivalence and speed (2026-10-03)
+
+**Question:** Does the new neighbor-query code (D31) give exactly the same simulation as before, and how much faster is it?
+
+**Implementation:** `SpatialGrid` keeps the original 15-tile grid and `forEach()` unchanged (so every other caller keeps its order) and adds a 4-tile grid with per-cell friendly/enemy counts. Courage counts add whole cells that lie inside the sight circle and check only edge cells unit by unit. Nearest enemy searches cells ring by ring and stops when no closer unit can exist; on an exact distance tie it falls back to the original scan, so the same unit is chosen. When the coarse cells around a query hold ≤ 48 units, both queries use the original scan (cheaper in sparse areas). Cell size and threshold were chosen by measurement (2, 3, 4 tiles × 48, 160 units).
+
+**Equivalence test** (Node.js, outside the repository; seeded random numbers so both runs start identically):
+- Per query: in a run with the new code, every unit's courage counts and nearest enemy are also computed the original way and compared.
+- Full trajectory: the same match is run once with the original queries and once with the new ones; after every frame, the position, HP, courage, state, target and path length of every unit are compared.
+
+| Scenario | Frames | Queries checked | Mismatches | Trajectory |
+|---|---|---|---|---|
+| Classic, default (waves) | 4,000 | 1.51 M | 0 | identical |
+| Classic, 1,000 warriors, waves ×4 | 3,000 | 3.99 M | 0 | identical |
+| Battle mode | 4,000 | 0.84 M | 0 | identical |
+| Stress (4,200 units) | 1,500 | 3.77 M | 0 | identical |
+
+Exact distance ties were frequent (e.g. ~17,000 in the stress run), mostly from integer spawn positions. Without the tie fallback the trajectories would have diverged.
+
+**Speed** (engine update time per frame, same seed, so both versions compute exactly the same states; Node.js):
+
+| Scenario | Original | New | |
+|---|---|---|---|
+| Stress | 10.4 ms | 4.3 ms | 2.4× faster; spikes of 24–38 ms reduced to ≤ 16 ms |
+| Classic default | 0.15 ms | 0.16 ms | same |
+| Battle | 0.26 ms | 0.22 ms | 1.2× faster |
+
+**In the browser** (stress, FX on): FPS now rises as units die (92 → 108 → 250 → 370 → ~540) instead of falling while the unit count stays constant (143 → 68 before, R6).
+
+**Findings:**
+- ✅ Identical results in all four scenarios, ~10 M queries, 0 mismatches.
+- ✅ Stress mode engine time 2.4× lower; no regression in sparse scenarios.
+- ⚠️ One ~165 ms frame remains in the stress run (frame 1,061 of 1,500, both versions): a separate engine event, probably many units re-pathing at once when one side is wiped out (Q17).
+
+**Conclusion:** D31 meets its acceptance condition.
+
+### R8: Stress-mode drop to ~1 FPS (2026-10-03)
+
+**Question:** After D31 was deployed, the author saw stress mode drop to ~1 FPS from about 40 s of match time on, independent of the FX switch and the speed setting, and recover later (~75 s). What causes it?
+
+**Setup:** Node.js, headless stress runs (seeded random numbers), speed ×1, ×2 and ×4, engine time per frame, every `Pathfinder.findPath` call timed and classified by result (path found / no path) and by the calling unit's type and state.
+
+**Findings:**
+- ✅ **Not rendering.** The slow frames are engine time; almost all of it is pathfinding (e.g. 342 ms frame, of which 340 ms in ~80 `findPath` calls, ~4 ms each).
+- ✅ **Failed searches by berserkers chasing a target.** On one map (seed 2, ×1): 66,160 failed searches by berserkers with a target took 229.6 s in total, versus 0.8 s for 258,533 successful ones; 1,381 frames over 50 ms. A failed search explores the whole region the berserker can reach, and it is repeated every frame while the target lives.
+- ⚠️ **Map-dependent.** Other maps showed almost no failed searches; the speed setting changes when and how strongly it appears, not whether.
+- ⚠️ Present since Phase 1 (pathfinding unchanged since then); not caused by the visual effects or D31.
+- ⚠️ The one-time ~165 ms frame of Q17 remains after D32, so it is a different cause.
+
+**Fix (D32) and verification** (`tests/paths/equiv.ts`, outside the repository): every `findPath` result is compared with the original A*, and the same seeded match is run with the original and the new pathfinder, comparing a hash of every unit's state (position, HP, courage, state, target, path) after every frame.
+
+| Scenario | Frames | Path calls checked | Mismatches | Trajectory |
+|---|---|---|---|---|
+| Stress, seed 2, ×4 | 375 | 246,247 | 0 | identical |
+
+Only this scenario was run: the full test (classic, classic 1,000 warriors, stress seeds 1–3 at ×1/×2/×4) was stopped at the author's request because it takes 15–20 min. **In the browser** (author, stress mode): FPS close to 100 instead of dropping to ~1.
+
+**Conclusion:** the drop came from repeated failed A* searches toward unreachable targets. D32 removes them with identical results in the tested scenario.
+
 ---
 
 ## Problems log
@@ -710,6 +811,22 @@ Problems encountered during the project, how they were found, and how they were 
 - **Impact:** Jev cannot be called directly from the simulation running in the browser.
 - **Resolution:** Route AI calls through a small proxy (D7), hosted as a Vercel serverless function (D8). This also keeps API keys off the client.
 - **Status:** Workaround (2026-10-02): local development uses a Vite dev-server proxy that adds the key server-side; verified to reach TypeSafe's API. Vercel deployment (D8) still to do.
+
+### P2: FPS collapses in dense clusters (2026-10-03)
+- **Context:** testing the visual effects in stress mode (4,200 units).
+- **Problem:** FPS drops to single digits late in the battle, also when units die and the count goes down.
+- **Cause:** every frame, each unit checks every unit within its sight radius one by one, for courage and for the nearest enemy. When units crowd together (berserkers gathering at their rally point), this grows with the square of local density: about 1,500² checks per frame (R6).
+- **Impact:** stress mode becomes unplayable late in the battle. Battle mode with large armies could hit the same limit.
+- **Resolution:** faster neighbor queries with identical results (D31), implemented on branch `perf/neighbor-queries` and verified (R7): identical simulation, stress mode 2.4× faster engine time, FPS now rises as units die instead of collapsing. Staggered updates were rejected because they change the model.
+- **Status:** Resolved on branch `perf/neighbor-queries` (2026-10-03); not yet merged into `phase2/symmetry`
+
+### P3: Stress mode drops to ~1 FPS on some maps (2026-10-03)
+- **Context:** testing the live demo after D31 was deployed.
+- **Problem:** from about 40 s of match time FPS drops to ~1 and stays there for a while, with FX on or off and at any speed; it recovers later (~75 s in the author's run).
+- **Cause:** berserkers locked on targets they cannot reach re-run a failed A* search every frame, each exploring their whole reachable region (R8). Present since Phase 1.
+- **Impact:** stress mode unplayable on affected maps; any mode with enclosed areas could be hit.
+- **Resolution:** skip A* when start and target are in different walkable regions (D32), identical results (R8). Deployed on `main` (tag `v1.11-perf-unreachable-paths`).
+- **Status:** Resolved (2026-10-03) on `main`; not yet merged into `phase2/symmetry`
 
 ---
 
@@ -733,3 +850,4 @@ Problems encountered during the project, how they were found, and how they were 
 | Q14 | How large is the Vercel cold start in practice? | Measure after deployment (D8) |
 | Q15 | Is cross-match learning (D11) feasible, and how should it be built? | Research: lesson format and size limit, summarizing old lessons, effect of a fixed vs varied map (risk of map-specific lessons), fairness in Agent vs Agent, keeping other experiments independent (learning off). Related work: Reflexion (Shinn et al., 2023) |
 | Q16 | Does the persistent LLM session slow down as history grows over a match? | Repeat R2 measurement over a full-length match; reset the session periodically if needed |
+| Q17 | What causes the one-time ~165 ms frame in stress mode (R7)? | Same in both versions, so not D31. Likely many berserkers re-pathing at once when the warriors are wiped out. Not the unreachable-target searches of P3: the frame remains after D32 (R8). Profile that frame |

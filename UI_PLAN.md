@@ -82,7 +82,20 @@ Effect time is simulation time (`battlefield.elapsedTime`): effects freeze while
 - Corpses in sprite mode use the dead frame: the living frame crossfades into it over 0.4 s.
 - LOD: sprites at zoom ≥ 9 px/tile; squares below. FX off shows the original squares.
 - **Performance:** a sprite costs ~1.1 µs to draw vs ~0.3 µs for a square (1500 units: 1.6 vs 0.4 ms). Atlas, ImageBitmap and integer coordinates made no difference. So the number of sprites is capped instead: above 800 visible units the view falls back to squares, and returns to sprites below 650 (the gap prevents flicker). Worst-case extra cost ~0.7 ms. In practice: default mode stays in sprites; dense stress views use squares. Real stress battle, paused: FX on 349 vs off 373 FPS (uncapped), same as previous steps.
-- Open point: blood pools were sized for squares and look large next to sprites at close zoom.
+- Blood pools were sized for squares and looked large next to sprites; halved on 2026-10-03 (radii 0.9/0.6 → 0.45/0.3 of the unit side). They now mostly sit under the corpse and show as a thin red rim.
+
+### 6.1 Sprite budget removed (2026-10-03)
+- The 800-unit sprite budget was removed at the author's request; the zoom threshold (≥ 9 px/tile) stays. Close-up views now always show sprites, also when crowded in stress mode.
+- Measured before deciding (headless Chrome, uncapped, sim running, 3 runs each), comparing the current version with *no budget and no zoom threshold, icons at every zoom*:
+  - Default (300 units): ~3056 → ~2186 FPS (−28.5%; 0.33 → 0.46 ms per frame; both far above the display refresh rate, so not visible).
+  - Stress (4200 units): ~66 → ~55 FPS (−16%; ~15 → ~18 ms per frame; visible).
+- Why sprites cost more than squares: `fillRect` fills one color; `drawImage` samples a texture per pixel, blends transparent pixels and has more per-call overhead (~1.1 µs vs ~0.3 µs per unit). Which frame is drawn (walk, attack) makes no difference.
+- Lowering the zoom threshold (sprites from further away) is postponed; revisit together with the stress-mode cost.
+
+### 6.2 Sprites and icons at every zoom (2026-10-03)
+- The zoom threshold was removed too, at the author's request: with FX on, units are sprites and status icons are shown at every zoom, including the full-map view (units 10 px).
+- Icons scale with the unit (1.4 × zoom, 7–30 px), so they do not dwarf units when zoomed out.
+- Cost (measured in 6.1): default mode not visible (~0.13 ms more per frame); stress mode ~16% lower FPS than with squares. Blood pools and the layer are unchanged.
 
 ### 7. "Building simulation" loading screen
 - `src/ui/LoadingScreen.ts` + `#loading-overlay` in `index.html`. Pressing Start shows a full-screen overlay for 3.5 s: "Building simulation", a Knight and a Lion walking toward each other (CSS sprite animation from the same sprite sheets), step messages (Generating terrain → Deploying warriors → Preparing berserker waves → Calculating paths → Ready), a progress bar, then a 0.4 s fade-out. "click to skip" ends it early.
@@ -117,9 +130,11 @@ Effect time is simulation time (`battlefield.elapsedTime`): effects freeze while
 | `v1.7-ui-sprites` | 6. Sprites |
 | `v1.8-ui-loading-screen` | 7. Loading screen |
 | `v1.9-ui-wrap-up` | 8. Wrap-up |
+| `v1.9.1-ui-no-sprite-budget` | 6.1 Sprite budget removed |
+| `v1.9.2-ui-sprites-all-zoom` | 6.2 Sprites and icons at every zoom |
+| `v1.9.3-ui-smaller-blood` | Blood pools halved |
 
 ## Open points
-- Blood pools look large next to sprites at close zoom (sized for squares).
 - The red circle shown for a selected hero uses `hero.sight` (15 tiles) but its code comment calls it the influence area; the aura shows the real charisma radius (10 tiles).
 - Stress mode spawns 2200 warriors while the menu says 2000 (pre-existing).
 
