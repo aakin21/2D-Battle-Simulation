@@ -3,6 +3,7 @@ import {
   IUnit,
   IHero,
   UnitType,
+  BehaviorState,
   TerrainType,
   Camera,
   TERRAIN_COLORS,
@@ -11,9 +12,33 @@ import {
   TILE_SIZE,
   Position,
 } from '../types/types';
+import { EffectsManager } from './effects/EffectsManager';
+import {
+  UnitSprites,
+  FRAME,
+  COL_LEFT,
+  COL_RIGHT,
+  WALK_FRAMES,
+  ROW_ATTACK,
+  SPRITE_MIN_ZOOM,
+} from './UnitSprites';
 
 const ZOOM_MIN = TILE_SIZE; // full map visible: 150 tiles × 5px = 750px
 const ZOOM_MAX = 40; // max zoom: ~19 tiles visible
+
+// Sprite animation
+const WALK_FPS = 8;
+// Mirrors ATTACK_INTERVAL in SimulationEngine: attackCooldown is reset to it on each hit
+const ATTACK_INTERVAL = 1.0;
+// The attack frame is shown for this long after each hit
+const ATTACK_POSE_TIME = 0.25;
+const HERO_RING_COLORS = ['#FFD700', '#4169E1']; // by Faction
+// Sprite budget: a sprite costs ~1 µs to draw vs ~0.3 µs for a square (measured; atlas,
+// ImageBitmap and integer coordinates made no difference). Above SPRITE_BUDGET visible
+// units the view falls back to squares, and returns to sprites below SPRITE_RESUME.
+// The gap prevents flicker at the boundary. Caps the extra cost at ~0.6 ms per frame.
+const SPRITE_BUDGET = 800;
+const SPRITE_RESUME = 650;
 
 export class Renderer {
   private canvas: HTMLCanvasElement;
@@ -25,6 +50,14 @@ export class Renderer {
   private camera: Camera = { x: 0, y: 0, zoom: ZOOM_MIN };
   private selectedUnitId: string | null = null;
 
+  private effects = new EffectsManager();
+  private unitSprites = new UnitSprites();
+  // Whether units (and corpses) are drawn as sprites this frame; see SPRITE_BUDGET
+  private spriteMode: boolean = false;
+  // Cumulative event counts since the last reset — shown in the debug overlay
+  private fxHitCount: number = 0;
+  private fxDeathCount: number = 0;
+
   private debugMode: boolean = false;
   private fps: number = 0;
   private fpsFrameCount: number = 0;
@@ -35,6 +68,11 @@ export class Renderer {
     this.ctx = this.canvas.getContext('2d')!;
     // Disable image smoothing so zoomed terrain stays crisp
     this.ctx.imageSmoothingEnabled = false;
+    // Warm-up draws land on the canvas, which is cleared on the first render
+    this.effects.prepare(this.ctx);
+    this.effects.setUnitSprites(this.unitSprites);
+    // Squares are drawn until the sprites are ready; on failure they simply stay squares
+    this.unitSprites.load(this.ctx).catch((err) => console.warn('Unit sprites not loaded:', err));
   }
 
   render(battlefield: IBattlefield): void {
@@ -42,11 +80,29 @@ export class Renderer {
       this.buildTerrainCanvas(battlefield.grid);
     }
     this.updateFps();
+    this.updateEffects(battlefield);
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
     this.drawTerrain();
+    this.spriteMode = this.decideSpriteMode(battlefield.units);
+    this.effects.setSpriteMode(this.spriteMode);
+    this.effects.drawUnderUnits(
+      this.ctx,
+      battlefield.units,
+      this.camera,
+      this.canvas.width,
+      this.canvas.height
+    );
     this.drawCharismaRadius(battlefield.units);
     this.drawUnits(battlefield.units);
+    this.effects.drawOverUnits(this.ctx, this.camera, this.canvas.width, this.canvas.height);
     this.drawBars(battlefield.units);
+    this.effects.drawOverlay(
+      this.ctx,
+      battlefield.units,
+      this.camera,
+      this.canvas.width,
+      this.canvas.height
+    );
     this.drawTaskPoint(battlefield.units);
     if (this.debugMode) this.drawDebugInfo(battlefield);
   }
@@ -57,6 +113,16 @@ export class Renderer {
 
   setDebugMode(on: boolean): void {
     this.debugMode = on;
+  }
+
+  setEffectsEnabled(on: boolean): void {
+    this.effects.setEnabled(on);
+    this.fxHitCount = 0;
+    this.fxDeathCount = 0;
+  }
+
+  isEffectsEnabled(): boolean {
+    return this.effects.isEnabled();
   }
 
   // --- Camera controls ---
@@ -110,6 +176,9 @@ export class Renderer {
     this.offscreenTerrain = null;
     this.camera = { x: 0, y: 0, zoom: ZOOM_MIN };
     this.selectedUnitId = null;
+    this.effects.reset();
+    this.fxHitCount = 0;
+    this.fxDeathCount = 0;
   }
 
   // --- Private helpers ---
@@ -157,10 +226,38 @@ export class Renderer {
     );
   }
 
+  // Sprites are part of the effects layer: FX off shows the original Phase 1 squares.
+  // Otherwise sprites need enough zoom and at most SPRITE_BUDGET units in view.
+  private decideSpriteMode(units: IUnit[]): boolean {
+    if (!this.effects.isEnabled() || !this.unitSprites.isReady()) return false;
+    const { x: camX, y: camY, zoom } = this.camera;
+    if (zoom < SPRITE_MIN_ZOOM) return false;
+
+    const limit = this.spriteMode ? SPRITE_BUDGET : SPRITE_RESUME;
+    const x1 = camX - 1;
+    const y1 = camY - 1;
+    const x2 = camX + this.canvas.width / zoom + 1;
+    const y2 = camY + this.canvas.height / zoom + 1;
+    let visible = 0;
+    for (const unit of units) {
+      const { x, y } = unit.position;
+      if (x < x1 || x > x2 || y < y1 || y > y2) continue;
+      if (++visible > limit) return false;
+    }
+    return true;
+  }
+
   private drawUnits(units: IUnit[]): void {
+    if (this.spriteMode) {
+      this.drawUnitSprites(units);
+      return;
+    }
+
     const { x: camX, y: camY, zoom } = this.camera;
     const size = Math.max(3, zoom * 2);
     const half = size / 2;
+    const now = performance.now();
+    const anyFlash = this.effects.hasFlashes();
 
     for (const unit of units) {
       const sx = (unit.position.x - camX) * zoom - half;
@@ -169,7 +266,10 @@ export class Renderer {
       if (sx + size < 0 || sx > this.canvas.width) continue;
       if (sy + size < 0 || sy > this.canvas.height) continue;
 
-      this.ctx.fillStyle = UNIT_COLORS[UnitType[unit.unitType]] ?? '#fff';
+      this.ctx.fillStyle =
+        anyFlash && this.effects.isFlashing(unit.id, now)
+          ? '#ffffff'
+          : (UNIT_COLORS[UnitType[unit.unitType]] ?? '#fff');
       this.ctx.fillRect(sx, sy, size, size);
 
       if (unit.unitType === UnitType.HERO) {
@@ -177,6 +277,50 @@ export class Renderer {
         this.ctx.lineWidth = 1;
         this.ctx.strokeRect(sx, sy, size, size);
       }
+    }
+  }
+
+  private drawUnitSprites(units: IUnit[]): void {
+    const { x: camX, y: camY, zoom } = this.camera;
+    const size = zoom * 2;
+    const half = size / 2;
+    const now = performance.now();
+    const anyFlash = this.effects.hasFlashes();
+    const simTime = this.effects.getSimTime();
+    const ctx = this.ctx;
+
+    for (const unit of units) {
+      const sx = (unit.position.x - camX) * zoom - half;
+      const sy = (unit.position.y - camY) * zoom - half;
+      if (sx + size < 0 || sx > this.canvas.width) continue;
+      if (sy + size < 0 || sy > this.canvas.height) continue;
+
+      const anim = this.effects.getAnim(unit.id);
+      const col = anim.facing > 0 ? COL_RIGHT : COL_LEFT;
+      let row = 0; // idle
+      if (
+        unit.state === BehaviorState.ATTACK &&
+        unit.attackCooldown > ATTACK_INTERVAL - ATTACK_POSE_TIME
+      ) {
+        row = ROW_ATTACK;
+      } else if (anim.moving) {
+        row = Math.floor(simTime * WALK_FPS + anim.phase * WALK_FRAMES) % WALK_FRAMES;
+      }
+
+      // Phase 1 has one hero per side, so the hero index is always 0
+      const set = this.unitSprites.get(unit.unitType, unit.faction, 0);
+
+      if (unit.unitType === UnitType.HERO) {
+        // Team-colored ring at the hero's feet
+        ctx.beginPath();
+        ctx.ellipse(sx + half, sy + size * 0.9, half * 0.8, half * 0.3, 0, 0, Math.PI * 2);
+        ctx.strokeStyle = HERO_RING_COLORS[unit.faction];
+        ctx.lineWidth = Math.max(1.5, zoom * 0.15);
+        ctx.stroke();
+      }
+
+      const sheet = anyFlash && this.effects.isFlashing(unit.id, now) ? set.flash : set.normal;
+      ctx.drawImage(sheet, col * FRAME, row * FRAME, FRAME, FRAME, sx, sy, size, size);
     }
   }
 
@@ -217,6 +361,12 @@ export class Renderer {
     }
   }
 
+  private updateEffects(battlefield: IBattlefield): void {
+    this.effects.update(battlefield.units, battlefield.elapsedTime);
+    this.fxHitCount += this.effects.hits.length;
+    this.fxDeathCount += this.effects.deaths.length;
+  }
+
   private updateFps(): void {
     this.fpsFrameCount++;
     const now = performance.now();
@@ -233,12 +383,23 @@ export class Renderer {
 
   private drawDebugInfo(battlefield: IBattlefield): void {
     this.ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
-    this.ctx.fillRect(4, 4, 130, 54);
+    this.ctx.fillRect(4, 4, 190, 96);
     this.ctx.fillStyle = '#00ff88';
     this.ctx.font = '11px monospace';
     this.ctx.fillText(`FPS: ${this.fps}`, 10, 19);
     this.ctx.fillText(`Units: ${battlefield.units.length}`, 10, 33);
     this.ctx.fillText(`T: ${Math.floor(battlefield.elapsedTime)}s`, 10, 47);
+    if (this.effects.isEnabled()) {
+      this.ctx.fillText(`FX hits: ${this.fxHitCount}`, 10, 61);
+      this.ctx.fillText(`FX deaths: ${this.fxDeathCount}`, 10, 75);
+      this.ctx.fillText(
+        `corpses ${this.effects.getCorpseCount()} pools ${this.effects.getBloodPoolCount()}`,
+        10,
+        89
+      );
+    } else {
+      this.ctx.fillText('FX: off', 10, 61);
+    }
   }
 
   // Draws a transparent circle showing the hero's influence area (sight range: 15 tiles).

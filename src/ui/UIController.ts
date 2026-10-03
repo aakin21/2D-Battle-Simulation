@@ -3,10 +3,12 @@ import { StateManager } from '../state/StateManager';
 import { Renderer } from '../rendering/Renderer';
 import { MinimapRenderer } from '../rendering/MinimapRenderer';
 import { InputHandler } from './InputHandler';
+import { LoadingScreen } from './LoadingScreen';
 import { IUnit, UnitType, BehaviorState, SimConfig, DEFAULT_CONFIG, TerrainDensity } from '../types/types';
 
 const LS_SPEED = 'sim_speed';
 const LS_DEBUG = 'sim_debug';
+const LS_EFFECTS = 'sim_effects';
 
 export class UIController {
   private engine: SimulationEngine;
@@ -14,6 +16,7 @@ export class UIController {
   private renderer: Renderer;
   private minimapRenderer: MinimapRenderer;
   private inputHandler: InputHandler;
+  private loading = new LoadingScreen();
   private selectedUnitId: string | null = null;
   private debugMode: boolean = false;
   private lastConfig: SimConfig = DEFAULT_CONFIG;
@@ -28,6 +31,7 @@ export class UIController {
   private elBtnRestart: HTMLButtonElement;
   private elBtnMenu: HTMLButtonElement;
   private elBtnDebug: HTMLButtonElement;
+  private elBtnEffects: HTMLButtonElement;
   private elSpeedDisplay: HTMLElement;
   private elWaveCounter: HTMLElement;
   private elWarriorCount: HTMLElement;
@@ -61,6 +65,7 @@ export class UIController {
     this.elBtnRestart = document.getElementById('btn-restart') as HTMLButtonElement;
     this.elBtnMenu = document.getElementById('btn-menu') as HTMLButtonElement;
     this.elBtnDebug = document.getElementById('btn-debug') as HTMLButtonElement;
+    this.elBtnEffects = document.getElementById('btn-effects') as HTMLButtonElement;
     this.elSpeedDisplay = document.getElementById('speed-display')!;
     this.elWaveCounter = document.getElementById('wave-counter')!;
     this.elWarriorCount = document.getElementById('warrior-count')!;
@@ -138,8 +143,8 @@ export class UIController {
       if (btn) this.setOptActive('cfg-terrain', btn.dataset.val!);
     });
 
-    // Start
-    document.getElementById('menu-start')!.addEventListener('click', () => {
+    // Start: set up the run, keep it paused behind the loading screen, then start it
+    document.getElementById('menu-start')!.addEventListener('click', async () => {
       this.selectedUnitId = null;
       this.renderer.setSelectedUnit(null);
       this.renderer.clearTerrainCache();
@@ -149,19 +154,24 @@ export class UIController {
 
       if (tabStress.classList.contains('active')) {
         this.engine.restartStressTest();
-        return;
+      } else {
+        const isDefault = tabDefault.classList.contains('active');
+        const cfg: SimConfig = isDefault ? DEFAULT_CONFIG : {
+          warriorCount: parseInt(warriorSlider.value),
+          waveMultiplier: parseFloat(waveSlider.value),
+          terrainDensity: this.getOptActive('cfg-terrain') as TerrainDensity,
+        };
+        this.lastConfig = cfg;
+        this.engine.applyConfig(cfg);
+        this.engine.restart();
       }
-
-      const isDefault = tabDefault.classList.contains('active');
-      const cfg: SimConfig = isDefault ? DEFAULT_CONFIG : {
-        warriorCount: parseInt(warriorSlider.value),
-        waveMultiplier: parseFloat(waveSlider.value),
-        terrainDensity: this.getOptActive('cfg-terrain') as TerrainDensity,
-      };
-      this.lastConfig = cfg;
-      this.engine.applyConfig(cfg);
-      this.engine.restart();
       this.updateSpeedDisplay();
+
+      // restart() unpauses; pause before the first frame so no sim time passes
+      this.engine.pause();
+      await this.loading.run();
+      this.engine.resume();
+      this.elBtnPause.textContent = 'Pause';
     });
 
     document.getElementById('menu-instructions')!.addEventListener('click', () => {
@@ -219,12 +229,26 @@ export class UIController {
       this.elBtnDebug.style.color = this.debugMode ? '#00ff88' : '';
       this.saveSettings();
     });
+
+    this.elBtnEffects.addEventListener('click', () => {
+      this.renderer.setEffectsEnabled(!this.renderer.isEffectsEnabled());
+      this.updateEffectsButton();
+      this.saveSettings();
+    });
+  }
+
+  private updateEffectsButton(): void {
+    const on = this.renderer.isEffectsEnabled();
+    this.elBtnEffects.textContent = on ? 'FX: On' : 'FX: Off';
+    this.elBtnEffects.style.color = on ? '#00ff88' : '';
   }
 
   // --- Input events ---
 
   private wireInputEvents(): void {
     this.inputHandler.onKeyDown((key: string) => {
+      // Shortcuts would unpause or restart the run behind the loading screen
+      if (this.loading.isActive()) return;
       switch (key) {
         case ' ':
           this.engine.togglePause();
@@ -419,11 +443,16 @@ export class UIController {
       this.renderer.setDebugMode(true);
       this.elBtnDebug.style.color = '#00ff88';
     }
+
+    // Effects default to on; only an explicit 'false' turns them off
+    this.renderer.setEffectsEnabled(localStorage.getItem(LS_EFFECTS) !== 'false');
+    this.updateEffectsButton();
   }
 
   private saveSettings(): void {
     localStorage.setItem(LS_SPEED, this.engine.getSpeed().toString());
     localStorage.setItem(LS_DEBUG, this.debugMode.toString());
+    localStorage.setItem(LS_EFFECTS, this.renderer.isEffectsEnabled().toString());
   }
 
   // --- Restart ---
