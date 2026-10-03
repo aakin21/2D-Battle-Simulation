@@ -204,6 +204,21 @@ export class StateManager {
     this.spatialGrid.forEach(cx, cy, radius, cb);
   }
 
+  // Living units within radius per faction, into out[faction] (courage; D27)
+  countByFactionInRadius(cx: number, cy: number, radius: number, out: Int32Array): void {
+    this.spatialGrid.countByFaction(cx, cy, radius, out);
+  }
+
+  // Nearest living unit not of `faction` within radius (D27). When several share the
+  // minimum distance, wasNearestTied() is true and the caller resolves it.
+  nearestEnemyInRadius(cx: number, cy: number, radius: number, faction: number): IUnit | null {
+    return this.spatialGrid.nearestEnemy(cx, cy, radius, faction);
+  }
+
+  wasNearestTied(): boolean {
+    return this.spatialGrid.wasNearestTied();
+  }
+
   // Returns array — used by UIController for click selection and hover tooltip.
   getUnitsInRadius(cx: number, cy: number, radius: number): IUnit[] {
     return this.spatialGrid.query(cx, cy, radius);

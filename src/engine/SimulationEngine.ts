@@ -32,6 +32,8 @@ export class SimulationEngine {
 
   private groupPatrol = new Map<string, { dest: Position; expiry: number }>();
 
+  // Reused buffer for courage counts: [friendly, enemy]
+  private factionCounts = new Int32Array(2);
   private paused: boolean = false;
   private stressMode: boolean = false;
   private speedMultiplier: number = 1;
@@ -161,14 +163,13 @@ export class SimulationEngine {
     const hpLostFraction = 1 - unit.hp / unit.maxHp;
     const woundedPenalty = -Math.floor(hpLostFraction / 0.2) * 10;
 
+    // Living units in sight per faction, the unit itself included (D27: same counts as a
+    // full scan, computed from per-cell counters)
     const sight = this.effectiveSight(unit);
-    let allies = 0;
-    let enemies = 0;
-    this.stateManager.forEachInRadius(unit.position.x, unit.position.y, sight, (other) => {
-      if (other.hp <= 0) return;
-      if (other.faction === unit.faction) allies++;
-      else enemies++;
-    });
+    const counts = this.factionCounts;
+    this.stateManager.countByFactionInRadius(unit.position.x, unit.position.y, sight, counts);
+    const allies = counts[unit.faction];
+    const enemies = counts[0] + counts[1] - allies;
 
     let ratioModifier = 0;
     const total = allies + enemies;
@@ -191,10 +192,16 @@ export class SimulationEngine {
     unit.courage = Math.max(0, Math.min(100, base + woundedPenalty + ratioModifier + heroBonus));
   }
 
+  // Nearest living enemy within the unit's sight. Uses the fast ring search (D27); only
+  // when several enemies are at exactly the same distance does it fall back to the full scan
+  // below, whose order picks the same enemy as the original code.
   private findNearestEnemy(unit: IUnit): IUnit | null {
+    const sight = this.effectiveSight(unit);
+    const fast = this.stateManager.nearestEnemyInRadius(unit.position.x, unit.position.y, sight, unit.faction);
+    if (!this.stateManager.wasNearestTied()) return fast;
+
     let nearest: IUnit | null = null;
     let minDist2 = Infinity;
-    const sight = this.effectiveSight(unit);
 
     this.stateManager.forEachInRadius(unit.position.x, unit.position.y, sight, (other) => {
       if (other.faction === unit.faction || other.hp <= 0) return;
