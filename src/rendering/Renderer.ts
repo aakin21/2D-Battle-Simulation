@@ -21,7 +21,6 @@ import {
   COL_RIGHT,
   WALK_FRAMES,
   ROW_ATTACK,
-  SPRITE_MIN_ZOOM,
 } from './UnitSprites';
 
 const ZOOM_MIN = TILE_SIZE; // full map visible: 150 tiles × 5px = 750px
@@ -229,13 +228,11 @@ export class Renderer {
   }
 
   // Sprites are part of the effects layer: FX off shows the original Phase 1 squares.
-  // Otherwise sprites need enough zoom. There is no limit on how many are in view: a
-  // sprite costs ~1 µs vs ~0.3 µs for a square, so a crowded close-up view in stress mode
-  // costs a few ms more per frame (see UI_PLAN.md, step 6.1).
+  // With FX on, units are sprites at every zoom and with no limit on how many are in view.
+  // A sprite costs ~1 µs vs ~0.3 µs for a square, so stress mode runs ~16% slower than
+  // with squares (see UI_PLAN.md, step 6.2).
   private decideSpriteMode(): boolean {
-    return (
-      this.effects.isEnabled() && this.unitSprites.isReady() && this.camera.zoom >= SPRITE_MIN_ZOOM
-    );
+    return this.effects.isEnabled() && this.unitSprites.isReady();
   }
 
   private drawUnits(units: IUnit[]): void {

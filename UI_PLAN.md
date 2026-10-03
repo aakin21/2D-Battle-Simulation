@@ -92,6 +92,11 @@ Effect time is simulation time (`battlefield.elapsedTime`): effects freeze while
 - Why sprites cost more than squares: `fillRect` fills one color; `drawImage` samples a texture per pixel, blends transparent pixels and has more per-call overhead (~1.1 µs vs ~0.3 µs per unit). Which frame is drawn (walk, attack) makes no difference.
 - Lowering the zoom threshold (sprites from further away) is postponed; revisit together with the stress-mode cost.
 
+### 6.2 Sprites and icons at every zoom (2026-10-03)
+- The zoom threshold was removed too, at the author's request: with FX on, units are sprites and status icons are shown at every zoom, including the full-map view (units 10 px).
+- Icons scale with the unit (1.4 × zoom, 7–30 px), so they do not dwarf units when zoomed out.
+- Cost (measured in 6.1): default mode not visible (~0.13 ms more per frame); stress mode ~16% lower FPS than with squares. Blood pools and the layer are unchanged.
+
 ### 7. "Building simulation" loading screen
 - `src/ui/LoadingScreen.ts` + `#loading-overlay` in `index.html`. Pressing Start shows a full-screen overlay for 3.5 s: "Building simulation", a Knight and a Lion walking toward each other (CSS sprite animation from the same sprite sheets), step messages (Generating terrain → Deploying warriors → Preparing berserker waves → Calculating paths → Ready), a progress bar, then a 0.4 s fade-out. "click to skip" ends it early.
 - The run is set up immediately and paused before its first frame, so no sim time passes behind the overlay. Keyboard shortcuts are ignored while it is shown (Space would unpause, R would restart). The overlay also blocks clicks on the control bar.
@@ -126,6 +131,7 @@ Effect time is simulation time (`battlefield.elapsedTime`): effects freeze while
 | `v1.8-ui-loading-screen` | 7. Loading screen |
 | `v1.9-ui-wrap-up` | 8. Wrap-up |
 | `v1.9.1-ui-no-sprite-budget` | 6.1 Sprite budget removed |
+| `v1.9.2-ui-sprites-all-zoom` | 6.2 Sprites and icons at every zoom |
 
 ## Open points
 - Blood pools look large next to sprites at close zoom (sized for squares).
