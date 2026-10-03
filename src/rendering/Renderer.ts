@@ -35,12 +35,6 @@ const ATTACK_INTERVAL = 1.0;
 // The attack frame is shown for this long after each hit
 const ATTACK_POSE_TIME = 0.25;
 const HERO_RING_COLORS = ['#FFD700', ENEMY_HERO_COLOR]; // by Faction
-// Sprite budget: a sprite costs ~1 µs to draw vs ~0.3 µs for a square (measured; atlas,
-// ImageBitmap and integer coordinates made no difference). Above SPRITE_BUDGET visible
-// units the view falls back to squares, and returns to sprites below SPRITE_RESUME.
-// The gap prevents flicker at the boundary. Caps the extra cost at ~0.6 ms per frame.
-const SPRITE_BUDGET = 800;
-const SPRITE_RESUME = 650;
 
 export class Renderer {
   private canvas: HTMLCanvasElement;
@@ -55,7 +49,7 @@ export class Renderer {
 
   private effects = new EffectsManager();
   private unitSprites = new UnitSprites();
-  // Whether units (and corpses) are drawn as sprites this frame; see SPRITE_BUDGET
+  // Whether units (and corpses) are drawn as sprites this frame
   private spriteMode: boolean = false;
   // Cumulative event counts since the last reset — shown in the debug overlay
   private fxHitCount: number = 0;
@@ -86,7 +80,7 @@ export class Renderer {
     this.updateEffects(battlefield);
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
     this.drawTerrain();
-    this.spriteMode = this.decideSpriteMode(battlefield.units);
+    this.spriteMode = this.decideSpriteMode();
     this.effects.setSpriteMode(this.spriteMode);
     this.effects.drawUnderUnits(
       this.ctx,
@@ -235,24 +229,13 @@ export class Renderer {
   }
 
   // Sprites are part of the effects layer: FX off shows the original Phase 1 squares.
-  // Otherwise sprites need enough zoom and at most SPRITE_BUDGET units in view.
-  private decideSpriteMode(units: IUnit[]): boolean {
-    if (!this.effects.isEnabled() || !this.unitSprites.isReady()) return false;
-    const { x: camX, y: camY, zoom } = this.camera;
-    if (zoom < SPRITE_MIN_ZOOM) return false;
-
-    const limit = this.spriteMode ? SPRITE_BUDGET : SPRITE_RESUME;
-    const x1 = camX - 1;
-    const y1 = camY - 1;
-    const x2 = camX + this.canvas.width / zoom + 1;
-    const y2 = camY + this.canvas.height / zoom + 1;
-    let visible = 0;
-    for (const unit of units) {
-      const { x, y } = unit.position;
-      if (x < x1 || x > x2 || y < y1 || y > y2) continue;
-      if (++visible > limit) return false;
-    }
-    return true;
+  // Otherwise sprites need enough zoom. There is no limit on how many are in view: a
+  // sprite costs ~1 µs vs ~0.3 µs for a square, so a crowded close-up view in stress mode
+  // costs a few ms more per frame (see UI_PLAN.md, step 6.1).
+  private decideSpriteMode(): boolean {
+    return (
+      this.effects.isEnabled() && this.unitSprites.isReady() && this.camera.zoom >= SPRITE_MIN_ZOOM
+    );
   }
 
   private drawUnits(units: IUnit[]): void {

@@ -70,7 +70,7 @@ export class Corpses {
   }));
   // Unit sprite sheets, used for corpses when zoomed in (set by the renderer)
   private unitSprites: UnitSprites | null = null;
-  // Decided by the renderer per frame (zoom + sprite budget)
+  // Decided by the renderer per frame (FX on, sprites loaded, zoom)
   private spriteMode: boolean = false;
   // [unitType][tiltIndex], built by prepare() (needs a DOM)
   private sprites: HTMLCanvasElement[][] | null = null;
