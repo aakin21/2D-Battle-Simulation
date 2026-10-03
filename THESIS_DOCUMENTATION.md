@@ -594,6 +594,42 @@ Each record lists the options we considered, what we chose, and why.
 - [Tiny Swords](https://pixelfrog-assets.itch.io/tiny-swords)
 - [Kenney Tiny Dungeon](https://kenney.nl/assets/tiny-dungeon), [Kenney Roguelike Characters](https://kenney.nl/assets/roguelike-characters)
 
+### R5: How game AIs and LLM agents represent the battlefield (2026-10-03)
+
+**Question:** What should Jev and the LLM receive as input: raw data (unit lists, screenshots) or a summary? How do commercial game AIs and LLM game agents do it?
+
+**Trigger:** in the first LLM vs LLM match both sides kept similar, repeated orders (heroes grouped close together, "keep holding the line"), and the LLM prompt was found to miss key rules (win condition, courage numbers, the 15-tile follow range, the hero reflex).
+
+**Commercial game AI:**
+- **Killzone 3 (Guerrilla Games):** multiplayer bots use a three-layer hierarchy: a commander plays the game mode and gives objectives, squads turn objectives into orders, individual bots carry them out. Each layer controls the one below and information flows back up. Uses influence maps and an HTN planner. This matches our design almost one to one: LLM ≈ commander, Jev ≈ squad (hero), Phase 1 rules ≈ individual bots. Bots overriding orders to survive mirrors D14/D18; a new order replacing the old one mirrors D15. ✅ verified (Game AI Pro, ch. 29).
+- **Total War:** battle AI reportedly based on a set of rules inspired by Sun Tzu, triggered by force ratios (e.g. surround when heavily superior, attack directly when clearly superior). ⚠️ exact figures not yet verified.
+- Common to behavior trees (Halo 2), HTN planners (Killzone) and utility AI: first evaluate the situation with code, then choose.
+
+**LLM game agents:**
+- **TextStarCraft II (Ma et al., 2023):** game state is converted to text by code and summarized (single-frame, then multi-frame "Chain of Summarization"); most tested LLMs beat the level-5 built-in AI. Adding screenshots to text made GPT-4o perform worse. A structured reasoning order (summary → analysis → opponent → plan → decision) is reported to matter a lot (⚠️ the exact 50% vs 0% ablation figure is not yet verified).
+- **MASMP (2025):** plain prompts led to invented actions, greedy short-term choices and inconsistent decisions between calls. Giving the LLM explicit strategy states with transition rules, plus a small memory of the current tactic carried into every call, raised the win rate against the hardest built-in AI (level 7) from 0% to 60%. ✅ verified (arXiv 2510.18395).
+- **Adaptive Command (2025):** the LLM adjusts parameters of a behavior tree instead of issuing low-level actions, similar to "LLM sets the plan, lower layers execute".
+- **Vision models (OmniSpatial and others, 2025):** best models reach ~57% on spatial reasoning, struggle with small, dense objects; structured intermediate representations improve results.
+- **Jev documentation:** keep control flow in code, ask atomic questions, put only relevant information in the state, describe similar options with what/not-for, route low-confidence answers elsewhere.
+
+**Findings:**
+- ✅ Code should compute, the AI should judge: force ratios, sector control, trends and recent losses are computed by code; raw unit lists and screenshots are not given.
+- ✅ Each layer sees its own scale (already D16).
+- ✅ Keep the current plan and its reason in memory and pass it with every call, to avoid flip-flopping and inertia.
+- ✅ Lower layers report upward (Jev decisions, events such as hero killed, retreat, heavy losses).
+- ✅ Commands and rules must be stated precisely (e.g. the charisma bonus is +20 courage within 10 tiles, not a damage bonus).
+- ⚠️ A structured reasoning order makes replies longer and slower; to be measured.
+
+**Conclusion:** redesign both inputs as computed summaries: the LLM gets a complete rulebook (win condition, courage formula, charisma, follow range, reflex, decision interval) plus a per-sector table with computed values, hero and group status, recent events and its previous plan; Jev gets local force ratio and trend, the LLM order and its age, and its own previous decision. Whether summaries beat raw data can itself be an experiment (ablation, as in TextStarCraft II).
+
+**Sources:**
+- [Hierarchical AI for Multiplayer Bots in Killzone 3 (Game AI Pro, ch. 29)](http://www.gameaipro.com/GameAIPro/GameAIPro_Chapter29_Hierarchical_AI_for_Multiplayer_Bots_in_Killzone_3.pdf)
+- [Large Language Models Play StarCraft II: Chain of Summarization (Ma et al.)](https://ar5iv.labs.arxiv.org/html/2312.11865)
+- [Memory-Augmented State Machine Prompting (MASMP)](https://arxiv.org/html/2510.18395v1)
+- [OmniSpatial: spatial reasoning benchmark for VLMs](https://arxiv.org/html/2506.03135v2)
+- [TypeSafe documentation](https://docs.typesafe.ai/llms.txt)
+- Also found in the search, not yet read: The Road to War: The AI of Total War (Game Developer); Killzone's AI: Dynamic Procedural Tactics (GDC Europe 2005); Adaptive Command (2025); A Survey on LLM-Based Game Agents.
+
 ---
 
 ## Problems log
@@ -621,8 +657,8 @@ Problems encountered during the project, how they were found, and how they were 
 |---|---|---|
 | Q1 | What command set will layers 2 and 3 control? | Answered by D13, D14 |
 | Q2 | How do layers 2 and 3 interact when they disagree? | Answered by D15 |
-| Q3 | What surrounding information is passed to Jev? | Proposed in D21: hero status, current and strategic order, nearby ally/enemy counts and courage, nearest enemy, visible enemy heroes, 15×15 local text map |
-| Q4 | How is the full map summarized for the LLM? | Proposed in D22: heroes of both sides, army totals and courage, soldiers per sector, terrain per sector as a 10×10 text grid (~380 tokens) |
+| Q3 | What surrounding information is passed to Jev? | Proposed in D21: hero status, current and strategic order, nearby ally/enemy counts and courage, nearest enemy, visible enemy heroes, 15×15 local text map. To be redesigned per R5 (local force ratio and trend, LLM order and its age, previous decision) |
+| Q4 | How is the full map summarized for the LLM? | Proposed in D22: heroes of both sides, army totals and courage, soldiers per sector, terrain per sector as a 10×10 text grid (~380 tokens). To be redesigned per R5 (complete rulebook, computed per-sector values, recent events, previous plan) |
 | Q5 | Proxy hosting for the live demo | Answered by D8 (Vercel) |
 | Q6 | Real-time mode: how does the speed multiplier interact with latency? | Answered by D4: speed setting stays; at higher speed more game time passes before an answer arrives. Response times are recorded |
 | Q7 | Real-time mode: a new decision is due but the previous one hasn't arrived | Proposed in D21 (Jev): skip it and count skipped requests |
