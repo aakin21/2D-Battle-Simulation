@@ -85,7 +85,7 @@ export class Renderer {
       this.canvas.width,
       this.canvas.height
     );
-    this.drawCharismaRadius(battlefield.units);
+    this.drawHeroSight(battlefield.units);
     this.drawUnits(battlefield.units);
     this.effects.drawOverUnits(this.ctx, this.camera, this.canvas.width, this.canvas.height);
     this.drawBars(battlefield.units);
@@ -382,9 +382,9 @@ export class Renderer {
     }
   }
 
-  // Draws a transparent circle showing the hero's influence area (sight range: 15 tiles).
-  // Only visible while the hero unit is selected.
-  private drawCharismaRadius(units: IUnit[]): void {
+  // Draws a transparent circle showing the hero's sight range (15 tiles). The charisma
+  // radius (influence area) is shown by the hero aura. Only visible while the hero is selected.
+  private drawHeroSight(units: IUnit[]): void {
     if (!this.selectedUnitId) return;
     const hero = units.find(
       (u) => u.unitType === UnitType.HERO && u.id === this.selectedUnitId
