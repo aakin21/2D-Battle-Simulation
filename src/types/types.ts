@@ -59,6 +59,9 @@ export type SideAI = 'none' | 'jev' | 'llm' | 'jev+llm';
 // 'paused' freezes the battle until every pending AI answer has arrived.
 export type AITiming = 'realtime' | 'paused';
 
+// D29: which Claude model plays the LLM layer of a side (aliases understood by the Agent SDK).
+export type LlmModel = 'haiku' | 'sonnet' | 'opus';
+
 // Orders a hero can receive (D20). Every source (user, rule, Jev, LLM) uses the same set.
 export type HeroCommand =
   | { type: 'move'; target: Position } // AI gives a sector, the user an exact point
@@ -66,6 +69,7 @@ export type HeroCommand =
   | { type: 'retreat' }
   | { type: 'attack' }
   | { type: 'attackHero'; heroIndex: number }
+  | { type: 'regroup' } // walk to the nearest group of stray soldiers of the hero's side (D28)
   | { type: 'continueLlm' }; // Jev only: keep following the LLM's latest command
 
 export type CommandSource = 'user' | 'rule' | 'jev' | 'llm';
@@ -156,6 +160,8 @@ export interface SimConfig {
   friendlyAI?: SideAI; // battle only: AI layers for the west side (default 'none' = the user)
   enemyAI?: SideAI; // battle only: AI layers for the east side (default 'none' = rule-based)
   aiTiming?: AITiming; // battle only: does the simulation wait for AI answers (D4)
+  friendlyModel?: LlmModel; // battle only: LLM model for each side (D29)
+  enemyModel?: LlmModel;
 }
 
 export const DEFAULT_CONFIG: SimConfig = {

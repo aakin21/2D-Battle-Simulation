@@ -13,6 +13,7 @@ import {
 import { jevGameRules } from './GameRules';
 import { formatRatio, groupStats, localForce, LOCAL_RADIUS } from './Observations';
 import type { JevAssessment } from './LlmController';
+import { strayClusters } from '../engine/Strays';
 
 // Layer 2 (D6, D21, D26): Jev makes tactical decisions for each hero of one side every few
 // seconds. Jev has no memory, so every request carries the relevant rules (game_rules) and
@@ -50,6 +51,7 @@ const DEFAULTS: JevOptions = {
 const MAP_CELL = 2; // local map: one character per 2×2 tiles
 const STEP_TILES = 10; // length of a "step" move
 const HERO_SCAN = LOCAL_RADIUS * 2; // enemy heroes within this distance can be targeted
+const STRAY_REACH = 25; // stray groups within this distance are shown to Jev
 const DIRS = [
   'east',
   'south-east',
@@ -293,6 +295,17 @@ export class JevController {
       });
     }
 
+    const strays = this.nearbyStrays(hero);
+    if (strays.length > 0) {
+      const s = strays[0];
+      opts.push({
+        key: 'regroup',
+        what: `Collect stray soldiers of our side (nearest group: ${s.soldiers} soldiers, ${s.distance} tiles ${s.direction}); they follow the hero again and regain its courage bonus.`,
+        notFor: 'When the hero is in a fight it is winning, or the strays are far away.',
+        command: { type: 'regroup' },
+      });
+    }
+
     DIRS.forEach((dir, i) => {
       const angle = (i * Math.PI) / 4;
       const target = {
@@ -368,6 +381,10 @@ export class JevController {
         ? `${Math.round(nearestD)} tiles ${this.direction(hero, nearest)}`
         : 'none in sight',
       enemy_heroes_nearby: enemyHeroes.length ? enemyHeroes : 'none',
+      stray_soldiers_nearby: this.nearbyStrays(hero).map(
+        (s) =>
+          `${s.soldiers} stray soldiers, ${s.distance} tiles ${s.direction}, ${s.avgCourage} courage`
+      ),
       local_map: this.localMap(hero),
     };
   }
@@ -426,6 +443,27 @@ export class JevController {
     };
   }
 
+  // Clusters of this side's stray soldiers within reach of the hero, nearest first (D28).
+  private nearbyStrays(
+    hero: IHero
+  ): Array<{ soldiers: number; distance: number; direction: string; avgCourage: number }> {
+    return strayClusters(this.stateManager, hero.faction)
+      .map((c) => {
+        const dx = c.center.x - hero.position.x;
+        const dy = c.center.y - hero.position.y;
+        const idx =
+          Math.round(((Math.atan2(dy, dx) + 2 * Math.PI) % (2 * Math.PI)) / (Math.PI / 4)) % 8;
+        return {
+          soldiers: c.soldiers,
+          distance: Math.round(Math.hypot(dx, dy)),
+          direction: `to the ${DIRS[idx]}`,
+          avgCourage: c.avgCourage,
+        };
+      })
+      .filter((s) => s.distance <= STRAY_REACH)
+      .sort((a, b) => a.distance - b.distance);
+  }
+
   private heroStatus(hero: IHero): string {
     switch (hero.state) {
       case BehaviorState.ATTACK:
@@ -451,6 +489,8 @@ export class JevController {
         return 'attack the nearest enemy';
       case 'attackHero':
         return `attack enemy hero ${c.heroIndex}`;
+      case 'regroup':
+        return 'regroup stray soldiers';
       case 'continueLlm':
         return "follow the commander's order";
     }

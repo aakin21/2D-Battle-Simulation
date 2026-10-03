@@ -22,7 +22,13 @@ import {
 import { GroupPatrol } from './GroupPatrol';
 import { updateRuleHeroes } from './RuleHeroes';
 import { updateHeroReflex, moveHeroRetreat } from './HeroReflex';
-import { effectiveSight, findNearestEnemy, stepToward, terrainSpeed } from './UnitHelpers';
+import {
+  effectiveSight,
+  findNearestEnemy,
+  findNearestEnemyAnywhere,
+  stepToward,
+  terrainSpeed,
+} from './UnitHelpers';
 import {
   IUnit,
   IHero,
@@ -713,9 +719,29 @@ export class SimulationEngine {
       return (unit as IHero).taskPoint ?? null;
     }
     if (this.isSoldier(unit)) {
-      return leader?.taskPoint ?? null;
+      if (leader) return leader.taskPoint ?? null;
+      if (this.battleMode) return this.strayDestination(unit);
     }
     return null;
+  }
+
+  // D28: a soldier with no hero in range walks back to the nearest hero of its side (it
+  // follows that hero again once within its sight). With no heroes left, it attacks the
+  // nearest enemy, so a battle always reaches an end.
+  private strayDestination(unit: IUnit): Position | null {
+    let nearest: IHero | undefined;
+    let best = Infinity;
+    for (const h of this.stateManager.getHeroes()) {
+      if (h.faction !== unit.faction || h.hp <= 0) continue;
+      const d2 = (h.position.x - unit.position.x) ** 2 + (h.position.y - unit.position.y) ** 2;
+      if (d2 < best) {
+        best = d2;
+        nearest = h;
+      }
+    }
+    if (nearest) return nearest.position;
+    const enemy = findNearestEnemyAnywhere(this.stateManager, unit);
+    return enemy ? enemy.position : null;
   }
 
   private computeSpeed(unit: IUnit, grid: TerrainType[][]): number {

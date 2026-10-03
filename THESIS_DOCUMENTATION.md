@@ -132,6 +132,8 @@ D1–D4 are the professor's proposals from the 2026-09-30 meeting; D5 onwards ca
 | D25 | 2026-10-02 | Unit sprites come from the Ninja Adventure asset pack (CC0) | Free for a public repo, top-down 16×16 with walk and attack animations. See record below and R4 | Accepted (2026-10-02) |
 | D26 | 2026-10-03 | AI inputs v2: complete rulebook for both layers built from the engine's constants, computed summaries instead of raw data, stance and plan memory for the LLM, sub-sector targets, Jev assessments reported to the LLM | Applies R5; fixes the missing rules and repeated decisions seen in the first LLM vs LLM match. See record below | Accepted (2026-10-03) |
 | D27 | 2026-10-03 | Fighting and breaking off: heroes fight what they meet on a move; a different order during a fight breaks off until clear of enemies; repeated orders change nothing | Orders like retreat were ignored while a hero was fighting. See record below | Accepted (2026-10-03) |
+| D28 | 2026-10-03 | Stray soldiers walk back to their side's nearest hero (attack if no heroes are left); new `regroup` order; strays reported to both AI layers as clusters. No time limit: objectives (D12) will create the pressure to act | Leaderless soldiers stood still forever and some matches never ended; the AI had no way to gather scattered soldiers. See record below | Accepted (2026-10-03) |
+| D29 | 2026-10-03 | LLM model selectable per side in the Battle menu: Haiku / Sonnet / Opus | Testing and a possible model comparison in the thesis. See record below | Accepted (2026-10-03) |
 
 ### Decision records
 
@@ -415,6 +417,22 @@ Each record lists the options we considered, what we chose, and why.
 - **Rulebook:** both layers are told this rule in about 80 tokens (built from `DISENGAGE_CLEAR_RADIUS` in `Rules.ts`).
 - **Research basis:** RTS games separate "move" (ignore enemies, used to escape) from "attack-move" (engage on the way); breaking off is meant to be temporary; the tactical layer (Jev, every 4 s) is what avoids walking into enemy groups, as squads do in Killzone 3 (R5). Threat-aware pathfinding (avoiding enemy-dense areas in A*) was noted as a possible later addition.
 - **Tested (headless):** a repeated order keeps the hero fighting; a different move order breaks it off, it never attacks while breaking off, and it returns to normal after 3.5 s once clear; retreat always breaks off; Classic is unaffected.
+
+#### D28: Stray soldiers and the regroup order
+- **Problem:** a soldier with no hero of its side within 15 tiles followed nobody and stood still until an enemy came into sight. After a hero died, its soldiers could wait forever, and some matches never ended (3 of 8 headless matches were still running after 15 minutes). The AI also had no way to gather scattered soldiers: the LLM's "regroup" stance had no matching order and the report did not show where stray soldiers were.
+- **Options considered for ending stalled matches:** (a) leaderless soldiers attack the nearest enemy; (b) a time limit with the winner decided by remaining HP; (c) a side with only fleeing units left loses; (d) leaderless soldiers walk back to their heroes.
+- **Chosen:**
+  - **Stray soldiers walk back toward the nearest hero of their side** and follow it again once within 15 tiles. Only when a side has **no heroes left** do its soldiers attack the nearest enemy, so a battle always moves toward an end. (Option (a) alone was rejected because soldiers marching off to attack cannot be regrouped.)
+  - **New order `regroup`:** the hero walks to the nearest group of its side's stray soldiers (bigger groups preferred); they follow it again and regain the charisma bonus. Available to the LLM and, when strays are within 25 tiles, to Jev.
+  - **Strays are reported as clusters, not unit by unit (R5):** code groups strays closer than 6 tiles; the LLM gets the 5 largest clusters per side (place, size, average HP and courage, fleeing) and a count of the rest; Jev gets the clusters within 25 tiles of each hero (size, distance, direction, courage).
+  - **No time limit (option (b) rejected by the author):** the pressure to act should come from objectives (base destruction and area control, D12), which are planned as game modes. Experiment runs will still use a safety cut-off so a batch cannot hang, but that is a test setting, not a game rule.
+  - Classic mode keeps Phase 1 behavior (D19).
+- **Tested (headless):** 12 teleported strays walked back and all 12 followed a hero again within 25 s; `regroup` targeted the stray cluster and all 12 followed again; with all heroes removed, the soldiers advanced on the enemy (average x 26 → 53 in 20 s); Classic heroless warriors still stand.
+- **Observation behind it:** in a Jev + LLM test the AI waited for the user to make a mistake and attacked only when the user split their army. With equal armies, a compact defender has a courage advantage, so waiting is the rational choice; nothing in the game punishes it yet. This is what D12 is meant to change.
+
+#### D29: LLM model per side
+- **Chosen:** the Battle menu lets each side's LLM be Haiku, Sonnet or Opus (default Sonnet). The model is sent with each request; the server accepts only these three and starts a new session when the model changes. Every LLM decision records which model answered.
+- **Why:** quicker or cheaper testing (Haiku), stronger play (Opus), and a possible model comparison in the thesis (e.g. Opus vs Haiku commanders). Note: on the subscription, Opus uses the usage limit faster.
 
 #### D15: How the LLM and Jev work together
 - **Options:**

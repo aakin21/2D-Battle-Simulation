@@ -15,6 +15,7 @@ import {
   TerrainDensity,
   TerrainType,
   SideAI,
+  LlmModel,
 } from '../types/types';
 import { decodeGrid, listSavedMaps, loadSavedMap, saveMap } from '../state/MapStore';
 import { FIXED_MAP } from '../maps/fixedMap';
@@ -176,7 +177,7 @@ export class UIController {
     this.refreshSavedMaps();
 
     // Battle opponent (rules / AI layers) and AI timing (D4)
-    for (const id of ['cfg-west', 'cfg-opponent', 'cfg-timing']) {
+    for (const id of ['cfg-west', 'cfg-opponent', 'cfg-timing', 'cfg-west-model', 'cfg-east-model']) {
       document.getElementById(id)!.addEventListener('click', (e) => {
         const btn = (e.target as HTMLElement).closest('button');
         if (btn) this.setOptActive(id, btn.dataset.val!);
@@ -209,6 +210,8 @@ export class UIController {
           friendlyAI: isBattle ? (this.getOptActive('cfg-west') as SideAI) : 'none',
           enemyAI: isBattle ? (this.getOptActive('cfg-opponent') as SideAI) : 'none',
           aiTiming: this.getOptActive('cfg-timing') === 'paused' ? 'paused' : 'realtime',
+        friendlyModel: this.getOptActive('cfg-west-model') as LlmModel,
+        enemyModel: this.getOptActive('cfg-east-model') as LlmModel,
         };
         this.lastConfig = cfg;
         this.engine.applyConfig(cfg);
@@ -576,11 +579,11 @@ export class UIController {
     if (this.lastConfig.mode !== 'battle') return;
 
     const controllers: AIController[] = [];
-    const sides: Array<[Faction, SideAI, string]> = [
-      [Faction.FRIENDLY, this.lastConfig.friendlyAI ?? 'none', 'west'],
-      [Faction.ENEMY, this.lastConfig.enemyAI ?? 'none', 'east'],
+    const sides: Array<[Faction, SideAI, string, LlmModel]> = [
+      [Faction.FRIENDLY, this.lastConfig.friendlyAI ?? 'none', 'west', this.lastConfig.friendlyModel ?? 'sonnet'],
+      [Faction.ENEMY, this.lastConfig.enemyAI ?? 'none', 'east', this.lastConfig.enemyModel ?? 'sonnet'],
     ];
-    for (const [faction, ai, name] of sides) {
+    for (const [faction, ai, name, model] of sides) {
       if (ai === 'none') continue;
       const both = ai === 'jev+llm';
       const side: { jev?: JevController; llm?: LlmController } = {};
@@ -590,6 +593,7 @@ export class UIController {
       }
       if (ai === 'llm' || both) {
         side.llm = new LlmController(this.engine, this.stateManager, faction, {
+          model,
           fallbackToRules: !both,
           jevAssessment: side.jev ? (heroIndex) => side.jev!.assessmentFor(heroIndex) : null,
         });

@@ -13,7 +13,7 @@ const pct = (x: number) => `${Math.round(x * 100)}%`;
 // Battle-mode heroes move at their soldiers' speed (D18).
 const UNITS = `Both sides are identical. Soldier: ${W.hp} HP, ${W.damage} damage per second, moves ${W.speed} tiles/s, sees ${W.sight} tiles. Hero: ${H.hp} HP, ${H.damage} damage per second, moves ${W.speed} tiles/s (same as its soldiers), sees ${H.sight} tiles. Units fight any enemy within ${R.COMBAT_RANGE} tiles automatically; damage is the same from every direction.`;
 
-const FOLLOWING = `A soldier follows the nearest hero of its side if that hero is within ${H.sight} tiles. Soldiers farther than that from every hero stop following and act on their own, so a hero that runs too far ahead loses its soldiers.`;
+const FOLLOWING = `A soldier follows the nearest hero of its side if that hero is within ${H.sight} tiles. A soldier with no hero of its side that close is a stray: it walks back toward the nearest hero of its side and follows it again once within ${H.sight} tiles; strays also miss the charisma bonus. When a side has no heroes left, its soldiers attack the nearest enemy. A hero that runs too far ahead leaves its soldiers behind as strays.`;
 
 const COURAGE = `Courage (soldiers only, recalculated all the time) = ${W.courage}, minus ${R.WOUND_PENALTY} for every ${pct(R.WOUND_STEP)} of HP lost, plus ${R.ALLY_SHARE_HIGH_BONUS} if more than ${pct(R.ALLY_SHARE_HIGH)} of the units it sees are allies, minus ${R.ALLY_SHARE_LOW_PENALTY} if fewer than ${pct(R.ALLY_SHARE_LOW)} are allies (minus ${R.ALLY_SHARE_VERY_LOW_PENALTY} if fewer than ${pct(R.ALLY_SHARE_VERY_LOW)}), plus ${R.CHARISMA_BONUS} if one of its heroes is within ${R.CHARISMA_RADIUS} tiles. A soldier with courage ${R.FLEE_THRESHOLD} or less flees from enemies at ${R.FLEE_SPEED_MULT}x speed and cannot be ordered back. Orders never change courage.`;
 
@@ -60,12 +60,13 @@ ORDERS:
 - retreat: walk back to the hero's start position.
 - attack: walk toward the nearest enemy unit, wherever it is.
 - attack_hero <n>: walk toward enemy hero n's current position and keep following it as it moves. Your hero and its soldiers still fight every enemy they meet on the way. Killing a hero removes its +${R.CHARISMA_BONUS} courage bonus from its soldiers.
+- regroup: walk to the nearest group of your stray soldiers (bigger groups are preferred); they follow the hero again once it is within ${H.sight} tiles and regain the courage bonus near it. If you have no strays, the hero stays where it is.
 FIGHTING AND BREAKING OFF: ${BREAK_OFF}
 
 STANCE: keep one stance and change it only when its condition is met.
 - aggressive: seek battle. Switch to defensive if your army's total HP falls below 70% of the enemy's.
 - defensive: hold good ground and let the enemy come. Switch to aggressive if your army's total HP exceeds 120% of the enemy's, or the enemy has stayed passive for 60 seconds.
-- regroup: bring heroes and soldiers back together after heavy losses. Switch when they are together again.
+- regroup: bring heroes and soldiers back together after heavy losses or when many soldiers are strays (use the regroup order). Switch when they are together again.
 
 Think in this order: what the report shows, what changed since your last report, which stance fits, your plan, the orders.
 Reply with ONLY this JSON, no other text:

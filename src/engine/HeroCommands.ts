@@ -1,12 +1,33 @@
 import { StateManager } from '../state/StateManager';
-import { IHero, HeroCommand, CommandSource, Position, BehaviorState } from '../types/types';
+import {
+  IHero,
+  HeroCommand,
+  CommandSource,
+  Position,
+  BehaviorState,
+  Faction,
+} from '../types/types';
 import { findNearestEnemyAnywhere, nearestReachableTile, tileOf } from './UnitHelpers';
+import { strayClusters, regroupTarget, StrayCluster } from './Strays';
+
+const STRAY_CACHE_SEC = 0.5; // stray clusters are recomputed at most this often
 
 // The command interface (D20). Every order — user click, rule hero, Jev, LLM — goes through
 // issue(), so a hero behaves the same whoever gave it. Each frame applyAll() turns each
 // hero's command into the task point it walks to.
 export class HeroCommands {
+  private strayCache = new Map<Faction, { time: number; clusters: StrayCluster[] }>();
+
   constructor(private sm: StateManager) {}
+
+  private straysOf(faction: Faction): StrayCluster[] {
+    const now = this.sm.getBattlefield().elapsedTime;
+    const cached = this.strayCache.get(faction);
+    if (cached && now - cached.time < STRAY_CACHE_SEC && now >= cached.time) return cached.clusters;
+    const clusters = strayClusters(this.sm, faction);
+    this.strayCache.set(faction, { time: now, clusters });
+    return clusters;
+  }
 
   // breakOffAllowed (battle mode, D27): a *different* movement order given while the hero is
   // fighting makes it break off the fight; retreat always does. A repeated order is not a new
@@ -50,7 +71,7 @@ export class HeroCommands {
   // Orders that send the hero somewhere: move, retreat, or resuming an LLM move/retreat.
   private isMovement(hero: IHero, command: HeroCommand): boolean {
     const c = command.type === 'continueLlm' ? hero.lastLlmCommand : command;
-    return c?.type === 'move' || c?.type === 'retreat';
+    return c?.type === 'move' || c?.type === 'retreat' || c?.type === 'regroup';
   }
 
   // null means "no destination": the hero stays where it is.
@@ -73,6 +94,10 @@ export class HeroCommands {
           .find((h) => h.faction !== hero.faction && h.heroIndex === command.heroIndex && h.hp > 0);
         const enemy = target ?? findNearestEnemyAnywhere(this.sm, hero); // target dead: nearest enemy
         return enemy ? tileOf(enemy.position) : null;
+      }
+      case 'regroup': {
+        const cluster = regroupTarget(this.straysOf(hero.faction), hero);
+        return cluster ? tileOf(cluster.center) : null; // no strays: stay
       }
       case 'continueLlm':
         return null; // no LLM command yet

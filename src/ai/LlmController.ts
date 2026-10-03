@@ -7,9 +7,20 @@ import {
   SECTORS_PER_SIDE,
   SECTOR_SIZE,
 } from '../engine/Sectors';
-import { Faction, IHero, HeroCommand, BehaviorState, TerrainType, UnitType } from '../types/types';
+import {
+  Faction,
+  IHero,
+  HeroCommand,
+  BehaviorState,
+  TerrainType,
+  UnitType,
+  LlmModel,
+} from '../types/types';
 import { llmSystemPrompt } from './GameRules';
 import { armyHp, formatRatio, groupStats, localForce } from './Observations';
+import { strayClusters } from '../engine/Strays';
+
+const MAX_STRAY_CLUSTERS = 5;
 
 // Layer 3 (D1, D10): the LLM plans the overall strategy every 20 s from a computed summary
 // of the whole map (D16, R5). It runs in the dev server through the Claude Agent SDK.
@@ -18,6 +29,7 @@ export type Stance = 'aggressive' | 'defensive' | 'regroup';
 
 export interface LlmDecision {
   time: number; // simulation time when the request was sent
+  model: string; // the model that answered
   latencyMs: number;
   situation: string;
   change: string;
@@ -42,6 +54,7 @@ export interface LlmOptions {
   endpoint: string;
   fetchFn: typeof fetch;
   jevAssessment: ((heroIndex: number) => JevAssessment) | null; // set when Jev runs on the same side
+  model: LlmModel;
 }
 
 const DEFAULTS: LlmOptions = {
@@ -50,6 +63,7 @@ const DEFAULTS: LlmOptions = {
   endpoint: '/api/llm',
   fetchFn: (...args) => fetch(...args),
   jevAssessment: null,
+  model: 'sonnet',
 };
 
 interface RawOrder {
@@ -157,6 +171,7 @@ export class LlmController {
           side: this.side,
           matchId: this.matchId,
           system: this.system,
+          model: this.opts.model,
           prompt: JSON.stringify(this.report(time)),
         }),
       });
@@ -168,8 +183,8 @@ export class LlmController {
         );
         return;
       }
-      const { text } = (await res.json()) as { text: string };
-      this.apply(time, latencyMs, text ?? '');
+      const { text, model } = (await res.json()) as { text: string; model?: string };
+      this.apply(time, latencyMs, text ?? '', model ?? this.opts.model);
     } catch (err) {
       this.fail(String(err), 'Is the dev server running (npm run dev)?');
     } finally {
@@ -178,9 +193,10 @@ export class LlmController {
   }
 
   // Validates the LLM's reply and applies the usable orders through the command interface.
-  private apply(time: number, latencyMs: number, text: string): void {
+  private apply(time: number, latencyMs: number, text: string, model: string): void {
     const d: LlmDecision = {
       time,
+      model,
       latencyMs,
       situation: '',
       change: '',
@@ -246,6 +262,8 @@ export class LlmController {
         return { type: 'retreat' };
       case 'attack':
         return { type: 'attack' };
+      case 'regroup':
+        return { type: 'regroup' };
       case 'attack_hero': {
         const index = Number(raw.target_hero);
         const alive = this.stateManager
@@ -377,6 +395,8 @@ export class LlmController {
         force_ratio_at_last_report:
           this.lastForceRatio === null ? 'n/a' : formatRatio(this.lastForceRatio),
       },
+      your_stray_soldiers: this.strays(this.faction),
+      enemy_stray_soldiers: this.strays(enemyFaction),
       events_since_last_report: this.events.length ? this.events : ['none'],
       sectors: [...perSector.entries()]
         .sort(([a], [b]) => a.localeCompare(b))
@@ -404,6 +424,21 @@ export class LlmController {
     );
     this.events = [];
     return report;
+  }
+
+  // Stray soldiers as clusters (D28): the 5 largest, the rest summed up.
+  private strays(faction: Faction): unknown {
+    const clusters = strayClusters(this.stateManager, faction);
+    if (clusters.length === 0) return 'none';
+    const top = clusters.slice(0, MAX_STRAY_CLUSTERS).map((c) => ({
+      place: positionToSubsector(c.center),
+      soldiers: c.soldiers,
+      avg_hp_percent: c.avgHpPercent,
+      avg_courage: c.avgCourage,
+      fleeing: c.fleeing,
+    }));
+    const rest = clusters.slice(MAX_STRAY_CLUSTERS).reduce((n, c) => n + c.soldiers, 0);
+    return rest > 0 ? [...top, { other_strays_elsewhere: rest }] : top;
   }
 
   // Dominant terrain per sector, one row per grid row (north first), columns A-J.
@@ -459,6 +494,8 @@ export class LlmController {
         return 'attack nearest enemy';
       case 'attackHero':
         return `attack enemy hero ${c.heroIndex}`;
+      case 'regroup':
+        return 'regroup stray soldiers';
       case 'continueLlm':
         return "follow the commander's order";
     }

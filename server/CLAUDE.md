@@ -2,9 +2,9 @@
 
 Code that runs inside the Vite dev server (Node), never in the browser. Loaded from `vite.config.ts`.
 
-| File | Role |
-|---|---|
-| `llmPlugin.ts` | `POST /api/llm`: one persistent, lean Claude Agent SDK session per side (D10, D22). A new `matchId` starts a new session. |
+| File           | Role                                                                                                                                                                                                                                                       |
+| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `llmPlugin.ts` | `POST /api/llm`: one persistent, lean Claude Agent SDK session per side (D10, D22). A new `matchId` or model starts a new session. The system prompt and the model (`haiku` / `sonnet` / `opus`, chosen per side in the menu, D29) come with each request. |
 
 The Jev proxy (`/api/jev`) is configured directly in `vite.config.ts`: it adds `TYPESAFE_API_KEY` from `.env.local` and drops the browser's `Origin` header (D7, P1).
 

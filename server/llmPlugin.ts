@@ -12,7 +12,12 @@ import { query, type Query, type SDKUserMessage } from '@anthropic-ai/claude-age
 // The system prompt (rulebook) is built in the browser from the engine's own constants
 // (src/ai/GameRules.ts) and sent with each request; it is used when a session starts.
 
-const MODEL = process.env.LLM_MODEL || 'sonnet';
+// Model chosen per side in the menu (D29). Only these aliases are accepted.
+const MODELS = ['haiku', 'sonnet', 'opus'] as const;
+type Model = (typeof MODELS)[number];
+const DEFAULT_MODEL: Model = (MODELS as readonly string[]).includes(process.env.LLM_MODEL ?? '')
+  ? (process.env.LLM_MODEL as Model)
+  : 'sonnet';
 
 // A long-lived Agent SDK session. Messages are pushed into an async queue that the SDK
 // reads from; each reply arrives as a "result" message.
@@ -25,12 +30,13 @@ class Session {
 
   constructor(
     readonly matchId: string,
+    readonly model: Model,
     systemPrompt: string
   ) {
     this.q = query({
       prompt: this.input(),
       options: {
-        model: MODEL,
+        model,
         systemPrompt,
         tools: [],
         settingSources: [],
@@ -110,7 +116,14 @@ export function llmPlugin(): Plugin {
       server.middlewares.use('/api/llm', async (req, res) => {
         if (req.method !== 'POST') return send(res, 405, { error: 'POST only' });
         try {
-          const { side, matchId, system, prompt } = JSON.parse(await readBody(req)) as {
+          const {
+            side,
+            matchId,
+            system,
+            prompt,
+            model: requested,
+          } = JSON.parse(await readBody(req)) as {
+            model?: string;
             side: string;
             matchId: string;
             system: string;
@@ -120,15 +133,18 @@ export function llmPlugin(): Plugin {
             return send(res, 400, { error: 'side, matchId, system and prompt are required' });
 
           let session = sessions.get(side);
-          if (!session || session.matchId !== matchId) {
+          const model: Model = (MODELS as readonly string[]).includes(requested ?? '')
+            ? (requested as Model)
+            : DEFAULT_MODEL;
+          if (!session || session.matchId !== matchId || session.model !== model) {
             session?.close();
-            session = new Session(matchId, system);
+            session = new Session(matchId, model, system);
             sessions.set(side, session);
           }
 
           const started = Date.now();
           const text = await session.ask(prompt);
-          send(res, 200, { text, latencyMs: Date.now() - started, model: MODEL });
+          send(res, 200, { text, latencyMs: Date.now() - started, model });
         } catch (err) {
           send(res, 500, { error: String(err) });
         }
