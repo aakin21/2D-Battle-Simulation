@@ -17,6 +17,7 @@ Browser app (TypeScript + Vite + Canvas). Each folder has its own `CLAUDE.md` wi
 | `src/maps/` | The fixed map (D5) |
 | `src/assets/` | Unit sprite sheets (CC0, D25) |
 | `server/` | Dev-server only: the LLM endpoint (`/api/llm`) |
+| `api/` | Vercel functions for the deployed site: the Jev proxy (`/api/jev`, D8) |
 
 The three decision layers (D1): rules every frame (`src/engine`), Jev every ~4 s, LLM every ~20 s (`src/ai`).
 
@@ -32,7 +33,7 @@ The three decision layers (D1): rules every frame (`src/engine`), Jev every ~4 s
 ## Running
 
 - `npm run dev`: the full app, including the Jev proxy and the LLM endpoint.
-- `npm run build`: static build; Jev and the LLM are not available there.
+- `npm run build`: static build. On Vercel, `api/jev.ts` serves `/api/jev` (key in the Vercel project's `TYPESAFE_API_KEY`); the LLM is not available there until the Claude API is used (D10).
 - Jev needs `TYPESAFE_API_KEY=...` in `.env.local`. The LLM uses the developer's Claude login through the Agent SDK (model: `LLM_MODEL`, default `sonnet`).
 - Formatting: Prettier (`.prettierrc`); lint: `npm run lint`. Run both on files you change.
 
