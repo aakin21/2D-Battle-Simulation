@@ -131,6 +131,7 @@ D1–D4 are the professor's proposals from the 2026-09-30 meeting; D5 onwards ca
 | D24 | 2026-10-02 | Code organization: split the engine into sibling modules, a CLAUDE.md per folder with a root CLAUDE.md for architecture and rules, Prettier and lint clean-up; tests stay outside the repository | Keeps the code readable and the design rules explicit as the AI layers grow. See record below | Accepted (2026-10-02) |
 | D25 | 2026-10-02 | Unit sprites come from the Ninja Adventure asset pack (CC0) | Free for a public repo, top-down 16×16 with walk and attack animations. See record below and R4 | Accepted (2026-10-02) |
 | D26 | 2026-10-03 | AI inputs v2: complete rulebook for both layers built from the engine's constants, computed summaries instead of raw data, stance and plan memory for the LLM, sub-sector targets, Jev assessments reported to the LLM | Applies R5; fixes the missing rules and repeated decisions seen in the first LLM vs LLM match. See record below | Accepted (2026-10-03) |
+| D27 | 2026-10-03 | Speed up neighbor queries with an algorithm that gives exactly the same results (finer grid, per-cell faction counts, ring search for the nearest enemy) | Fixes the FPS collapse in dense clusters (P2, R6) without changing any rule; update frequency and approximations were rejected because they change the model. See record below | Proposed |
 
 ### Decision records
 
@@ -478,7 +479,21 @@ Each record lists the options we considered, what we chose, and why.
   - Top-down view and 16×16 size fit the map. At full-map zoom units are only 10 px, so large art (Tiny Swords, 192 px) would lose its detail anyway.
   - Includes walk and attack animations; Kenney's characters are static.
   - Team colors are applied by tinting when the sprites are loaded, so characters are chosen by silhouette, not color.
-- **Note:** At full-map zoom units stay squares; sprites are drawn only when zoomed in (performance and readability).
+- **Note:** At first, units stayed squares at full-map zoom and sprites were drawn only when zoomed in. **Update (2026-10-03):** at the author's request sprites are now drawn at every zoom. This costs ~16% FPS in stress mode (see `UI_PLAN.md`, steps 6.1–6.2).
+
+
+#### D27: Faster neighbor queries without changing the rules
+- **Problem:** FPS collapses when many units crowd together (P2). Profiling shows the cost is the engine's neighbor queries, not rendering (R6).
+- **Current algorithm:** the map is split into 15×15-tile cells. Every frame, each unit looks at every unit in the cells around its sight radius (10–12 tiles) and checks the distance one by one: once for courage (count allies and enemies) and once more to find the nearest enemy. With 1,500 units in one area this is about 1,500 × 1,500 ≈ 2 million checks per frame.
+- **Options:**
+  - (a) Update courage and targets every ~0.2 s instead of every frame (staggered updates). **Rejected:** it changes the model. Units would react with a delay, and results would no longer be comparable with Phase 1.
+  - (b) Stop after a fixed number of neighbors. **Rejected:** courage would be computed from an approximate ratio.
+  - (c) An algorithm that returns exactly the same answers with fewer checks.
+- **Chosen:** (c).
+  - **Courage counts:** smaller cells (e.g. 3×3 tiles), each keeping a count of friendly and enemy units, updated when a unit enters or leaves the cell. For a query, a cell whose farthest corner is within the sight radius is entirely inside, so its counts are added directly; a cell whose nearest point is outside the radius is skipped; only cells on the edge of the circle are checked unit by unit. The result is exactly the same, because a cell is counted as a whole only if every point in it is within range.
+  - **Nearest enemy:** search cells ring by ring outward from the unit, and stop once the next ring cannot contain anything closer than the best enemy found so far. In a crowd the nearest enemy is usually found in the first ring.
+- **Condition for acceptance:** the old and new code are run on the same simulation states, and every courage value and every chosen target must be identical. One known risk: when two enemies are at exactly the same distance, the ring search may pick the other one. If the test finds such differences, either the old tie-breaking order is reproduced, or the nearest-enemy search is left unchanged and only the counting is optimized. If any difference remains, the change is not adopted.
+- **Why:** the rules and results of the simulation stay the same, only the work needed to compute them shrinks. It continues the Phase 1 performance work (weeks 9–11: spatial grid, object pool, binary heap).
 
 ---
 
@@ -643,6 +658,21 @@ Each record lists the options we considered, what we chose, and why.
 - [TypeSafe documentation](https://docs.typesafe.ai/llms.txt)
 - Also found in the search, not yet read: The Road to War: The AI of Total War (Game Developer); Killzone's AI: Dynamic Procedural Tactics (GDC Europe 2005); Adaptive Command (2025); A Survey on LLM-Based Game Agents.
 
+
+### R6: Why FPS collapses late in stress mode (2026-10-03)
+
+**Question:** In stress mode FPS drops to single digits as the battle goes on, even while the number of units goes down. Is the cause rendering (the new visual effects, D25) or the simulation?
+
+**Setup:** headless Chrome without a frame-rate cap, stress mode at 4× speed, measured with `requestAnimationFrame` counts and the Chrome DevTools CPU profiler (sampling every 0.2 ms, 3 s windows). Absolute FPS depends on the machine; the comparisons below are within the same setup.
+
+**Findings:**
+- ⚠️ **FPS falls while the unit count is constant.** In one run, after warriors were wiped out, 1,644 units remained for over 90 s of simulated time and FPS kept falling (143 → 94 → 80 → 76 → 68). The surviving berserkers keep crowding into the same area, so density grows even though the count does not.
+- ✅ **Rendering is not the bottleneck.** With the simulation paused (rendering only), effects and sprites together cost ~0.7–0.8 ms per frame (FX on 592–664 FPS vs off 1,122–1,271 FPS, same moment of the same run).
+- ✅ **CPU profile points to the neighbor queries.** At the dense stage: `SpatialGrid.forEach` 32–37% of CPU time, the courage-counting callback ~13%, `updateBehavior` ~8%, canvas `drawImage` 6–11%, the effects update ~1%.
+- ⚠️ A first comparison of FX on vs FX off in separate runs was misleading: each run is random and ends differently. Only measurements within the same run are comparable.
+
+**Conclusion:** the collapse comes from the engine's neighbor queries, whose cost grows with the square of local density (see P2). The proposed fix is D27.
+
 ---
 
 ## Problems log
@@ -661,6 +691,14 @@ Problems encountered during the project, how they were found, and how they were 
 - **Impact:** Jev cannot be called directly from the simulation running in the browser.
 - **Resolution:** Route AI calls through a small proxy (D7), hosted as a Vercel serverless function (D8). This also keeps API keys off the client.
 - **Status:** Workaround (2026-10-02): local development uses a Vite dev-server proxy that adds the key server-side; verified to reach TypeSafe's API. Vercel deployment (D8) still to do.
+
+### P2: FPS collapses in dense clusters (2026-10-03)
+- **Context:** testing the visual effects in stress mode (4,200 units).
+- **Problem:** FPS drops to single digits late in the battle, also when units die and the count goes down.
+- **Cause:** every frame, each unit checks every unit within its sight radius one by one, for courage and for the nearest enemy. When units crowd together (berserkers gathering at their rally point), this grows with the square of local density: about 1,500² checks per frame (R6).
+- **Impact:** stress mode becomes unplayable late in the battle. Battle mode with large armies could hit the same limit.
+- **Resolution:** proposed: faster neighbor queries with identical results (D27). Staggered updates were rejected because they change the model.
+- **Status:** Open
 
 ---
 
