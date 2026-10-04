@@ -46,16 +46,81 @@ export interface IUnit {
   groupId: string; // spawn group identifier — used for coordinated berserker patrol
 }
 
+// Who gives a hero its orders. 'rule' heroes patrol and charge on their own (no AI);
+// 'ai' heroes get orders from the AI layers attached to the match (Jev and/or the LLM).
+export type HeroController = 'user' | 'rule' | 'ai';
+
+// Which AI layers command a side in battle mode. Every combination is offered so the
+// layers can be compared on their own and together. 'none': the user (west) or the rule
+// layer (east) commands the heroes.
+export type SideAI = 'none' | 'jev' | 'llm' | 'jev+llm';
+
+// D4: 'realtime' keeps the battle running and applies AI answers when they arrive;
+// 'paused' freezes the battle until every pending AI answer has arrived.
+export type AITiming = 'realtime' | 'paused';
+
+// D29: which Claude model plays the LLM layer of a side (aliases understood by the Agent SDK).
+export type LlmModel = 'haiku' | 'sonnet' | 'opus';
+
+// Orders a hero can receive (D20). Every source (user, rule, Jev, LLM) uses the same set.
+export type HeroCommand =
+  | { type: 'move'; target: Position } // AI gives a sector, the user an exact point
+  | { type: 'hold'; at: Position }
+  | { type: 'retreat' }
+  | { type: 'attack' }
+  | { type: 'attackHero'; heroIndex: number }
+  | { type: 'regroup' } // walk to the nearest group of stray soldiers of the hero's side (D28)
+  | { type: 'attackBase' } // walk to the enemy base and attack it (base mode, D30)
+  | { type: 'continueLlm' }; // Jev only: keep following the LLM's latest command
+
+export type CommandSource = 'user' | 'rule' | 'jev' | 'llm';
+
 export interface IHero extends IUnit {
-  taskPoint: Position | null;
+  taskPoint: Position | null; // where the hero is heading; derived from `command` each frame
   charismaRadius: number;
   charismaBonus: number;
+  controller: HeroController;
+  heroIndex: number; // 1-based number within its side, used by "attack hero N"
+  home: Position; // start position; "retreat" falls back toward it
+  command: HeroCommand | null;
+  commandSource: CommandSource | null;
+  commandTime: number; // simulation time of the last command
+  lastLlmCommand: HeroCommand | null; // kept so Jev can see and resume the LLM's plan (D15)
+  lastLlmTime: number; // simulation time of the LLM's latest command
+  disengaging: boolean; // breaking off a fight: ignores enemies until clear of them (D27)
+  reflexOverridden: boolean; // an order ended the survival reflex; off until sight is clear (D18)
+}
+
+// D30: battle objectives. 'elimination': destroy every enemy unit. 'control': hold points
+// A and B for points, the match lasts a fixed time. 'base': destroy the enemy base.
+export type Objective = 'elimination' | 'control' | 'base';
+
+export interface ControlPoint {
+  name: string; // "A" or "B"
+  position: Position;
+  holder: Faction | null; // side with the most units in range right now (null: tie or empty)
+}
+
+export interface Base {
+  faction: Faction;
+  position: Position;
+  hp: number;
+  maxHp: number;
+}
+
+export interface ObjectiveState {
+  mode: Objective;
+  points: ControlPoint[]; // control mode
+  scores: { friendly: number; enemy: number }; // control mode
+  timeLimit: number | null; // seconds
+  bases: Base[]; // base mode
 }
 
 export interface IBattlefield {
   grid: TerrainType[][];
   units: IUnit[];
   elapsedTime: number;
+  objective: ObjectiveState;
   waveNumber: number;
   nextWaveTime: number; // simulation seconds at which the next wave spawns
   stats: {
@@ -84,7 +149,6 @@ export const TERRAIN_SPEED: Record<string, number> = {
   MOUNTAIN: 0,
 };
 
-
 export const TERRAIN_SIGHT: Record<string, number> = {
   OPEN: 1.0,
   FOREST: 0.8,
@@ -110,14 +174,37 @@ export const TILE_SIZE = 5; // pixels per tile at base zoom (offscreen terrain c
 
 export type TerrainDensity = 'light' | 'normal' | 'dense';
 
+// 'classic': Phase 1 game (one hero vs berserker waves).
+// 'battle': symmetric sides, each with several heroes and soldiers that use courage.
+export type GameMode = 'classic' | 'battle';
+
 export interface SimConfig {
-  warriorCount: number;
+  mode: GameMode;
+  warriorCount: number; // classic: friendly warriors; battle: soldiers per side
   waveMultiplier: number;
   terrainDensity: TerrainDensity;
+  heroesPerSide: number; // battle only
+  presetGrid?: TerrainType[][]; // fixed or saved map; a new random map is made when absent
+  friendlyAI?: SideAI; // battle only: AI layers for the west side (default 'none' = the user)
+  enemyAI?: SideAI; // battle only: AI layers for the east side (default 'none' = rule-based)
+  aiTiming?: AITiming; // battle only: does the simulation wait for AI answers (D4)
+  objective?: Objective; // battle only (D30), default 'elimination'
+  friendlyModel?: LlmModel; // battle only: LLM model for each side (D29)
+  enemyModel?: LlmModel;
 }
 
 export const DEFAULT_CONFIG: SimConfig = {
+  mode: 'classic',
   warriorCount: 300,
   waveMultiplier: 1,
   terrainDensity: 'normal',
+  heroesPerSide: 1,
+};
+
+export const BATTLE_CONFIG: SimConfig = {
+  mode: 'battle',
+  warriorCount: 150,
+  waveMultiplier: 0,
+  terrainDensity: 'normal',
+  heroesPerSide: 3,
 };

@@ -1,4 +1,4 @@
-import { IUnit, UnitType, Faction, Camera } from '../../types/types';
+import { IUnit, IHero, UnitType, Faction, Camera } from '../../types/types';
 import { Corpses } from './Corpses';
 import { Blood } from './Blood';
 import { StatusIcons } from './StatusIcons';
@@ -22,6 +22,7 @@ interface UnitSnapshot {
   hp: number;
   unitType: UnitType;
   faction: Faction;
+  heroIndex: number; // 1-based within its side for heroes, 0 otherwise
   facing: 1 | -1; // 1 = right, -1 = left
   moving: boolean; // position changed in the last simulated frame
   phase: number; // random 0..1 offset so neighbours don't animate in lockstep
@@ -51,6 +52,7 @@ export interface DeathEvent {
   y: number;
   unitType: UnitType;
   faction: Faction;
+  heroIndex: number;
   facing: 1 | -1;
 }
 
@@ -186,6 +188,7 @@ export class EffectsManager {
           hp: unit.hp,
           unitType: unit.unitType,
           faction: unit.faction,
+          heroIndex: unit.unitType === UnitType.HERO ? (unit as IHero).heroIndex : 0,
           facing: 1,
           moving: false,
           phase: Math.random(),
@@ -226,6 +229,7 @@ export class EffectsManager {
         y: snap.y,
         unitType: snap.unitType,
         faction: snap.faction,
+        heroIndex: snap.heroIndex,
         facing: snap.facing,
       });
       this.snapshots.delete(id);

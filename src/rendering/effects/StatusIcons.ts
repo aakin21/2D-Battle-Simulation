@@ -68,9 +68,10 @@ export class StatusIcons {
       const cy = (unit.position.y - camY) * zoom;
       if (cx + icon < 0 || cx - icon > width || cy + zoom + icon * 2 < 0 || cy > height) continue;
 
-      // Bars sit at zoom + barH above the unit center (see Renderer.drawBars);
-      // the icon goes just above them
-      const barsH = unit.unitType === UnitType.WARRIOR ? zoom * 0.65 + 1 : zoom * 0.4;
+      // Bars sit at zoom + barH above the unit center (see Renderer.drawBars); the icon
+      // goes just above them. Soldiers may have a courage bar (warriors always, berserkers
+      // in battle mode), so they get room for it; heroes only have an HP bar.
+      const barsH = unit.unitType === UnitType.HERO ? zoom * 0.4 : zoom * 0.65 + 1;
       const top = cy - zoom - barsH - icon - 2;
       // Per-unit phase from position, so neighbours do not move in lockstep
       const phase = unit.position.x * 1.7 + unit.position.y;

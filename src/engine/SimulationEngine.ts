@@ -2,6 +2,34 @@ import { StateManager } from '../state/StateManager';
 import { Renderer } from '../rendering/Renderer';
 import { MinimapRenderer } from '../rendering/MinimapRenderer';
 import { Pathfinder } from './Pathfinder';
+import { HeroCommands } from './HeroCommands';
+import {
+  COMBAT_RANGE,
+  ATTACK_INTERVAL,
+  FLEE_THRESHOLD,
+  WOUND_STEP,
+  WOUND_PENALTY,
+  ALLY_SHARE_HIGH,
+  ALLY_SHARE_HIGH_BONUS,
+  ALLY_SHARE_LOW,
+  ALLY_SHARE_LOW_PENALTY,
+  ALLY_SHARE_VERY_LOW,
+  ALLY_SHARE_VERY_LOW_PENALTY,
+  REST_TRIGGER_HP,
+  REST_HEAL_PER_SEC,
+  DISENGAGE_CLEAR_RADIUS,
+} from './Rules';
+import { GroupPatrol } from './GroupPatrol';
+import { updateRuleHeroes } from './RuleHeroes';
+import { updateControl, damageBases, objectiveEnd, EndReason } from './Objectives';
+import { updateHeroReflex, moveHeroRetreat } from './HeroReflex';
+import {
+  effectiveSight,
+  findNearestEnemy,
+  findNearestEnemyAnywhere,
+  stepToward,
+  terrainSpeed,
+} from './UnitHelpers';
 import {
   IUnit,
   IHero,
@@ -10,32 +38,49 @@ import {
   Faction,
   BehaviorState,
   TerrainType,
-  TERRAIN_SPEED,
-  TERRAIN_SIGHT,
   UNIT_STATS,
   Position,
+  HeroCommand,
+  CommandSource,
+  AITiming,
   SimConfig,
   DEFAULT_CONFIG,
 } from '../types/types';
 
 const WARRIOR_ARRIVE_RADIUS = 2;
-const COMBAT_RANGE = 2;
-const ATTACK_INTERVAL = 1.0;
-const FLEE_THRESHOLD = 25;
-const FLEE_SPEED_MULT = 1.5;
-const REST_TRIGGER_HP = 50;
+
+// An AI layer that gives heroes orders (Jev or the LLM). Ticked every simulation step.
+export interface AIController {
+  tick(elapsed: number): void;
+  isWaiting(): boolean; // a request is open and its answer has not arrived yet
+}
+
+// Battle mode result: the side whose units (heroes and soldiers) all die first loses.
+export interface MatchResult {
+  winner: Faction | null; // null: draw
+  time: number; // simulation seconds
+  survivors: number; // units left on the winning side
+  reason: EndReason; // how the match was decided (D30)
+  scores?: { friendly: number; enemy: number }; // control mode
+}
 
 export class SimulationEngine {
   private stateManager: StateManager;
   private renderer: Renderer;
   private minimapRenderer: MinimapRenderer;
 
-  private groupPatrol = new Map<string, { dest: Position; expiry: number }>();
+  private patrol = new GroupPatrol();
+  private commands: HeroCommands;
 
   // Reused buffer for courage counts: [friendly, enemy]
   private factionCounts = new Int32Array(2);
   private paused: boolean = false;
   private stressMode: boolean = false;
+  private battleMode: boolean = false;
+  private controllers: AIController[] = [];
+  private result: MatchResult | null = null;
+  private aiTiming: AITiming = 'realtime';
+  private onMatchEnd: ((result: MatchResult) => void) | null = null;
   private speedMultiplier: number = 1;
   private waveMultiplier: number = 1;
   private lastConfig: SimConfig = DEFAULT_CONFIG;
@@ -46,6 +91,7 @@ export class SimulationEngine {
     this.stateManager = stateManager;
     this.renderer = renderer;
     this.minimapRenderer = minimapRenderer;
+    this.commands = new HeroCommands(stateManager);
   }
 
   start(): void {
@@ -96,6 +142,35 @@ export class SimulationEngine {
   applyConfig(config: SimConfig): void {
     this.lastConfig = config;
     this.waveMultiplier = config.waveMultiplier;
+    this.aiTiming = config.aiTiming ?? 'realtime';
+  }
+
+  // D4 paused mode: the simulation does not advance while an AI answer is pending.
+  isWaitingForAI(): boolean {
+    return this.aiTiming === 'paused' && this.controllers.some((c) => c.isWaiting());
+  }
+
+  isBattleMode(): boolean {
+    return this.battleMode;
+  }
+
+  getResult(): MatchResult | null {
+    return this.result;
+  }
+
+  setOnMatchEnd(cb: (result: MatchResult) => void): void {
+    this.onMatchEnd = cb;
+  }
+
+  // AI controllers for the current match; cleared on every restart.
+  setControllers(controllers: AIController[]): void {
+    this.controllers = controllers;
+  }
+
+  // Single entry point for hero orders (D20): user clicks, rule heroes, Jev and the LLM
+  // all come through here, so a hero behaves the same whoever gave the order.
+  issueCommand(hero: IHero, command: HeroCommand | null, source: CommandSource): void {
+    this.commands.issue(hero, command, source, this.battleMode);
   }
 
   restart(): void {
@@ -103,7 +178,11 @@ export class SimulationEngine {
     this.stressMode = false;
     this.stateManager.setStressMode(false);
     this.stateManager.reset(this.lastConfig);
-    this.groupPatrol.clear();
+    this.controllers = [];
+    this.result = null;
+    this.battleMode = this.stateManager.isBattleMode();
+    this.renderer.setBattleMode(this.battleMode);
+    this.patrol.clear();
     this.paused = false;
     this.speedMultiplier = 1;
     this.start();
@@ -114,18 +193,25 @@ export class SimulationEngine {
     this.stressMode = true;
     this.stateManager.setStressMode(true);
     this.stateManager.reset();
-    this.groupPatrol.clear();
+    this.controllers = [];
+    this.result = null;
+    this.battleMode = false;
+    this.renderer.setBattleMode(false);
+    this.patrol.clear();
     this.paused = false;
     this.speedMultiplier = 1;
     this.start();
   }
 
   private update(deltaTime: number): void {
-    const { units, grid } = this.stateManager.getBattlefield();
-    const hero = this.stateManager.getHero();
+    const { units, grid, elapsedTime } = this.stateManager.getBattlefield();
+
+    for (const controller of this.controllers) controller.tick(elapsedTime);
+    if (this.battleMode) updateRuleHeroes(this.stateManager, this.commands, this.patrol);
+    this.commands.applyAll();
 
     for (const unit of units) {
-      this.updateCourage(unit, hero);
+      this.updateCourage(unit);
     }
 
     for (const unit of units) {
@@ -136,36 +222,110 @@ export class SimulationEngine {
     for (const unit of units) {
       const oldX = unit.position.x;
       const oldY = unit.position.y;
-      this.moveUnit(unit, deltaTime, hero, grid);
+      this.moveUnit(unit, deltaTime, grid);
       this.stateManager.syncPosition(unit, oldX, oldY);
     }
 
     this.processRest(units, deltaTime);
     this.processCombat(units, deltaTime);
+    if (this.battleMode) {
+      const mode = this.stateManager.getBattlefield().objective.mode;
+      if (mode === 'control') updateControl(this.stateManager, deltaTime);
+      if (mode === 'base') damageBases(this.stateManager, units, deltaTime);
+    }
     this.removeDeadUnits();
+    if (this.battleMode) this.checkMatchEnd();
     this.updateWaveSpawner(this.stateManager.getBattlefield());
   }
 
-  private effectiveSight(unit: IUnit): number {
-    const { grid } = this.stateManager.getBattlefield();
-    const tx = Math.floor(unit.position.x);
-    const ty = Math.floor(unit.position.y);
-    const terrain = grid[ty]?.[tx] ?? TerrainType.OPEN;
-    return unit.sight * (TERRAIN_SIGHT[TerrainType[terrain]] ?? 1.0);
+  // Soldiers follow heroes and use courage. In battle mode berserkers are soldiers too.
+  private isSoldier(unit: IUnit): boolean {
+    return (
+      unit.unitType === UnitType.WARRIOR ||
+      (this.battleMode && unit.unitType === UnitType.BERSERKER)
+    );
   }
 
-  private updateCourage(unit: IUnit, hero: IHero | undefined): void {
-    if (unit.unitType === UnitType.BERSERKER) return;
-    if (unit.unitType === UnitType.HERO) return;
+  // Nearest living hero of the unit's own side within maxDist (or within the hero's
+  // sight when maxDist is not given). In classic mode this is the single hero.
+  private findLeader(unit: IUnit, maxDist?: (hero: IHero) => number): IHero | undefined {
+    let best: IHero | undefined;
+    let bestD2 = Infinity;
+    for (const hero of this.stateManager.getHeroes()) {
+      if (hero.faction !== unit.faction || hero.hp <= 0 || hero.id === unit.id) continue;
+      const dx = hero.position.x - unit.position.x;
+      const dy = hero.position.y - unit.position.y;
+      const d2 = dx * dx + dy * dy;
+      const r = maxDist ? maxDist(hero) : hero.sight;
+      if (d2 <= r * r && d2 < bestD2) {
+        bestD2 = d2;
+        best = hero;
+      }
+    }
+    return best;
+  }
 
-    const base = UNIT_STATS[UnitType[unit.unitType] as keyof typeof UNIT_STATS].courage;
+  // Ends the match when one side has no units left, then freezes the simulation.
+  private checkMatchEnd(): void {
+    if (this.result) return;
+    let friendly = 0;
+    let enemy = 0;
+    for (const u of this.stateManager.getBattlefield().units) {
+      if (u.faction === Faction.FRIENDLY) friendly++;
+      else enemy++;
+    }
+    const bf = this.stateManager.getBattlefield();
+    let winner: Faction | null;
+    let reason: EndReason;
+    if (friendly === 0 || enemy === 0) {
+      winner = friendly > 0 ? Faction.FRIENDLY : enemy > 0 ? Faction.ENEMY : null;
+      reason = 'elimination';
+    } else {
+      const end = objectiveEnd(this.stateManager);
+      if (!end) return;
+      ({ winner, reason } = end);
+    }
+
+    this.result = {
+      winner,
+      time: bf.elapsedTime,
+      survivors: winner === Faction.FRIENDLY ? friendly : winner === Faction.ENEMY ? enemy : 0,
+      reason,
+      ...(bf.objective.mode === 'control'
+        ? {
+            scores: {
+              friendly: Math.round(bf.objective.scores.friendly),
+              enemy: Math.round(bf.objective.scores.enemy),
+            },
+          }
+        : {}),
+    };
+    this.paused = true;
+    this.onMatchEnd?.(this.result);
+  }
+
+  private enemyWithin(unit: IUnit, radius: number): boolean {
+    let found = false;
+    this.stateManager.forEachInRadius(unit.position.x, unit.position.y, radius, (other) => {
+      if (!found && other.hp > 0 && other.faction !== unit.faction) found = true;
+    });
+    return found;
+  }
+
+  private updateCourage(unit: IUnit): void {
+    if (!this.isSoldier(unit)) return;
+
+    // Battle mode: both sides use warrior stats (D19), courage included.
+    const base = this.battleMode
+      ? UNIT_STATS.WARRIOR.courage
+      : UNIT_STATS[UnitType[unit.unitType] as keyof typeof UNIT_STATS].courage;
 
     const hpLostFraction = 1 - unit.hp / unit.maxHp;
-    const woundedPenalty = -Math.floor(hpLostFraction / 0.2) * 10;
+    const woundedPenalty = -Math.floor(hpLostFraction / WOUND_STEP) * WOUND_PENALTY;
 
     // Living units in sight per faction, the unit itself included (D31: same counts as a
     // full scan, computed from per-cell counters)
-    const sight = this.effectiveSight(unit);
+    const sight = effectiveSight(this.stateManager, unit);
     const counts = this.factionCounts;
     this.stateManager.countByFactionInRadius(unit.position.x, unit.position.y, sight, counts);
     const allies = counts[unit.faction];
@@ -175,48 +335,27 @@ export class SimulationEngine {
     const total = allies + enemies;
     if (total > 0) {
       const ratio = allies / total;
-      if (ratio > 0.6) ratioModifier = 15;
-      else if (ratio < 0.2) ratioModifier = -30;
-      else if (ratio < 0.4) ratioModifier = -15;
+      if (ratio > ALLY_SHARE_HIGH) ratioModifier = ALLY_SHARE_HIGH_BONUS;
+      else if (ratio < ALLY_SHARE_VERY_LOW) ratioModifier = -ALLY_SHARE_VERY_LOW_PENALTY;
+      else if (ratio < ALLY_SHARE_LOW) ratioModifier = -ALLY_SHARE_LOW_PENALTY;
     }
 
-    let heroBonus = 0;
-    if (unit.faction === Faction.FRIENDLY && hero && hero.hp > 0 && hero.id !== unit.id) {
-      const dx = hero.position.x - unit.position.x;
-      const dy = hero.position.y - unit.position.y;
-      if (dx * dx + dy * dy <= hero.charismaRadius * hero.charismaRadius) {
-        heroBonus = hero.charismaBonus;
-      }
-    }
+    const charismaHero = this.findLeader(unit, (h) => h.charismaRadius);
+    const heroBonus = charismaHero ? charismaHero.charismaBonus : 0;
 
     unit.courage = Math.max(0, Math.min(100, base + woundedPenalty + ratioModifier + heroBonus));
   }
 
-  // Nearest living enemy within the unit's sight. Uses the fast ring search (D31); only
-  // when several enemies are at exactly the same distance does it fall back to the full scan
-  // below, whose order picks the same enemy as the original code.
-  private findNearestEnemy(unit: IUnit): IUnit | null {
-    const sight = this.effectiveSight(unit);
-    const fast = this.stateManager.nearestEnemyInRadius(unit.position.x, unit.position.y, sight, unit.faction);
-    if (!this.stateManager.wasNearestTied()) return fast;
-
-    let nearest: IUnit | null = null;
-    let minDist2 = Infinity;
-
-    this.stateManager.forEachInRadius(unit.position.x, unit.position.y, sight, (other) => {
-      if (other.faction === unit.faction || other.hp <= 0) return;
-      const dx = other.position.x - unit.position.x;
-      const dy = other.position.y - unit.position.y;
-      const d2 = dx * dx + dy * dy;
-      if (d2 < minDist2) { minDist2 = d2; nearest = other; }
-    });
-
-    return nearest;
-  }
-
   private updateBehavior(unit: IUnit): void {
-    if (unit.unitType === UnitType.BERSERKER) {
-      const enemy = this.findNearestEnemy(unit);
+    if (
+      this.battleMode &&
+      unit.unitType === UnitType.HERO &&
+      updateHeroReflex(this.stateManager, unit as IHero)
+    )
+      return;
+
+    if (unit.unitType === UnitType.BERSERKER && !this.battleMode) {
+      const enemy = findNearestEnemy(this.stateManager, unit);
       if (enemy) {
         const dx = enemy.position.x - unit.position.x;
         const dy = enemy.position.y - unit.position.y;
@@ -235,7 +374,7 @@ export class SimulationEngine {
       return;
     }
 
-    const enemy = this.findNearestEnemy(unit);
+    const enemy = findNearestEnemy(this.stateManager, unit);
 
     if (unit.state === BehaviorState.FLEE) {
       if (!enemy || unit.courage > FLEE_THRESHOLD) {
@@ -254,14 +393,18 @@ export class SimulationEngine {
       return;
     }
 
-    if (unit.unitType === UnitType.WARRIOR && enemy && unit.courage <= FLEE_THRESHOLD) {
+    if (this.isSoldier(unit) && enemy && unit.courage <= FLEE_THRESHOLD) {
       unit.state = BehaviorState.FLEE;
       unit.target = null;
       unit.path = [];
       return;
     }
 
-    if ((unit.unitType === UnitType.WARRIOR || unit.unitType === UnitType.HERO) && unit.hp < REST_TRIGGER_HP && !enemy) {
+    if (
+      (this.isSoldier(unit) || unit.unitType === UnitType.HERO) &&
+      unit.hp < REST_TRIGGER_HP &&
+      !enemy
+    ) {
       unit.state = BehaviorState.REST;
       unit.target = null;
       unit.path = [];
@@ -269,6 +412,17 @@ export class SimulationEngine {
     }
 
     if (unit.unitType === UnitType.HERO) {
+      // D27: a hero breaking off a fight walks on without engaging until it is clear of
+      // enemies, then behaves normally again (so it does not march into the next group).
+      const hero = unit as IHero;
+      if (hero.disengaging) {
+        if (this.enemyWithin(hero, DISENGAGE_CLEAR_RADIUS)) {
+          hero.state = BehaviorState.IDLE;
+          hero.target = null;
+          return;
+        }
+        hero.disengaging = false;
+      }
       if (enemy) {
         const dx = enemy.position.x - unit.position.x;
         const dy = enemy.position.y - unit.position.y;
@@ -305,7 +459,7 @@ export class SimulationEngine {
   }
 
   private moveFlee(unit: IUnit, deltaTime: number, grid: TerrainType[][]): void {
-    const enemy = this.findNearestEnemy(unit);
+    const enemy = findNearestEnemy(this.stateManager, unit);
     if (!enemy) return;
 
     const dx = unit.position.x - enemy.position.x;
@@ -313,25 +467,7 @@ export class SimulationEngine {
     const dist = Math.sqrt(dx * dx + dy * dy);
     if (dist === 0) return;
 
-    const xi = Math.floor(unit.position.x);
-    const yi = Math.floor(unit.position.y);
-    const terrain = grid[yi]?.[xi] ?? TerrainType.MOUNTAIN;
-    const terrainMult = TERRAIN_SPEED[TerrainType[terrain]];
-    const speed = unit.baseSpeed * terrainMult * FLEE_SPEED_MULT;
-    const step = speed * deltaTime;
-    const baseAngle = Math.atan2(dy, dx);
-
-    const offsets = [0, Math.PI / 8, -Math.PI / 8, Math.PI / 4, -Math.PI / 4, Math.PI / 2, -Math.PI / 2];
-    for (const offset of offsets) {
-      const angle = baseAngle + offset;
-      const newX = Math.max(0.5, Math.min(149.5, unit.position.x + Math.cos(angle) * step));
-      const newY = Math.max(0.5, Math.min(149.5, unit.position.y + Math.sin(angle) * step));
-      if (this.stateManager.isClearTile(Math.floor(newX), Math.floor(newY))) {
-        unit.position.x = newX;
-        unit.position.y = newY;
-        return;
-      }
-    }
+    stepToward(this.stateManager, unit, Math.atan2(dy, dx), deltaTime, grid);
   }
 
   private updateWaveSpawner(bf: IBattlefield): void {
@@ -392,7 +528,6 @@ export class SimulationEngine {
   }
 
   private generateSpawnPoints(count: number): Position[] {
-    const bf = this.stateManager.getBattlefield();
     const numPoints = Math.max(1, Math.min(8, Math.ceil(count / 20)));
     const points: Position[] = [];
     let attempts = 0;
@@ -406,13 +541,17 @@ export class SimulationEngine {
       let y: number;
 
       if (edge === 0) {
-        x = 5 + Math.floor(Math.random() * 140); y = inset;
+        x = 5 + Math.floor(Math.random() * 140);
+        y = inset;
       } else if (edge === 1) {
-        x = 5 + Math.floor(Math.random() * 140); y = 149 - inset;
+        x = 5 + Math.floor(Math.random() * 140);
+        y = 149 - inset;
       } else if (edge === 2) {
-        x = inset; y = 5 + Math.floor(Math.random() * 140);
+        x = inset;
+        y = 5 + Math.floor(Math.random() * 140);
       } else {
-        x = 149 - inset; y = 5 + Math.floor(Math.random() * 140);
+        x = 149 - inset;
+        y = 5 + Math.floor(Math.random() * 140);
       }
 
       const tooClose = points.some((p) => {
@@ -428,24 +567,10 @@ export class SimulationEngine {
     return points;
   }
 
-  private getGroupPatrolDest(groupId: string, pos: Position, elapsed: number): Position {
-    const entry = this.groupPatrol.get(groupId);
-    if (entry && elapsed < entry.expiry) return entry.dest;
-
-    const angle = Math.random() * Math.PI * 2;
-    const d = 20 + Math.random() * 30;
-    const dest: Position = {
-      x: Math.round(Math.max(5, Math.min(144, pos.x + Math.cos(angle) * d))),
-      y: Math.round(Math.max(5, Math.min(144, pos.y + Math.sin(angle) * d))),
-    };
-    this.groupPatrol.set(groupId, { dest, expiry: elapsed + 15 + Math.random() * 15 });
-    return dest;
-  }
-
   private processRest(units: IUnit[], deltaTime: number): void {
     for (const unit of units) {
       if (unit.state !== BehaviorState.REST) continue;
-      unit.hp = Math.min(unit.maxHp, unit.hp + 10 * deltaTime);
+      unit.hp = Math.min(unit.maxHp, unit.hp + REST_HEAL_PER_SEC * deltaTime);
     }
   }
 
@@ -485,18 +610,15 @@ export class SimulationEngine {
     }
   }
 
-  private moveUnit(
-    unit: IUnit,
-    deltaTime: number,
-    hero: IHero | undefined,
-    grid: TerrainType[][]
-  ): void {
+  private moveUnit(unit: IUnit, deltaTime: number, grid: TerrainType[][]): void {
     if (unit.state === BehaviorState.FLEE) {
-      this.moveFlee(unit, deltaTime, grid);
+      if (unit.unitType === UnitType.HERO)
+        moveHeroRetreat(this.stateManager, unit as IHero, deltaTime, grid);
+      else this.moveFlee(unit, deltaTime, grid);
       return;
     }
 
-    if (unit.unitType === UnitType.BERSERKER) {
+    if (unit.unitType === UnitType.BERSERKER && !this.battleMode) {
       if (unit.state !== BehaviorState.IDLE) return;
 
       if (unit.target !== null) {
@@ -510,7 +632,10 @@ export class SimulationEngine {
           const r = 1.0 + (idNum % 3) * 0.4;
           let aimX = Math.max(1, Math.min(148, dtx + Math.round(Math.cos(angle) * r)));
           let aimY = Math.max(1, Math.min(148, dty + Math.round(Math.sin(angle) * r)));
-          if (!this.stateManager.isClearTile(aimX, aimY)) { aimX = dtx; aimY = dty; }
+          if (!this.stateManager.isClearTile(aimX, aimY)) {
+            aimX = dtx;
+            aimY = dty;
+          }
 
           const pe = unit.path.length > 0 ? unit.path[unit.path.length - 1] : null;
           if (!pe || pe.x !== aimX || pe.y !== aimY) {
@@ -523,13 +648,13 @@ export class SimulationEngine {
         }
       } else if (unit.path.length === 0) {
         const elapsed = this.stateManager.getBattlefield().elapsedTime;
-        const dest = this.getGroupPatrolDest(unit.groupId, unit.position, elapsed);
+        const dest = this.patrol.destination(unit.groupId, unit.position, elapsed);
         const dtx = Math.floor(dest.x);
         const dty = Math.floor(dest.y);
         if (Math.floor(unit.position.x) !== dtx || Math.floor(unit.position.y) !== dty) {
           const st = { x: Math.floor(unit.position.x), y: Math.floor(unit.position.y) };
           unit.path = Pathfinder.findPath(grid, st, { x: dtx, y: dty });
-          if (unit.path.length === 0) this.groupPatrol.delete(unit.groupId);
+          if (unit.path.length === 0) this.patrol.forget(unit.groupId);
         }
       }
 
@@ -559,20 +684,16 @@ export class SimulationEngine {
 
     if (unit.state !== BehaviorState.IDLE) return;
 
-    const dest = this.getDestination(unit, hero);
+    const leader = this.isSoldier(unit) ? this.findLeader(unit) : undefined;
+    const dest = this.getDestination(unit, leader);
     if (!dest) {
       unit.path = [];
       return;
     }
 
-    if (
-      unit.unitType === UnitType.WARRIOR &&
-      unit.target === null &&
-      hero &&
-      hero.path.length === 0
-    ) {
-      const dx = hero.position.x - unit.position.x;
-      const dy = hero.position.y - unit.position.y;
+    if (this.isSoldier(unit) && unit.target === null && leader && leader.path.length === 0) {
+      const dx = leader.position.x - unit.position.x;
+      const dy = leader.position.y - unit.position.y;
       if (dx * dx + dy * dy <= WARRIOR_ARRIVE_RADIUS * WARRIOR_ARRIVE_RADIUS) {
         unit.path = [];
         return;
@@ -615,7 +736,8 @@ export class SimulationEngine {
     }
   }
 
-  private getDestination(unit: IUnit, hero: IHero | undefined): Position | null {
+  // leader: the hero this soldier follows (already checked to be within its sight).
+  private getDestination(unit: IUnit, leader: IHero | undefined): Position | null {
     if (unit.target !== null) {
       const target = this.stateManager.getUnitById(unit.target);
       if (target && target.hp > 0) return target.position;
@@ -624,21 +746,30 @@ export class SimulationEngine {
     if (unit.unitType === UnitType.HERO) {
       return (unit as IHero).taskPoint ?? null;
     }
-    if (unit.unitType === UnitType.WARRIOR) {
-      if (!hero || !hero.taskPoint) return null;
-      const dx = hero.position.x - unit.position.x;
-      const dy = hero.position.y - unit.position.y;
-      if (dx * dx + dy * dy > hero.sight * hero.sight) return null;
-      return hero.taskPoint;
+    if (this.isSoldier(unit)) {
+      if (leader) return leader.taskPoint ?? null;
+      if (this.battleMode) return this.strayDestination(unit);
     }
     return null;
+  }
+
+  // A soldier with no hero of its side within sight is a stray: it stays where it is (and
+  // fights what comes close) until a hero comes to collect it (regroup order). Only when its
+  // side has no heroes left does it attack the nearest enemy, so a battle can still end (D28).
+  private strayDestination(unit: IUnit): Position | null {
+    const heroLeft = this.stateManager
+      .getHeroes()
+      .some((h) => h.faction === unit.faction && h.hp > 0);
+    if (heroLeft) return null;
+    const enemy = findNearestEnemyAnywhere(this.stateManager, unit);
+    return enemy ? enemy.position : null;
   }
 
   private computeSpeed(unit: IUnit, grid: TerrainType[][]): number {
     const xi = Math.floor(unit.position.x);
     const yi = Math.floor(unit.position.y);
     const terrain = grid[yi]?.[xi] ?? TerrainType.MOUNTAIN;
-    const terrainMult = TERRAIN_SPEED[TerrainType[terrain]];
+    const terrainMult = terrainSpeed(terrain);
     const hpMult = 0.5 + 0.5 * (unit.hp / unit.maxHp);
     return unit.baseSpeed * hpMult * terrainMult;
   }
@@ -649,7 +780,7 @@ export class SimulationEngine {
 
     const deltaTime = Math.min(rawDelta, 0.1) * this.speedMultiplier;
 
-    if (!this.paused) {
+    if (!this.paused && !this.isWaitingForAI()) {
       this.update(deltaTime);
       this.stateManager.getBattlefield().elapsedTime += deltaTime;
     }

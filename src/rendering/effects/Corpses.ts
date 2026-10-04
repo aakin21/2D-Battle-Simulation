@@ -31,6 +31,7 @@ interface Corpse {
   y: number;
   unitType: UnitType;
   faction: Faction;
+  heroIndex: number; // 1-based for heroes (picks the hero's sprite), 0 otherwise
   facing: 1 | -1;
   age: number;
   tilt: number; // index into CORPSE_TILTS
@@ -62,6 +63,7 @@ export class Corpses {
     y: 0,
     unitType: UnitType.WARRIOR,
     faction: Faction.FRIENDLY,
+    heroIndex: 0,
     facing: 1,
     age: 0,
     tilt: 0,
@@ -80,6 +82,7 @@ export class Corpses {
     c.y = e.y;
     c.unitType = e.unitType;
     c.faction = e.faction;
+    c.heroIndex = e.heroIndex;
     c.facing = e.facing;
     c.age = 0;
     c.tilt = Math.floor(Math.random() * CORPSE_TILTS.length);
@@ -191,7 +194,7 @@ export class Corpses {
       const sy = (c.y - camY) * zoom - half;
       if (sx + size < 0 || sx > width || sy + size < 0 || sy > height) return;
 
-      const set = sprites.get(c.unitType, c.faction, 0);
+      const set = sprites.get(c.unitType, c.faction, Math.max(0, c.heroIndex - 1));
       if (c.age < FALL_TIME) {
         // Falling: living idle frame fades out over the dead frame
         const t = c.age / FALL_TIME;

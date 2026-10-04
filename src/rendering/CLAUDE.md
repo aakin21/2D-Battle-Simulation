@@ -1,0 +1,19 @@
+# src/rendering
+
+Canvas drawing only; no simulation logic here.
+
+| File | Role |
+|---|---|
+| `Renderer.ts` | Main canvas: terrain (cached offscreen), units, HP and courage bars, task points, charisma radius, camera, debug overlay |
+| `MinimapRenderer.ts` | Minimap with the camera viewport |
+| `UnitSprites.ts` | Unit sprite sheets (Ninja Adventure, CC0, D25): team tinting, hit-flash and corpse variants, one sprite per hero slot |
+| `effects/` | Visual effects layer: frame-diff event detection (`EffectsManager`), hit flash, corpses, blood, status icons, hero aura; pooled objects and pre-rendered sprites |
+
+## Conventions
+
+- Read the battlefield, never change it.
+- Battle mode is passed in with `setBattleMode()`: enemy soldiers show courage bars and enemy heroes use their own colour.
+- Skip anything outside the visible canvas (culling); keep per-frame allocations out of hot loops.
+- Colours for units and terrain come from `src/types/types.ts`.
+- Effects and sprites are rendering-only and switch off together with the FX button (off = the original squares). Effects detect hits and deaths by diffing unit state between frames; they never read or advance simulation randomness.
+- Sprites draw only at zoom >= 9 and fall back to squares above 800 visible units (sprite budget). Measure FPS with FX on and off before adding anything per-unit; see `UI_PLAN.md`.
