@@ -20,6 +20,13 @@ import { llmSystemPrompt } from './GameRules';
 import { armyHp, formatRatio, groupStats, localForce } from './Observations';
 import { strayClusters } from '../engine/Strays';
 import { enemyBase, pointCounts } from '../engine/Objectives';
+import {
+  aiEndpoint,
+  aiHeaders,
+  deniedByAiServer,
+  AI_PASSWORD_HINT,
+  unreachableHint,
+} from './AiServer';
 
 const MAX_STRAY_CLUSTERS = 5;
 
@@ -61,7 +68,7 @@ export interface LlmOptions {
 const DEFAULTS: LlmOptions = {
   intervalSec: 20,
   fallbackToRules: true,
-  endpoint: '/api/llm',
+  endpoint: aiEndpoint('/api/llm'),
   fetchFn: (...args) => fetch(...args),
   jevAssessment: null,
   model: 'sonnet',
@@ -168,7 +175,7 @@ export class LlmController {
     try {
       const res = await this.opts.fetchFn(this.opts.endpoint, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: aiHeaders(),
         body: JSON.stringify({
           side: this.side,
           matchId: this.matchId,
@@ -181,14 +188,18 @@ export class LlmController {
       if (!res.ok) {
         this.fail(
           `HTTP ${res.status}`,
-          res.status === 404 ? 'The LLM only works with the dev server (npm run dev).' : ''
+          deniedByAiServer(res)
+            ? AI_PASSWORD_HINT
+            : res.status === 404 || res.status === 405
+              ? 'This site has no LLM endpoint: run npm run dev, or open the demo through the tunnel (?ai=...).'
+              : ''
         );
         return;
       }
       const { text, model } = (await res.json()) as { text: string; model?: string };
       this.apply(time, latencyMs, text ?? '', model ?? this.opts.model);
     } catch (err) {
-      this.fail(String(err), 'Is the dev server running (npm run dev)?');
+      this.fail(String(err), unreachableHint());
     } finally {
       this.pending = false;
     }

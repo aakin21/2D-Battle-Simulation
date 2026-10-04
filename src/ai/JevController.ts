@@ -15,6 +15,13 @@ import { formatRatio, groupStats, localForce, LOCAL_RADIUS } from './Observation
 import type { JevAssessment } from './LlmController';
 import { strayClusters } from '../engine/Strays';
 import { enemyBase } from '../engine/Objectives';
+import {
+  aiEndpoint,
+  aiHeaders,
+  deniedByAiServer,
+  AI_PASSWORD_HINT,
+  unreachableHint,
+} from './AiServer';
 
 // Layer 2 (D6, D21, D26): Jev makes tactical decisions for each hero of one side every few
 // seconds. Jev has no memory, so every request carries the relevant rules (game_rules) and
@@ -47,7 +54,7 @@ const DEFAULTS: JevOptions = {
   minConfidence: 0.4,
   fallbackToRules: true,
   withCommander: false,
-  endpoint: '/api/jev',
+  endpoint: aiEndpoint('/api/jev'),
   fetchFn: (...args) => fetch(...args),
 };
 
@@ -185,7 +192,7 @@ export class JevController {
     try {
       const res = await this.opts.fetchFn(this.opts.endpoint, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: aiHeaders(),
         body: JSON.stringify({ model: 'jev-latest', state, questions }),
       });
       const latencyMs = performance.now() - started;
@@ -193,9 +200,11 @@ export class JevController {
       if (!res.ok) {
         this.fail(
           `HTTP ${res.status}`,
-          res.status === 401 || res.status === 403
-            ? 'Set TYPESAFE_API_KEY in .env.local and restart the dev server.'
-            : ''
+          deniedByAiServer(res)
+            ? AI_PASSWORD_HINT
+            : res.status === 401 || res.status === 403
+              ? 'Set TYPESAFE_API_KEY in .env.local and restart the dev server.'
+              : ''
         );
         return;
       }
@@ -237,7 +246,7 @@ export class JevController {
         });
       }
     } catch (err) {
-      this.fail(String(err), 'Is the dev server running (npm run dev)?');
+      this.fail(String(err), unreachableHint());
     } finally {
       this.pending = false;
     }

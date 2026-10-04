@@ -1,5 +1,6 @@
 import { defineConfig, loadEnv } from 'vite';
 import { llmPlugin } from './server/llmPlugin';
+import { aiAccessPlugin } from './server/aiAccess';
 
 export default defineConfig(({ mode }) => {
   // TYPESAFE_API_KEY comes from .env.local (not committed). It is added to Jev requests
@@ -8,11 +9,14 @@ export default defineConfig(({ mode }) => {
 
   return {
     base: './',
-    plugins: [llmPlugin()],
+    plugins: [aiAccessPlugin(env), llmPlugin()],
     build: {
       outDir: 'dist',
     },
     server: {
+      // D37: the online demo reaches /api/* through a tunnel; these are the tunnel host names.
+      // Requests through them need the AI password (server/aiAccess.ts).
+      allowedHosts: ['.trycloudflare.com', '.ngrok-free.app', '.ngrok.app', '.ngrok.io'],
       proxy: {
         '/api/jev': {
           target: 'https://api.typesafe.ai',

@@ -34,6 +34,7 @@ The three decision layers (D1): rules every frame (`src/engine`), Jev every ~4 s
 
 - `npm run dev`: the full app, including the Jev proxy and the LLM endpoint.
 - `npm run build`: static build. On Vercel, `api/jev.ts` serves `/api/jev` (key in the Vercel project's `TYPESAFE_API_KEY`); the LLM is not available there until the Claude API is used (D10).
+- AI in the online demo (D37): set `AI_PASSWORD=...` in `.env.local`, run `npm run dev` and a tunnel (`cloudflared tunnel --url http://localhost:5173` or `ngrok http 5173`), then open the demo once with `?ai=<tunnel address>&key=<AI_PASSWORD>`. Requests from localhost need no password; `AI_ALLOWED_ORIGINS` overrides the allowed demo origin (default `https://aakin21.github.io`).
 - Jev needs `TYPESAFE_API_KEY=...` in `.env.local`. The LLM uses the developer's Claude login through the Agent SDK; the model is chosen per side in the Battle menu (Haiku / Sonnet / Opus; `LLM_MODEL` only sets the server default).
 - Formatting: Prettier (`.prettierrc`); lint: `npm run lint`. Run both on files you change.
 
