@@ -39,13 +39,13 @@ Read `CLAUDE.md` (architecture, rules that must not be broken) and `THESIS_DOCUM
    D18 (reflex), D23 (win test) and the first LLM vs LLM match (D3). Re-measure and update.
 6. **Real tests by the author** (port of `npm run dev`): Jev only, Jev + LLM, each objective;
    collect `ai.east.jev.decisions` / `ai.east.llm.decisions` from the browser console.
-7. **AI in the online demo through a tunnel (D37):** configurable AI endpoint address in the
-   demo, CORS on the local server, a simple password; run `npm run dev` plus ngrok or
-   Cloudflare Tunnel. Needs Phase 2 in `main`/`development` first (item 8). Vercel with the
-   Claude API comes later, for the final experiments (D10).
-8. **Merge** `phase2/symmetry` into `main` (expect conflicts in Renderer.ts, UIController.ts,
-   index.html); delete the untracked copies of THESIS_DOCUMENTATION.md / CLAUDE.md / .claude/skills
-   in the main checkout first.
+7. **AI in the online demo through a tunnel (D37):** code done and deployed (2026-10-04). To use
+   it: `AI_PASSWORD=...` in `.env.local`, `npm run dev`, `cloudflared tunnel --url
+   http://localhost:5173`, then open the demo once with `?ai=<tunnel address>&key=<password>`.
+   Not yet tried end to end with a real tunnel (author's test). Vercel with the Claude API comes
+   later, for the final experiments (D10).
+8. ~~Merge `phase2/symmetry` into `main`~~: done 2026-10-04 (`v2.0-phase2`), also merged into
+   `development` (live demo). From now on, merge `phase2/symmetry` → `main` → `development`.
 9. **Experiments** (Q11): conditions Rules / Jev / LLM / Jev + LLM, timing modes, models
    (D29), objectives; metrics: win rate, time, losses, decision latency, skipped requests, cost.
    Needs a headless experiment runner with a safety cut-off per match.

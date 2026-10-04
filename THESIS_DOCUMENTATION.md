@@ -18,6 +18,7 @@ A running record of the project's process: what was built, which decisions were 
 | 2026-09-30 | Meeting with professor: AI integration proposed (three-layer design, symmetry, Agent vs Agent) |
 | 2026-10-01 | Phase 2 begins: feasibility research for AI integration |
 | 2026-10-01 | First decisions: Jev for layer 2, Vercel hosting with proxy, Agent SDK for the LLM during development (D6–D11) |
+| 2026-10-04 | Phase 2 merged into `main` and deployed to the online demo (tag `v2.0-phase2`): battle mode, Jev and LLM layers, objectives (D30), time limit and rule changes (D33–D36); the demo reaches the AI layers through a tunnel to the author's computer (D37) |
 
 ---
 
