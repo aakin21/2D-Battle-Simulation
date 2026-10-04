@@ -141,6 +141,7 @@ D1–D4 are the professor's proposals from the 2026-09-30 meeting; D5 onwards ca
 | D34 | 2026-10-03 | Hero survival reflex v2: the hero flees straight away from enemies (not home) until none is in sight; a different order from the user, Jev or the LLM ends the flight; rule-based heroes rest after a flight until their HP is full | Heroes ran back almost to their start position; the AI could not stop a flight. Fewest hero deaths of the variants tested (R9). See record below | Accepted (2026-10-03) |
 | D35 | 2026-10-03 | Stray soldiers stay where they are (and fight enemies in their sight) until a hero collects them with `regroup`; only a side with no heroes left attacks the nearest enemy | Soldiers walking after their hero on their own broke the rule that soldiers follow a hero only within its sight. See record below | Accepted (2026-10-03) |
 | D36 | 2026-10-03 | Battle mode: soldiers spawn at random tiles in their side's area (within 20 columns of the heroes' column, full map height) instead of around the heroes | Collecting soldiers becomes part of the game for the heroes and the AI (D35). See record below | Accepted (2026-10-03) |
+| D37 | 2026-10-04 | For now, the online demo reaches both AI layers through a tunnel (ngrok or Cloudflare Tunnel) to the author's computer running `npm run dev`: Jev through the local proxy, the LLM through the Agent SDK on the author's subscription. Claude API on Vercel stays the plan for final experiments | No API key or extra hosting needed yet; the static demo (GitHub Pages) cannot run server code. See record below | Accepted (2026-10-04), not implemented yet |
 
 ### Decision records
 
@@ -262,6 +263,8 @@ Each record lists the options we considered, what we chose, and why.
 |---|---|---|
 | Development | Vercel function | Local, Agent SDK (subscription) |
 | Final experiments | Vercel function | Vercel function, Claude API |
+
+Online demo until the final experiments: both layers through a tunnel to the author's computer (D37, 2026-10-04).
 
 #### D11: LLM memory and learning
 - **Options:** (a) no memory, (b) memory within a match only, (c) memory within a match + learning across matches.
@@ -589,6 +592,17 @@ Each record lists the options we considered, what we chose, and why.
 - **Chosen:** in battle mode each side's soldiers start at random clear tiles of the main region within 20 columns of its heroes' column (west x 1–40, east x 109–148), over the full map height, instead of within 8 tiles of each hero. Heroes are placed as before.
 - **Why:** author's request: soldiers packed around the heroes made the start artificial. With D35, heroes (and the AI) first have to collect their soldiers.
 - **Effect (headless, 3 spawns):** 150 soldiers per side, no shared tiles; 90–103 of 150 start as strays. 15 rule-vs-rule matches (5 per mode) all ended: elimination 5/5 at 500 s, base 5/5 by a destroyed base (109–262 s), control 5/5 at 300 s.
+
+#### D37: AI layers in the online demo through a tunnel
+- **Problem:** the live demo is a static site on GitHub Pages, deployed from `development`. It cannot run server code, so neither the Jev proxy (`/api/jev`, needs the key server-side, D7, P1) nor the LLM endpoint (`/api/llm`, Agent SDK) is available there. Phase 2 is also not merged into `main`/`development` yet.
+- **Options:**
+  - (a) **Vercel with the Claude API:** Jev proxy (`api/jev.ts`, D8) and the LLM as Vercel functions. Works when the author's computer is off. Needs an API key (~$0.12–0.24 per match, R2) and moving the LLM call from the Agent SDK to the API; the persistent session (R2) does not fit stateless functions, so each call must carry what the LLM needs to remember (stance and plan are already in the report, D26).
+  - (b) **Agent SDK on an always-on server** (VPS, Render, Fly.io) with a subscription token (`claude setup-token`). Allowed for personal use only (D9, R2).
+  - (c) **Tunnel to the author's computer:** `npm run dev` (Jev proxy and LLM endpoint) exposed through ngrok or Cloudflare Tunnel; the online demo calls that address.
+- **Chosen:** (c) for now; (a) later for the final experiments (D10).
+- **Why:** nothing to pay or host now, and the code already runs locally. Correction recorded here: the Claude API is not *required* to run the LLM online; it is required for Vercel, for use by others, and for the latency experiments (D10).
+- **Needed to implement:** a configurable AI endpoint address in the demo; CORS on the local server for requests from the demo's origin; a simple password, because the demo link is public and anyone could otherwise spend the author's subscription or Jev quota.
+- **Limits:** works only while the computer is awake and the tunnel is running; a free Cloudflare quick tunnel gets a new address on every start (a fixed address needs an account and a domain). Without the tunnel the demo still runs, without AI.
 
 ---
 

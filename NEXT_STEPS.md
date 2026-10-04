@@ -39,9 +39,10 @@ Read `CLAUDE.md` (architecture, rules that must not be broken) and `THESIS_DOCUM
    D18 (reflex), D23 (win test) and the first LLM vs LLM match (D3). Re-measure and update.
 6. **Real tests by the author** (port of `npm run dev`): Jev only, Jev + LLM, each objective;
    collect `ai.east.jev.decisions` / `ai.east.llm.decisions` from the browser console.
-7. **Vercel deploy:** author runs `npx vercel login` and `npx vercel link`, adds
-   `TYPESAFE_API_KEY` to the project, then `npx vercel --prod` (api/jev.ts is ready; the LLM
-   does not work on Vercel until the Claude API is used, D10).
+7. **AI in the online demo through a tunnel (D37):** configurable AI endpoint address in the
+   demo, CORS on the local server, a simple password; run `npm run dev` plus ngrok or
+   Cloudflare Tunnel. Needs Phase 2 in `main`/`development` first (item 8). Vercel with the
+   Claude API comes later, for the final experiments (D10).
 8. **Merge** `phase2/symmetry` into `main` (expect conflicts in Renderer.ts, UIController.ts,
    index.html); delete the untracked copies of THESIS_DOCUMENTATION.md / CLAUDE.md / .claude/skills
    in the main checkout first.
