@@ -3,6 +3,7 @@ import {
   IUnit,
   IHero,
   UnitType,
+  Faction,
   BehaviorState,
   TerrainType,
   Camera,
@@ -13,6 +14,7 @@ import {
   Position,
 } from '../types/types';
 import { EffectsManager } from './effects/EffectsManager';
+import { CONTROL_RADIUS, BASE_RADIUS } from '../engine/Rules';
 import {
   UnitSprites,
   FRAME,
@@ -24,6 +26,7 @@ import {
 
 const ZOOM_MIN = TILE_SIZE; // full map visible: 150 tiles × 5px = 750px
 const ZOOM_MAX = 40; // max zoom: ~19 tiles visible
+const ENEMY_HERO_COLOR = '#00E5FF'; // battle mode: enemy heroes stand out from blue berserkers
 
 // Sprite animation
 const WALK_FPS = 8;
@@ -31,7 +34,7 @@ const WALK_FPS = 8;
 const ATTACK_INTERVAL = 1.0;
 // The attack frame is shown for this long after each hit
 const ATTACK_POSE_TIME = 0.25;
-const HERO_RING_COLORS = ['#FFD700', '#4169E1']; // by Faction
+const HERO_RING_COLORS = ['#FFD700', ENEMY_HERO_COLOR]; // by Faction
 
 export class Renderer {
   private canvas: HTMLCanvasElement;
@@ -42,6 +45,7 @@ export class Renderer {
 
   private camera: Camera = { x: 0, y: 0, zoom: ZOOM_MIN };
   private selectedUnitId: string | null = null;
+  private battleMode: boolean = false;
 
   private effects = new EffectsManager();
   private unitSprites = new UnitSprites();
@@ -76,6 +80,7 @@ export class Renderer {
     this.updateEffects(battlefield);
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
     this.drawTerrain();
+    this.drawObjectives(battlefield);
     this.spriteMode = this.decideSpriteMode();
     this.effects.setSpriteMode(this.spriteMode);
     this.effects.drawUnderUnits(
@@ -98,6 +103,11 @@ export class Renderer {
     );
     this.drawTaskPoint(battlefield.units);
     if (this.debugMode) this.drawDebugInfo(battlefield);
+  }
+
+  // Battle mode: enemy soldiers use courage too, and there are heroes on both sides.
+  setBattleMode(on: boolean): void {
+    this.battleMode = on;
   }
 
   setSelectedUnit(id: string | null): void {
@@ -249,7 +259,9 @@ export class Renderer {
       this.ctx.fillStyle =
         anyFlash && this.effects.isFlashing(unit.id, now)
           ? '#ffffff'
-          : (UNIT_COLORS[UnitType[unit.unitType]] ?? '#fff');
+          : unit.unitType === UnitType.HERO && unit.faction === Faction.ENEMY
+            ? ENEMY_HERO_COLOR
+            : (UNIT_COLORS[UnitType[unit.unitType]] ?? '#fff');
       this.ctx.fillRect(sx, sy, size, size);
 
       if (unit.unitType === UnitType.HERO) {
@@ -287,8 +299,9 @@ export class Renderer {
         row = Math.floor(simTime * WALK_FPS + anim.phase * WALK_FRAMES) % WALK_FRAMES;
       }
 
-      // Phase 1 has one hero per side, so the hero index is always 0
-      const set = this.unitSprites.get(unit.unitType, unit.faction, 0);
+      // Each hero of a side gets its own sprite (heroIndex is 1-based within the side)
+      const heroIndex = unit.unitType === UnitType.HERO ? (unit as IHero).heroIndex - 1 : 0;
+      const set = this.unitSprites.get(unit.unitType, unit.faction, heroIndex);
 
       if (unit.unitType === UnitType.HERO) {
         // Team-colored ring at the hero's feet
@@ -304,7 +317,8 @@ export class Renderer {
     }
   }
 
-  // Draws HP bar above every unit. Warriors also get a courage bar below the HP bar.
+  // Draws HP bar above every unit. Units that use courage (warriors, and berserkers in
+  // battle mode) also get a courage bar below the HP bar.
   private drawBars(units: IUnit[]): void {
     const { x: camX, y: camY, zoom } = this.camera;
     const barW = Math.max(6, zoom * 2);
@@ -312,7 +326,9 @@ export class Renderer {
     const cH = Math.max(1, Math.floor(zoom * 0.25));
 
     for (const unit of units) {
-      const isWarrior = unit.unitType === UnitType.WARRIOR;
+      const isWarrior =
+        unit.unitType === UnitType.WARRIOR ||
+        (this.battleMode && unit.unitType === UnitType.BERSERKER);
       const totalH = isWarrior ? hpH + 1 + cH : hpH;
       const yOff = -(zoom + totalH);
 
@@ -404,26 +420,80 @@ export class Renderer {
     this.ctx.stroke();
   }
 
-  // Draws an X marker at the hero's current task point.
-  private drawTaskPoint(units: IUnit[]): void {
-    const hero = units.find((u) => u.unitType === UnitType.HERO) as IHero | undefined;
-    if (!hero?.taskPoint) return;
-
+  // Draws an X marker at each hero's current task point (enemy heroes in their own colour).
+  // D30: control points (circle in the colour of the side holding it) and bases (square with
+  // an HP bar), drawn on the ground under the units.
+  private drawObjectives(battlefield: IBattlefield): void {
+    const o = battlefield.objective;
     const { x: camX, y: camY, zoom } = this.camera;
-    const sx = (hero.taskPoint.x - camX) * zoom;
-    const sy = (hero.taskPoint.y - camY) * zoom;
+    const sideColor = (f: Faction | null) =>
+      f === Faction.FRIENDLY ? '255, 80, 80' : f === Faction.ENEMY ? '0, 229, 255' : '220, 220, 220';
 
-    if (sx < -20 || sx > this.canvas.width + 20) return;
-    if (sy < -20 || sy > this.canvas.height + 20) return;
+    for (const p of o.points) {
+      const sx = (p.position.x + 0.5 - camX) * zoom;
+      const sy = (p.position.y + 0.5 - camY) * zoom;
+      const r = CONTROL_RADIUS * zoom;
+      if (sx + r < 0 || sx - r > this.canvas.width || sy + r < 0 || sy - r > this.canvas.height) continue;
+      const c = sideColor(p.holder);
+      this.ctx.beginPath();
+      this.ctx.arc(sx, sy, r, 0, Math.PI * 2);
+      this.ctx.fillStyle = `rgba(${c}, 0.12)`;
+      this.ctx.fill();
+      this.ctx.strokeStyle = `rgba(${c}, 0.8)`;
+      this.ctx.lineWidth = 2;
+      this.ctx.stroke();
+      this.ctx.fillStyle = `rgba(${c}, 0.95)`;
+      this.ctx.font = `bold ${Math.max(12, zoom * 2.5)}px monospace`;
+      this.ctx.textAlign = 'center';
+      this.ctx.textBaseline = 'middle';
+      this.ctx.fillText(p.name, sx, sy);
+      this.ctx.textAlign = 'start';
+      this.ctx.textBaseline = 'alphabetic';
+    }
 
+    for (const b of o.bases) {
+      const half = BASE_RADIUS * zoom;
+      const sx = (b.position.x + 0.5 - camX) * zoom;
+      const sy = (b.position.y + 0.5 - camY) * zoom;
+      if (sx + half < 0 || sx - half > this.canvas.width || sy + half < 0 || sy - half > this.canvas.height)
+        continue;
+      const c = sideColor(b.faction);
+      this.ctx.fillStyle = b.hp > 0 ? `rgba(${c}, 0.35)` : 'rgba(60, 60, 60, 0.5)';
+      this.ctx.fillRect(sx - half, sy - half, half * 2, half * 2);
+      this.ctx.strokeStyle = `rgba(${c}, 0.9)`;
+      this.ctx.lineWidth = 2;
+      this.ctx.strokeRect(sx - half, sy - half, half * 2, half * 2);
+      const barH = Math.max(3, zoom * 0.5);
+      this.ctx.fillStyle = '#550000';
+      this.ctx.fillRect(sx - half, sy - half - barH - 2, half * 2, barH);
+      this.ctx.fillStyle = '#00cc44';
+      this.ctx.fillRect(sx - half, sy - half - barH - 2, half * 2 * (b.hp / b.maxHp), barH);
+    }
+  }
+
+  private drawTaskPoint(units: IUnit[]): void {
+    const { x: camX, y: camY, zoom } = this.camera;
     const half = Math.max(5, zoom * 0.7);
-    this.ctx.strokeStyle = '#FF0000';
-    this.ctx.lineWidth = Math.max(1, zoom * 0.2);
-    this.ctx.beginPath();
-    this.ctx.moveTo(sx - half, sy - half);
-    this.ctx.lineTo(sx + half, sy + half);
-    this.ctx.moveTo(sx + half, sy - half);
-    this.ctx.lineTo(sx - half, sy + half);
-    this.ctx.stroke();
+
+    for (const unit of units) {
+      if (unit.unitType !== UnitType.HERO) continue;
+      const hero = unit as IHero;
+      if (!hero.taskPoint) continue;
+
+      const sx = (hero.taskPoint.x - camX) * zoom;
+      const sy = (hero.taskPoint.y - camY) * zoom;
+
+      if (sx < -20 || sx > this.canvas.width + 20) continue;
+      if (sy < -20 || sy > this.canvas.height + 20) continue;
+
+      this.ctx.strokeStyle = hero.faction === Faction.ENEMY ? ENEMY_HERO_COLOR : '#FF0000';
+      this.ctx.lineWidth = Math.max(1, zoom * 0.2);
+      this.ctx.beginPath();
+      this.ctx.moveTo(sx - half, sy - half);
+      this.ctx.lineTo(sx + half, sy + half);
+      this.ctx.moveTo(sx + half, sy - half);
+      this.ctx.lineTo(sx - half, sy + half);
+      this.ctx.stroke();
+    }
   }
 }

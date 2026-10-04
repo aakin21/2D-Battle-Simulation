@@ -3,8 +3,27 @@ import { StateManager } from '../state/StateManager';
 import { Renderer } from '../rendering/Renderer';
 import { MinimapRenderer } from '../rendering/MinimapRenderer';
 import { InputHandler } from './InputHandler';
+import {
+  IUnit,
+  IHero,
+  UnitType,
+  Faction,
+  BehaviorState,
+  SimConfig,
+  DEFAULT_CONFIG,
+  BATTLE_CONFIG,
+  TerrainDensity,
+  TerrainType,
+  SideAI,
+  LlmModel,
+  Objective,
+} from '../types/types';
+import { decodeGrid, listSavedMaps, loadSavedMap, saveMap } from '../state/MapStore';
+import { FIXED_MAP } from '../maps/fixedMap';
+import { JevController } from '../ai/JevController';
+import { LlmController } from '../ai/LlmController';
+import { AIController, MatchResult } from '../engine/SimulationEngine';
 import { LoadingScreen } from './LoadingScreen';
-import { IUnit, UnitType, BehaviorState, SimConfig, DEFAULT_CONFIG, TerrainDensity } from '../types/types';
 
 const LS_SPEED = 'sim_speed';
 const LS_DEBUG = 'sim_debug';
@@ -83,6 +102,7 @@ export class UIController {
 
     this.loadSettings();
     this.wireMainMenu();
+    this.engine.setOnMatchEnd((r) => this.showMatchResult(r));
     this.wireButtonEvents();
     this.wireInputEvents();
     this.startUIRefresh();
@@ -93,21 +113,28 @@ export class UIController {
   private wireMainMenu(): void {
     const config = document.getElementById('menu-config')!;
     const stressInfo = document.getElementById('stress-info')!;
+    const battleInfo = document.getElementById('battle-info')!;
     const tabDefault = document.getElementById('tab-default')!;
     const tabCustom = document.getElementById('tab-custom')!;
     const tabStress = document.getElementById('tab-stress')!;
+    const tabBattle = document.getElementById('tab-battle')!;
     const warriorSlider = document.getElementById('cfg-warriors') as HTMLInputElement;
     const warriorNum = document.getElementById('cfg-warriors-num') as HTMLInputElement;
     const waveSlider = document.getElementById('cfg-wave-slider') as HTMLInputElement;
     const waveVal = document.getElementById('cfg-wave-val')!;
 
     const setTab = (active: HTMLElement) => {
-      [tabDefault, tabCustom, tabStress].forEach(t => t.classList.remove('active'));
+      [tabDefault, tabCustom, tabStress, tabBattle].forEach(t => t.classList.remove('active'));
       active.classList.add('active');
       const isStress = active === tabStress;
       const isCustom = active === tabCustom;
-      config.classList.toggle('locked', !isCustom);
+      const isBattle = active === tabBattle;
+      // Battle uses the soldier count (per side) and terrain settings, but not waves.
+      config.classList.toggle('locked', !isCustom && !isBattle);
+      document.getElementById('cfg-wave-row')!.style.display = isBattle ? 'none' : '';
+      document.getElementById('cfg-warriors-label')!.textContent = isBattle ? 'Soldiers/side' : 'Warriors';
       stressInfo.style.display = isStress ? 'block' : 'none';
+      battleInfo.style.display = isBattle ? 'block' : 'none';
     };
 
     tabDefault.addEventListener('click', () => {
@@ -121,6 +148,11 @@ export class UIController {
 
     tabCustom.addEventListener('click', () => setTab(tabCustom));
     tabStress.addEventListener('click', () => setTab(tabStress));
+    tabBattle.addEventListener('click', () => {
+      setTab(tabBattle);
+      warriorSlider.value = String(BATTLE_CONFIG.warriorCount);
+      warriorNum.value = String(BATTLE_CONFIG.warriorCount);
+    });
 
     // Warrior slider + number input — keep in sync
     warriorSlider.addEventListener('input', () => {
@@ -143,6 +175,24 @@ export class UIController {
       if (btn) this.setOptActive('cfg-terrain', btn.dataset.val!);
     });
 
+    // Map buttons (D5): Random / Fixed / Saved
+    const mapSaved = document.getElementById('cfg-map-saved') as HTMLSelectElement;
+    document.getElementById('cfg-map')!.addEventListener('click', (e) => {
+      const btn = (e.target as HTMLElement).closest('button');
+      if (!btn) return;
+      this.setOptActive('cfg-map', btn.dataset.val!);
+      mapSaved.style.display = btn.dataset.val === 'saved' ? '' : 'none';
+    });
+    this.refreshSavedMaps();
+
+    // Battle opponent (rules / AI layers) and AI timing (D4)
+    for (const id of ['cfg-west', 'cfg-opponent', 'cfg-timing', 'cfg-west-model', 'cfg-east-model', 'cfg-objective']) {
+      document.getElementById(id)!.addEventListener('click', (e) => {
+        const btn = (e.target as HTMLElement).closest('button');
+        if (btn) this.setOptActive(id, btn.dataset.val!);
+      });
+    }
+
     // Start: set up the run, keep it paused behind the loading screen, then start it
     document.getElementById('menu-start')!.addEventListener('click', async () => {
       this.selectedUnitId = null;
@@ -156,14 +206,34 @@ export class UIController {
         this.engine.restartStressTest();
       } else {
         const isDefault = tabDefault.classList.contains('active');
-        const cfg: SimConfig = isDefault ? DEFAULT_CONFIG : {
+        const isBattle = tabBattle.classList.contains('active');
+        const base: SimConfig = isBattle
+          ? {
+              ...BATTLE_CONFIG,
+              warriorCount: parseInt(warriorSlider.value),
+              terrainDensity: this.getOptActive('cfg-terrain') as TerrainDensity,
+              objective: this.getOptActive('cfg-objective') as Objective,
+            }
+          : isDefault ? DEFAULT_CONFIG : {
+          ...DEFAULT_CONFIG,
           warriorCount: parseInt(warriorSlider.value),
           waveMultiplier: parseFloat(waveSlider.value),
           terrainDensity: this.getOptActive('cfg-terrain') as TerrainDensity,
         };
+        const cfg: SimConfig = {
+          ...base,
+          presetGrid: this.chosenMap(mapSaved.value),
+          friendlyAI: isBattle ? (this.getOptActive('cfg-west') as SideAI) : 'none',
+          enemyAI: isBattle ? (this.getOptActive('cfg-opponent') as SideAI) : 'none',
+          aiTiming: this.getOptActive('cfg-timing') === 'paused' ? 'paused' : 'realtime',
+        friendlyModel: this.getOptActive('cfg-west-model') as LlmModel,
+        enemyModel: this.getOptActive('cfg-east-model') as LlmModel,
+        };
         this.lastConfig = cfg;
         this.engine.applyConfig(cfg);
         this.engine.restart();
+        // AI controllers tick inside the engine update, so they stay idle while paused
+        this.startControllers();
       }
       this.updateSpeedDisplay();
 
@@ -181,6 +251,34 @@ export class UIController {
     document.getElementById('btn-close-instructions')!.addEventListener('click', () => {
       this.elInstructions.style.display = 'none';
     });
+  }
+
+  // Terrain for the chosen map option; undefined means "generate a new random map".
+  private chosenMap(savedName: string): TerrainType[][] | undefined {
+    const choice = this.getOptActive('cfg-map');
+    if (choice === 'fixed') return decodeGrid(FIXED_MAP) ?? undefined;
+    if (choice === 'saved' && savedName) return loadSavedMap(savedName) ?? undefined;
+    return undefined;
+  }
+
+  private refreshSavedMaps(): void {
+    const select = document.getElementById('cfg-map-saved') as HTMLSelectElement;
+    const names = listSavedMaps();
+    select.innerHTML = '';
+    for (const name of names) select.add(new Option(name, name));
+    if (names.length === 0) select.add(new Option('(no saved maps)', ''));
+  }
+
+  // Saves the current terrain under a name so it can be chosen again from the menu.
+  private saveCurrentMap(): void {
+    const defaultName = `map-${new Date().toISOString().slice(0, 16).replace('T', ' ')}`;
+    const name = window.prompt('Save this map as:', defaultName)?.trim();
+    if (!name) return;
+    if (!saveMap(name, this.stateManager.getBattlefield().grid)) {
+      window.alert('Could not save the map (browser storage is unavailable).');
+      return;
+    }
+    this.refreshSavedMaps();
   }
 
   private setOptActive(groupId: string, val: string): void {
@@ -216,6 +314,8 @@ export class UIController {
     });
 
     this.elBtnRestart.addEventListener('click', () => this.doRestart());
+
+    document.getElementById('btn-save-map')!.addEventListener('click', () => this.saveCurrentMap());
 
     this.elBtnMenu.addEventListener('click', () => {
       this.engine.pause();
@@ -288,7 +388,7 @@ export class UIController {
     // Left click → clear task point + select unit (sorted by distance)
     this.inputHandler.onLeftClick((cx, cy) => {
       const hero = this.stateManager.getHero();
-      if (hero) hero.taskPoint = null;
+      if (hero && !this.engine.isBattleMode()) this.engine.issueCommand(hero, null, 'user');
       const grid = this.renderer.canvasToGrid(cx, cy);
       const nearby = this.stateManager.getUnitsInRadius(grid.x, grid.y, 2);
       nearby.sort((a, b) => {
@@ -304,11 +404,11 @@ export class UIController {
       this.updateInfoPanel(clicked);
     });
 
-    // Right click → hero task point
+    // Right click → task point for the selected friendly hero, or the first one
     this.inputHandler.onRightClick((cx, cy) => {
       const grid = this.renderer.canvasToGrid(cx, cy);
-      const hero = this.stateManager.getHero();
-      if (hero) hero.taskPoint = { x: grid.x, y: grid.y };
+      const hero = this.commandableHero();
+      if (hero) this.engine.issueCommand(hero, { type: 'move', target: { x: grid.x, y: grid.y } }, 'user');
     });
 
     // Hover → tooltip
@@ -403,6 +503,20 @@ export class UIController {
     this.elSelectOverlay.style.display = 'block';
   }
 
+  private commandableHero(): IHero | undefined {
+    const selected = this.selectedUnitId ? this.stateManager.getUnitById(this.selectedUnitId) : undefined;
+    if (
+      selected &&
+      selected.unitType === UnitType.HERO &&
+      selected.faction === Faction.FRIENDLY &&
+      (selected as IHero).controller === 'user'
+    ) {
+      return selected as IHero;
+    }
+    const first = this.stateManager.getHero();
+    return first?.controller === 'user' ? first : undefined;
+  }
+
   private showSelectStats(x1: number, y1: number, x2: number, y2: number): void {
     const g1 = this.renderer.canvasToGrid(Math.min(x1, x2), Math.min(y1, y2));
     const g2 = this.renderer.canvasToGrid(Math.max(x1, x2), Math.max(y1, y2));
@@ -455,6 +569,68 @@ export class UIController {
     localStorage.setItem(LS_EFFECTS, this.renderer.isEffectsEnabled().toString());
   }
 
+  // Battle mode: shown when one side has no units left.
+  private showMatchResult(r: MatchResult): void {
+    const el = document.getElementById('match-result')!;
+    const label = (ai: SideAI | undefined, none: string) => (!ai || ai === 'none' ? none : ai);
+    const west = label(this.lastConfig.friendlyAI, 'you');
+    const east = label(this.lastConfig.enemyAI, 'rules');
+    const who =
+      r.winner === null ? 'Draw' : r.winner === Faction.FRIENDLY ? `West (${west}) wins` : `East (${east}) wins`;
+    const how =
+      r.reason === 'base'
+        ? 'base destroyed'
+        : r.reason === 'points'
+          ? `time up, points ${r.scores?.friendly ?? 0}–${r.scores?.enemy ?? 0}`
+          : r.reason === 'time'
+            ? 'time up, more HP left'
+            : 'all enemy units destroyed';
+    el.innerHTML =
+      `<b>${who}</b> (${how})<br>West: ${west} · East: ${east}<br>` +
+      `Time: ${Math.round(r.time)} s · Units left: ${r.survivors}<br>` +
+      `<span style="color:#888">R: restart · Menu: new battle</span>`;
+    el.style.display = 'block';
+    this.elBtnPause.textContent = 'Resume';
+  }
+
+  // Attaches the AI layers chosen for each side of this match. Restart clears them, so this
+  // runs after every engine.restart(). Running controllers are exposed as window.ai.west /
+  // window.ai.east ({ jev, llm }) for inspection in the browser console.
+  private startControllers(): void {
+    document.getElementById('match-result')!.style.display = 'none';
+    const debug = window as unknown as { ai?: Record<string, { jev?: JevController; llm?: LlmController }> };
+    debug.ai = {};
+    if (this.lastConfig.mode !== 'battle') return;
+
+    const controllers: AIController[] = [];
+    const sides: Array<[Faction, SideAI, string, LlmModel]> = [
+      [Faction.FRIENDLY, this.lastConfig.friendlyAI ?? 'none', 'west', this.lastConfig.friendlyModel ?? 'sonnet'],
+      [Faction.ENEMY, this.lastConfig.enemyAI ?? 'none', 'east', this.lastConfig.enemyModel ?? 'sonnet'],
+    ];
+    for (const [faction, ai, name, model] of sides) {
+      if (ai === 'none') continue;
+      const both = ai === 'jev+llm';
+      const side: { jev?: JevController; llm?: LlmController } = {};
+      if (ai === 'jev' || both) {
+        side.jev = new JevController(this.engine, this.stateManager, faction, {
+          fallbackToRules: !both,
+          withCommander: both,
+        });
+        controllers.push(side.jev);
+      }
+      if (ai === 'llm' || both) {
+        side.llm = new LlmController(this.engine, this.stateManager, faction, {
+          model,
+          fallbackToRules: !both,
+          jevAssessment: side.jev ? (heroIndex) => side.jev!.assessmentFor(heroIndex) : null,
+        });
+        controllers.push(side.llm);
+      }
+      debug.ai[name] = side;
+    }
+    this.engine.setControllers(controllers);
+  }
+
   // --- Restart ---
 
   private doRestart(): void {
@@ -465,6 +641,7 @@ export class UIController {
     this.minimapRenderer.clearTerrainCache();
     this.engine.applyConfig(this.lastConfig);
     this.engine.restart();
+    this.startControllers();
     this.elBtnPause.textContent = 'Pause';
     this.updateSpeedDisplay();
   }
@@ -488,6 +665,27 @@ export class UIController {
         : BehaviorState[unit.state];
   }
 
+  // D30: points and time left (control) or base HP (base mode) for the control bar.
+  private objectiveStatus(): string | null {
+    if (!this.engine.isBattleMode()) return null;
+    const bf = this.stateManager.getBattlefield();
+    const o = bf.objective;
+    const left = o.timeLimit === null ? 0 : Math.max(0, Math.ceil(o.timeLimit - bf.elapsedTime));
+    if (o.mode === 'control') {
+      const holder = (f: Faction | null) => (f === null ? '-' : f === Faction.FRIENDLY ? 'W' : 'E');
+      const pts = o.points.map((p) => `${p.name}:${holder(p.holder)}`).join(' ');
+      return `W ${Math.floor(o.scores.friendly)} – ${Math.floor(o.scores.enemy)} E · ${pts} · ${left}s`;
+    }
+    if (o.mode === 'base') {
+      const pct = (f: Faction) => {
+        const b = o.bases.find((x) => x.faction === f);
+        return b ? Math.round((100 * b.hp) / b.maxHp) : 0;
+      };
+      return `Base W ${pct(Faction.FRIENDLY)}% – ${pct(Faction.ENEMY)}% E · ${left}s`;
+    }
+    return `Elimination · ${left}s`;
+  }
+
   private updateControlBar(): void {
     const bf = this.stateManager.getBattlefield();
     let warriors = 0;
@@ -496,10 +694,10 @@ export class UIController {
       if (u.unitType === UnitType.WARRIOR) warriors++;
       else if (u.unitType === UnitType.BERSERKER) berserkers++;
     }
-    this.elWaveCounter.textContent = `Wave: ${bf.waveNumber}`;
+    this.elWaveCounter.textContent = this.objectiveStatus() ?? `Wave: ${bf.waveNumber}`;
     this.elWarriorCount.textContent = `W: ${warriors}`;
     this.elBerserkerCount.textContent = `B: ${berserkers}`;
-    this.elElapsedTime.textContent = `T: ${Math.floor(bf.elapsedTime)}s`;
+    this.elElapsedTime.textContent = `T: ${Math.floor(bf.elapsedTime)}s${this.engine.isWaitingForAI() ? " · waiting for AI…" : ""}`;
   }
 
   private updateSpeedDisplay(): void {
