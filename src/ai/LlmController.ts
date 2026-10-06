@@ -17,7 +17,15 @@ import {
   LlmModel,
 } from '../types/types';
 import { llmSystemPrompt } from './GameRules';
-import { armyHp, formatRatio, groupStats, localForce } from './Observations';
+import {
+  armyHp,
+  exactPlace,
+  formatRatio,
+  groupStats,
+  localForce,
+  objectivePlaces,
+  wayToObjectives,
+} from './Observations';
 import { strayClusters } from '../engine/Strays';
 import { enemyBase, pointCounts } from '../engine/Objectives';
 import {
@@ -351,6 +359,7 @@ export class LlmController {
         : 0;
 
     const last = this.decisions[this.decisions.length - 1];
+    const objectives = objectivePlaces(sm, this.faction, 'your');
     const report = {
       time_seconds: Math.round(time),
       your_previous_decision: last
@@ -377,6 +386,7 @@ export class LlmController {
             soldiers_avg_courage: g?.avgCourage ?? 0,
             soldiers_fleeing: g?.fleeing ?? 0,
             local_force_ratio: formatRatio(localForce(sm, h).ratio),
+            ...(objectives.length ? { way_to_objectives: wayToObjectives(h, objectives) } : {}),
             ...(jev
               ? {
                   jev_recent_decisions: jev.recentDecisions,
@@ -472,7 +482,7 @@ export class LlmController {
           const c = pointCounts(this.stateManager, p);
           return {
             point: p.name,
-            place: positionToSubsector(p.position),
+            place: exactPlace(p.position),
             held_by: p.holder === null ? 'nobody' : p.holder === mineF ? 'you' : 'enemy',
             your_units_near: mineF === Faction.FRIENDLY ? c.friendly : c.enemy,
             enemy_units_near: mineF === Faction.FRIENDLY ? c.enemy : c.friendly,
@@ -489,7 +499,7 @@ export class LlmController {
           if (u.hp > 0 && u.faction !== faction) attackers++;
         });
         return {
-          place: positionToSubsector(b.position),
+          place: exactPlace(b.position),
           hp_percent: Math.round((100 * b.hp) / b.maxHp),
           enemy_units_within_15_tiles: attackers,
         };

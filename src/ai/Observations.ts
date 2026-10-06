@@ -1,9 +1,64 @@
 import { StateManager } from '../state/StateManager';
-import { Faction, IHero, IUnit, BehaviorState, UnitType } from '../types/types';
+import { Faction, IHero, IUnit, BehaviorState, UnitType, Position } from '../types/types';
+import { positionToSubsector } from '../engine/Sectors';
+import { enemyBase, ownBase } from '../engine/Objectives';
 
 // Values computed by code for the AI layers (R5: code computes, the AI judges).
 
 export const LOCAL_RADIUS = 15; // tiles around a hero for local counts and force ratio
+
+// Directions in the order of their angle, starting east and turning clockwise on screen.
+export const COMPASS = [
+  'east',
+  'south-east',
+  'south',
+  'south-west',
+  'west',
+  'north-west',
+  'north',
+  'north-east',
+];
+
+// Compass direction from one position to another; north is up (y grows to the south).
+export function compass(from: Position, to: Position): string {
+  const angle = Math.atan2(to.y - from.y, to.x - from.x);
+  return COMPASS[Math.round(((angle + 2 * Math.PI) % (2 * Math.PI)) / (Math.PI / 4)) % 8];
+}
+
+// An exact place: its sub-sector and its tile, e.g. "H4-NE (tile 112, 51)".
+export function exactPlace(p: Position): string {
+  return `${positionToSubsector(p)} (tile ${Math.floor(p.x)}, ${Math.floor(p.y)})`;
+}
+
+// Where the objectives are (D30): control points, or the two bases (a destroyed base is left
+// out). `own` names this side's base for the reader: "your" for the LLM, "our" for Jev.
+export function objectivePlaces(
+  sm: StateManager,
+  faction: Faction,
+  own: 'your' | 'our'
+): Array<{ name: string; position: Position }> {
+  const o = sm.getBattlefield().objective;
+  if (o.mode === 'control')
+    return o.points.map((p) => ({ name: `point ${p.name}`, position: p.position }));
+  if (o.mode !== 'base') return [];
+  const places: Array<{ name: string; position: Position }> = [];
+  const target = enemyBase(sm, faction);
+  if (target && target.hp > 0) places.push({ name: 'enemy base', position: target.position });
+  const home = ownBase(sm, faction);
+  if (home && home.hp > 0) places.push({ name: `${own} base`, position: home.position });
+  return places;
+}
+
+// Distance and direction from a hero to each objective, e.g. "point A: 34 tiles to the north-east".
+export function wayToObjectives(
+  hero: IUnit,
+  places: Array<{ name: string; position: Position }>
+): string[] {
+  return places.map((p) => {
+    const d = Math.hypot(p.position.x - hero.position.x, p.position.y - hero.position.y);
+    return `${p.name}: ${Math.round(d)} tiles to the ${compass(hero.position, p.position)}`;
+  });
+}
 
 export interface GroupStats {
   followers: number; // soldiers whose nearest own hero (within its sight) is this hero
