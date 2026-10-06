@@ -16,4 +16,4 @@ Canvas drawing only; no simulation logic here.
 - Skip anything outside the visible canvas (culling); keep per-frame allocations out of hot loops.
 - Colours for units and terrain come from `src/types/types.ts`.
 - Effects and sprites are rendering-only and switch off together with the FX button (off = the original squares). Effects detect hits and deaths by diffing unit state between frames; they never read or advance simulation randomness.
-- Sprites draw only at zoom >= 9 and fall back to squares above 800 visible units (sprite budget). Measure FPS with FX on and off before adding anything per-unit; see `UI_PLAN.md`.
+- Sprites and status icons draw for every visible unit at every zoom (no sprite budget since `v1.9.1`, no zoom limit since `v1.9.2`). Measure FPS with FX on and off before adding anything per-unit; see `UI_PLAN.md`.

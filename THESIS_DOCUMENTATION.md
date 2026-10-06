@@ -18,6 +18,7 @@ A running record of the project's process: what was built, which decisions were 
 | 2026-09-30 | Meeting with professor: AI integration proposed (three-layer design, symmetry, Agent vs Agent) |
 | 2026-10-01 | Phase 2 begins: feasibility research for AI integration |
 | 2026-10-01 | First decisions: Jev for layer 2, Vercel hosting with proxy, Agent SDK for the LLM during development (D6–D11) |
+| 2026-10-04 | Phase 2 merged into `main` and deployed to the online demo (tag `v2.0-phase2`): battle mode, Jev and LLM layers, objectives (D30), time limit and rule changes (D33–D36); the demo reaches the AI layers through a tunnel to the author's computer (D37) |
 
 ---
 
@@ -174,6 +175,7 @@ Each record lists the options we considered, what we chose, and why.
   - A user's click and an AI decision go through the same command interface, so modes only differ in who gives the orders.
 - **Implementation (2026-10-02):** the Battle menu chooses who commands each side: West = You / Jev / LLM / Jev + LLM, East = Rules / Jev / LLM / Jev + LLM. Any pairing is possible, e.g. LLM vs Jev + LLM. Each side gets its own AI controllers and its own LLM session; the user can only command heroes they control.
 - **First Agent vs Agent match (LLM vs LLM, Sonnet, fixed map, real time):** both sides made 12 decisions with no invalid orders (average response 2.2 s west, 2.8 s east). Both first formed a defensive line and waited, then both advanced at t = 60 s; east massed a counter-attack, broke the west army by t = 140 s, pulled its wounded heroes back under its soldiers and then hunted the lone west heroes. **East won at 233 s with 135 units left.** The plans are readable and explain each decision, which is useful material for the thesis.
+  - This match ran with the courage bug (P4): east soldiers started from courage 100 instead of 70, which favoured east. To be re-run by the author.
 
 #### D4: AI response modes (Paused and Real-time)
 - **Options:**
@@ -387,6 +389,7 @@ Online demo until the final experiments: both layers through a tunnel to the aut
 - **Why:** simple and unambiguous, and needed before any experiment can be run. Objectives (D12) can change this later.
 - **Spawning and patrol with AI:** Battle mode has no waves. Random patrol is only used by the rule-based opponent; heroes commanded by Jev or the LLM only move on AI orders (they fall back to rules only if the AI cannot be reached).
 - **Test (headless, fixed map, 8 matches, west heroes ordered to "attack", east rule-based):** every match ended, after 130–286 s. Hunting down the last few fleeing units took at most ~1 minute. West won 8 of 8: the rule-based opponent (random patrol, charge when an enemy is seen) is a weak baseline.
+- **Re-measured (2026-10-06, P4, R10):** this test ran with the courage bug. Seeded, on the code of that time: 6 of 8 matches ended with the bug and 3 of 8 with the fix; the others stalled with idle units on both sides (the problem found in D28 and solved by the time limit, D33). West won every finished match with the fix.
 
 #### D24: Code organization
 - **Context:** after the AI layers were added, `SimulationEngine.ts` had grown to ~980 lines mixing rules, commands, rule heroes, the reflex and match end, and the design rules (D14, D19, D20) lived only in this document.
@@ -504,6 +507,7 @@ Online demo until the final experiments: both layers through a tunnel to the aut
   - First version: retreat at HP < 30%, or when enemies ≥ 5 and ≥ 3× allies in sight; the hero ran to the centre of its own soldiers. Testing showed two problems: by the time HP is at 30%, a hero hit by several enemies dies within a second; and the soldiers' centre can be inside the fight, so the hero ran into it.
   - Final version: retreat at HP < 50% (resume at 80%), or when enemies ≥ 5 and ≥ 2× allies in sight. The hero moves away from nearby enemies and back toward its own side (its start position).
   - **Measured effect** (headless, fixed map, friendly heroes ordered to attack, 20 matches of 180 s per condition): hero deaths **80/120 without the reflex vs 52/120 with it (35% fewer)**.
+  - **Re-measured with the courage fix (2026-10-06, P4, R10):** **71/120 without the reflex vs 37/120 with it (48% fewer)**. The numbers above were measured with the courage bug.
   - Most remaining deaths are heroes whose whole army is gone: alone, chased by 60–75 enemies and cornered at the map edge. That is a lost battle, not a reflex failure.
 - **Replaced by D34 (2026-10-03):** the flight no longer goes home, it ends when no enemy is in sight, and an order from the user, Jev or the LLM can end it.
 
@@ -864,6 +868,28 @@ Only this scenario was run at first: the full test was stopped at the author's r
 
 **Conclusion:** adopted (d) as D34. Heroes do not use the soldiers' courage rule.
 
+### R10: D18 and D23 re-measured after the courage fix (2026-10-06)
+
+**Question:** How much did the battle-mode courage bug (P4) change the numbers recorded for the hero survival reflex (D18) and the win test (D23)?
+
+**Setup:** Node.js headless, fixed map, battle mode, the original test scripts, run on the code of that time with and without the one-line fix of `0fa3310` and nothing else changed. D18: commit `3e1e78e`, 20 matches of 180 s per condition, west heroes ordered to attack, east rule-based. D23: commit `00b6a38`, 8 matches up to 900 s, same orders. Unlike the original runs, random numbers are seeded (mulberry32; seeds 1000–1019 for D18, 2000–2007 for D23), so the buggy and the fixed code start from the same positions. For D23 the D32 pathfinder was swapped in, because one fixed match had not finished after 7 minutes without it; it gives identical results (R8), confirmed again here: all 8 buggy matches came out the same with and without it.
+
+| Test | Original (bug, unseeded) | Bug, seeded | Fix, seeded |
+|---|---|---|---|
+| D18: hero deaths of 120, reflex off → on | 80 → 52 (−35%) | 84 → 57 (−32%) | 71 → 37 (−48%) |
+| D23: matches ended within 900 s | 8 of 8 | 6 of 8 | 3 of 8 |
+| D23: wins west / east | 8 / 0 | 5 / 1 | 3 / 0 |
+| D23: duration of the finished matches | 130–286 s | 174–626 s | 211–342 s |
+
+**Findings:**
+- ✅ The seeded runs with the bug come close to the original D18 numbers (84 vs 80, 57 vs 52), so the setup matches the original test.
+- ✅ D18 holds with the fix, with a larger effect: the reflex cuts hero deaths by 48% instead of 35%.
+- ⚠️ D23's "every match ended" does not hold, not even with the bug. The unfinished matches end with idle units on both sides, leaderless soldiers standing still, or a lone hero fleeing in a loop: the stall found in D28 and solved by the time limit (D33). With the fix, east soldiers flee earlier and scatter, so more matches stall.
+- ✅ West won every finished match with the fix: the rule-based opponent remains a weak baseline.
+- ⚠️ Small samples (20 and 8 matches). Seeding makes the bug/fix comparison paired, but other seeds give other numbers.
+
+**Conclusion:** the D18 decision is confirmed with corrected numbers, and the D23 test result is corrected. No decision changes. The first LLM vs LLM match (D3) also ran with the bug and needs a live re-run (author).
+
 ---
 
 ## Problems log
@@ -889,7 +915,7 @@ Problems encountered during the project, how they were found, and how they were 
 - **Cause:** every frame, each unit checks every unit within its sight radius one by one, for courage and for the nearest enemy. When units crowd together (berserkers gathering at their rally point), this grows with the square of local density: about 1,500² checks per frame (R6).
 - **Impact:** stress mode becomes unplayable late in the battle. Battle mode with large armies could hit the same limit.
 - **Resolution:** faster neighbor queries with identical results (D31), implemented on branch `perf/neighbor-queries` and verified (R7): identical simulation, stress mode 2.4× faster engine time, FPS now rises as units die instead of collapsing. Staggered updates were rejected because they change the model.
-- **Status:** Resolved on branch `perf/neighbor-queries` (2026-10-03); not yet merged into `phase2/symmetry`
+- **Status:** Resolved on branch `perf/neighbor-queries` (2026-10-03); merged into `phase2/symmetry` on 2026-10-03 (`dd59fcb`)
 
 ### P3: Stress mode drops to ~1 FPS on some maps (2026-10-03)
 - **Context:** testing the live demo after D31 was deployed.
@@ -897,7 +923,14 @@ Problems encountered during the project, how they were found, and how they were 
 - **Cause:** berserkers locked on targets they cannot reach re-run a failed A* search every frame, each exploring their whole reachable region (R8). Present since Phase 1.
 - **Impact:** stress mode unplayable on affected maps; any mode with enclosed areas could be hit.
 - **Resolution:** skip A* when start and target are in different walkable regions (D32), identical results (R8). Deployed on `main` (tag `v1.11-perf-unreachable-paths`).
-- **Status:** Resolved (2026-10-03) on `main`; not yet merged into `phase2/symmetry`
+- **Status:** Resolved (2026-10-03) on `main`; merged into `phase2/symmetry` on 2026-10-03 (`dd59fcb`)
+
+### P4: Battle-mode soldiers had unequal base courage (2026-10-03)
+- **Context:** Battle mode gives both sides the same unit stats (D19).
+- **Problem:** `updateCourage` took the base courage from the unit type, so east soldiers (berserker type) started from 100 instead of the warriors' 70 and fled later than west soldiers. The sides were not symmetric.
+- **Impact:** every battle-mode measurement made before the fix favoured east: the D18 reflex test, the D19 test battle, the D23 win test and the first LLM vs LLM match (D3), which east won.
+- **Resolution:** fixed in commit `0fa3310` (2026-10-03): in battle mode both sides use the warrior base courage. D18 and D23 re-measured with the fix (R10, 2026-10-06): D18 holds with a larger effect (48% fewer hero deaths instead of 35%); D23's "every match ended" did not hold even with the bug (stalls, solved by D33). The LLM vs LLM match (D3) is to be re-run by the author.
+- **Status:** Resolved (2026-10-03); re-run of the D3 match pending
 
 ---
 
