@@ -11,7 +11,15 @@ import {
   GRID_SIZE,
 } from '../types/types';
 import { jevGameRules } from './GameRules';
-import { formatRatio, groupStats, localForce, LOCAL_RADIUS } from './Observations';
+import {
+  compass,
+  COMPASS,
+  exactPlace,
+  formatRatio,
+  groupStats,
+  localForce,
+  LOCAL_RADIUS,
+} from './Observations';
 import type { JevAssessment } from './LlmController';
 import { strayClusters } from '../engine/Strays';
 import { enemyBase } from '../engine/Objectives';
@@ -62,16 +70,6 @@ const MAP_CELL = 2; // local map: one character per 2×2 tiles
 const STEP_TILES = 10; // length of a "step" move
 const HERO_SCAN = LOCAL_RADIUS * 2; // enemy heroes within this distance can be targeted
 const STRAY_REACH = 25; // stray groups within this distance are shown to Jev
-const DIRS = [
-  'east',
-  'south-east',
-  'south',
-  'south-west',
-  'west',
-  'north-west',
-  'north',
-  'north-east',
-];
 
 interface Option {
   key: string;
@@ -319,7 +317,7 @@ export class JevController {
       const held = p.holder === null ? 'nobody' : p.holder === hero.faction ? 'us' : 'the enemy';
       opts.push({
         key: `move_to_${p.name}`,
-        what: `Go to control point ${p.name} (${d} tiles away, held by ${held} now) and stay; the side with more units there scores.`,
+        what: `Go to control point ${p.name} (${d} tiles to the ${compass(hero.position, p.position)}, held by ${held} now) and stay; the side with more units there scores.`,
         notFor:
           'When the hero is needed in the fight it is in, or the point is held strongly by the enemy.',
         command: { type: 'move', target: p.position },
@@ -332,7 +330,7 @@ export class JevController {
       );
       opts.push({
         key: 'attack_base',
-        what: `March on the enemy base (${d} tiles away, ${Math.round((100 * target.hp) / target.maxHp)}% HP) and attack it.`,
+        what: `March on the enemy base (${d} tiles to the ${compass(hero.position, target.position)}, ${Math.round((100 * target.hp) / target.maxHp)}% HP) and attack it.`,
         notFor: 'When enemy units nearby are stronger, or our own base is under attack.',
         command: { type: 'attackBase' },
       });
@@ -349,7 +347,7 @@ export class JevController {
       });
     }
 
-    DIRS.forEach((dir, i) => {
+    COMPASS.forEach((dir, i) => {
       const angle = (i * Math.PI) / 4;
       const target = {
         x: Math.round(
@@ -501,20 +499,27 @@ export class JevController {
         seconds_left: secondsLeft,
         points: o.points.map(
           (p) =>
-            `${p.name} held by ${p.holder === null ? 'nobody' : p.holder === mine ? 'us' : 'the enemy'}`
+            `${p.name} at ${exactPlace(p.position)}, held by ${p.holder === null ? 'nobody' : p.holder === mine ? 'us' : 'the enemy'}`
         ),
       };
     }
     if (o.mode === 'base') {
+      const base = (f: Faction) => o.bases.find((x) => x.faction === f);
       const pct = (f: Faction) => {
-        const b = o.bases.find((x) => x.faction === f);
+        const b = base(f);
         return b ? Math.round((100 * b.hp) / b.maxHp) : 0;
+      };
+      const at = (f: Faction) => {
+        const b = base(f);
+        return b ? exactPlace(b.position) : 'none';
       };
       const enemyF = mine === Faction.FRIENDLY ? Faction.ENEMY : Faction.FRIENDLY;
       return {
         mode: 'destroy the base',
         seconds_left: secondsLeft,
+        our_base_at: at(mine),
         our_base_hp_percent: pct(mine),
+        enemy_base_at: at(enemyF),
         enemy_base_hp_percent: pct(enemyF),
       };
     }
@@ -526,18 +531,14 @@ export class JevController {
     hero: IHero
   ): Array<{ soldiers: number; distance: number; direction: string; avgCourage: number }> {
     return strayClusters(this.stateManager, hero.faction)
-      .map((c) => {
-        const dx = c.center.x - hero.position.x;
-        const dy = c.center.y - hero.position.y;
-        const idx =
-          Math.round(((Math.atan2(dy, dx) + 2 * Math.PI) % (2 * Math.PI)) / (Math.PI / 4)) % 8;
-        return {
-          soldiers: c.soldiers,
-          distance: Math.round(Math.hypot(dx, dy)),
-          direction: `to the ${DIRS[idx]}`,
-          avgCourage: c.avgCourage,
-        };
-      })
+      .map((c) => ({
+        soldiers: c.soldiers,
+        distance: Math.round(
+          Math.hypot(c.center.x - hero.position.x, c.center.y - hero.position.y)
+        ),
+        direction: `to the ${compass(hero.position, c.center)}`,
+        avgCourage: c.avgCourage,
+      }))
       .filter((s) => s.distance <= STRAY_REACH)
       .sort((a, b) => a.distance - b.distance);
   }
@@ -577,10 +578,6 @@ export class JevController {
   }
 
   private direction(from: IUnit, to: IUnit): string {
-    const dx = to.position.x - from.position.x;
-    const dy = to.position.y - from.position.y;
-    const idx =
-      Math.round(((Math.atan2(dy, dx) + 2 * Math.PI) % (2 * Math.PI)) / (Math.PI / 4)) % 8;
-    return `to the ${DIRS[idx]}`;
+    return `to the ${compass(from.position, to.position)}`;
   }
 }

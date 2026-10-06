@@ -27,7 +27,7 @@ const BREAK_OFF = `A hero on a move or retreat order fights enemies it meets on 
 
 const TERRAIN = `Terrain: forest slows movement to ${pct(TERRAIN_SPEED.FOREST)} and sight to ${pct(TERRAIN_SIGHT.FOREST)}; swamp slows movement to ${pct(TERRAIN_SPEED.SWAMP)} and sight to ${pct(TERRAIN_SIGHT.SWAMP)}; mountains are impassable.`;
 
-const MAP = `The map is ${GRID_SIZE}x${GRID_SIZE} tiles, split into ${SECTORS_PER_SIDE}x${SECTORS_PER_SIDE} sectors of ${SECTOR_SIZE}x${SECTOR_SIZE} tiles. Columns A-J run west to east, rows 1-10 north to south. Each sector is split 3x3 into sub-sectors of 5x5 tiles named NW, N, NE, W, C, E, SW, S, SE, e.g. "D4-NE" is the north-east corner of D4; "D4" alone means its centre.`;
+const MAP = `The map is ${GRID_SIZE}x${GRID_SIZE} tiles, split into ${SECTORS_PER_SIDE}x${SECTORS_PER_SIDE} sectors of ${SECTOR_SIZE}x${SECTOR_SIZE} tiles. Columns A-J run west to east, rows 1-10 north to south. Each sector is split 3x3 into sub-sectors of 5x5 tiles named NW, N, NE, W, C, E, SW, S, SE, e.g. "D4-NE" is the north-east corner of D4; "D4" alone means its centre. Exact places are also given as tiles (x, y): x counts from 0 at the west edge to ${GRID_SIZE - 1} at the east edge, y from 0 at the north edge to ${GRID_SIZE - 1} at the south edge.`;
 
 const JEV_FOR_LLM = `A fast tactical system (Jev) watches each of your heroes and decides every 4 seconds, using only what is around that hero. It can briefly override your order to handle the local situation (hold, retreat, attack, attack a nearby enemy hero, or step a short distance in some direction), and returns to your order when the situation allows. The report shows Jev's recent decisions and its assessment of each hero (surrounded, threat level, whether your order still fits). You set the plan; Jev handles the moment.`;
 
@@ -103,6 +103,7 @@ export function jevGameRules(withCommander: boolean, objective: Objective): Reco
       ? 'You are the tactical layer. A strategic commander (an LLM) sets the overall plan; you decide what each hero should do right now, based only on its surroundings. You may override the commander briefly to handle danger or opportunity, and return to its order when it fits again.'
       : 'You command these heroes alone; there is no strategic commander. Decide what each hero should do right now to win. Standing still never wins.',
     goal: goalText(objective),
+    map: MAP,
     units: UNITS,
     following: FOLLOWING,
     courage: COURAGE,
