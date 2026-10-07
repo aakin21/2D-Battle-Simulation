@@ -31,6 +31,7 @@ A browser-based simulation of large-scale battlefield behavior. Hundreds of unit
 | Esc | Menu (Continue returns to the running match) |
 | FX button | Toggle visual effects (off = original squares) |
 | Bars button | Bars only where something happens (default) or over every unit |
+| Speaker button | Sound on / off |
 
 ## Running locally
 
@@ -47,4 +48,4 @@ TypeScript · Vite · HTML5 Canvas · GitHub Pages
 
 ## Credits
 
-Unit sprites, terrain tilesets, flags and towers, the UI theme, key icons and the pixel font: [Ninja Adventure Asset Pack](https://pixel-boy.itch.io/ninja-adventure-asset-pack) by Pixel-boy, released under CC0 (see the `LICENSE.txt` files in `src/assets/`).
+Unit sprites, terrain tilesets, flags and towers, effects, sounds, the UI theme, key icons and the pixel font: [Ninja Adventure Asset Pack](https://pixel-boy.itch.io/ninja-adventure-asset-pack) by Pixel-boy, released under CC0 (see the `LICENSE.txt` files in `src/assets/`).

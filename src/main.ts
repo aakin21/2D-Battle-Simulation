@@ -11,10 +11,10 @@ const stateManager = new StateManager();
 const renderer = new Renderer('battleCanvas');
 const minimapRenderer = new MinimapRenderer('minimapCanvas');
 const engine = new SimulationEngine(stateManager, renderer, minimapRenderer);
-new UIController(engine, stateManager, renderer, minimapRenderer);
+const ui = new UIController(engine, stateManager, renderer, minimapRenderer);
 
 // Development builds expose the running objects for inspection in the browser console
-if (import.meta.env.DEV) Object.assign(window, { sim: { engine, stateManager, renderer } });
+if (import.meta.env.DEV) Object.assign(window, { sim: { engine, stateManager, renderer, ui } });
 
 // Initialize with defaults so terrain is visible behind the main menu
 stateManager.reset(DEFAULT_CONFIG);

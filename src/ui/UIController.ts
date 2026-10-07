@@ -28,6 +28,7 @@ import { LoadingScreen } from './LoadingScreen';
 import { Hud } from './Hud';
 import { AiPanel } from './AiPanel';
 import { AiSides, MatchLog } from './MatchLog';
+import { Sound } from './Sound';
 import { icon } from './icons';
 import heroWestUrl from '../assets/sprites/hero_knight_gold.png';
 import heroEastUrl from '../assets/sprites/hero_shaman_lion.png';
@@ -43,6 +44,7 @@ const LS_SPEED = 'sim_speed';
 const LS_DEBUG = 'sim_debug';
 const LS_EFFECTS = 'sim_effects';
 const LS_BARS = 'sim_bars';
+const LS_SOUND = 'sim_sound';
 
 // Rows of the Controls screen: key images or key names, then what they do
 const HELP: Array<[string[], string]> = [
@@ -66,6 +68,7 @@ export class UIController {
   private loading = new LoadingScreen();
   private hud: Hud;
   private aiPanel = new AiPanel();
+  private sound: Sound;
   private aiSides: AiSides = { west: {}, east: {} };
   private matchLog: MatchLog | null = null;
   // Which map the current run uses, for the match log: random, fixed or "saved: <name>"
@@ -104,6 +107,7 @@ export class UIController {
     this.minimapRenderer = minimapRenderer;
     this.inputHandler = new InputHandler('battleCanvas');
     this.hud = new Hud(engine, stateManager, renderer);
+    this.sound = new Sound(this.readSetting(LS_SOUND) === 'off');
 
     this.elBtnPause = document.getElementById('btn-pause') as HTMLButtonElement;
     this.elBtnDebug = document.getElementById('btn-debug') as HTMLButtonElement;
@@ -116,6 +120,7 @@ export class UIController {
     this.elCanvasArea = document.getElementById('canvas-area')!;
 
     this.setIcons();
+    this.wireSound();
     this.buildHelp();
     this.watchCanvasSize();
     this.loadSettings();
@@ -146,6 +151,33 @@ export class UIController {
     this.shownPaused = paused;
     this.elBtnPause.innerHTML = icon(paused ? 'play' : 'pause');
     this.elBtnPause.title = paused ? 'Resume (Space)' : 'Pause (Space)';
+  }
+
+  private wireSound(): void {
+    this.renderer.setBattleSound((hits, deaths, loudness) =>
+      this.sound.battle(hits, deaths, loudness)
+    );
+    // Audio may only start after a user gesture
+    const unlock = () => this.sound.unlock();
+    document.addEventListener('pointerdown', unlock);
+    document.addEventListener('keydown', unlock);
+    // A soft click for buttons in the menus and the top bar
+    document.addEventListener('click', (e) => {
+      const target = e.target as HTMLElement;
+      if (target.closest('.btn, .seg button, .icon-btn')) this.sound.play('click');
+    });
+    const btn = document.getElementById('btn-sound')!;
+    const show = () => {
+      const muted = this.sound.isMuted();
+      btn.innerHTML = icon(muted ? 'soundOff' : 'soundOn');
+      btn.title = muted ? 'Sound is off (click to turn on)' : 'Sound is on (click to mute)';
+    };
+    btn.addEventListener('click', () => {
+      this.sound.setMuted(!this.sound.isMuted());
+      show();
+      this.saveSettings();
+    });
+    show();
   }
 
   private buildHelp(): void {
@@ -348,6 +380,7 @@ export class UIController {
         this.engine.isStressMode() ? 'stress' : this.engine.isBattleMode() ? 'battle' : 'classic'
       );
       this.engine.resume();
+      this.sound.play('start');
     });
 
     document.getElementById('menu-continue')!.addEventListener('click', () => this.closeMenu());
@@ -565,8 +598,10 @@ export class UIController {
       // Orders outside the map would send the hero to an unreachable point
       if (grid.x < 0 || grid.y < 0 || grid.x >= GRID_SIZE || grid.y >= GRID_SIZE) return;
       const hero = this.commandableHero();
-      if (hero)
+      if (hero) {
         this.engine.issueCommand(hero, { type: 'move', target: { x: grid.x, y: grid.y } }, 'user');
+        this.sound.play('order');
+      }
     });
 
     // Hover → tooltip
@@ -703,14 +738,16 @@ export class UIController {
 
   // Storage can be unavailable (private windows, blocked site data); settings then stay
   // at their defaults for this session.
+  private readSetting(key: string): string | null {
+    try {
+      return localStorage.getItem(key);
+    } catch {
+      return null;
+    }
+  }
+
   private loadSettings(): void {
-    const read = (key: string) => {
-      try {
-        return localStorage.getItem(key);
-      } catch {
-        return null;
-      }
-    };
+    const read = (key: string) => this.readSetting(key);
     const speed = read(LS_SPEED);
     if (speed) {
       const parsed = parseFloat(speed) as 0.5 | 1 | 2 | 4;
@@ -739,6 +776,7 @@ export class UIController {
       localStorage.setItem(LS_DEBUG, this.debugMode.toString());
       localStorage.setItem(LS_EFFECTS, this.renderer.isEffectsEnabled().toString());
       localStorage.setItem(LS_BARS, this.renderer.getBarsMode());
+      localStorage.setItem(LS_SOUND, this.sound.isMuted() ? 'off' : 'on');
     } catch {
       // Storage unavailable: settings last for this session only
     }
@@ -746,6 +784,11 @@ export class UIController {
 
   // Battle mode: shown when the match is decided.
   private showMatchResult(r: MatchResult): void {
+    // The player hears a win or a loss for their own side; a spectator hears the end of a
+    // decided match, and a draw sounds like a loss
+    const playerSide = (this.lastConfig.friendlyAI ?? 'none') === 'none' ? Faction.FRIENDLY : null;
+    const won = r.winner !== null && (playerSide === null || r.winner === playerSide);
+    this.sound.play(won ? 'victory' : 'defeat');
     this.hud.showResult(r, this.lastConfig, {
       restart: () => this.doRestart(),
       menu: () => this.openMenu(),
