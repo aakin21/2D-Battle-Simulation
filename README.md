@@ -20,14 +20,15 @@ A browser-based simulation of large-scale battlefield behavior. Hundreds of unit
 
 | Input | Action |
 |---|---|
-| Right-click | Set hero task point |
+| Right-click | Order the selected hero to a point |
 | Left-click | Select unit |
-| Shift + drag | Area unit count |
+| Drag | Area unit count when zoomed out, pan when zoomed in |
+| Shift + drag | Pan camera |
 | Scroll | Zoom |
-| Drag | Pan camera |
 | Space | Pause / resume |
 | + / - | Simulation speed |
 | R | Restart |
+| Esc | Menu (Continue returns to the running match) |
 | FX button | Toggle visual effects (off = original squares) |
 
 ## Running locally
@@ -45,4 +46,4 @@ TypeScript · Vite · HTML5 Canvas · GitHub Pages
 
 ## Credits
 
-Unit sprites: [Ninja Adventure Asset Pack](https://pixel-boy.itch.io/ninja-adventure-asset-pack) by Pixel-boy, released under CC0 (see `src/assets/sprites/LICENSE.txt`).
+Unit sprites, the UI theme, key icons and the pixel font: [Ninja Adventure Asset Pack](https://pixel-boy.itch.io/ninja-adventure-asset-pack) by Pixel-boy, released under CC0 (see `src/assets/sprites/LICENSE.txt` and `src/assets/ui/LICENSE.txt`).

@@ -116,6 +116,28 @@ Effect time is simulation time (`battlefield.elapsedTime`): effects freeze while
 
   Same within run-to-run noise. Later in a heavy battle, when effects accumulate, effects cost ~0.2–0.3 ms per frame (step 3). Sprites are capped at ~0.7 ms worst case by the sprite budget (step 6).
 
+## Phase 2 UI: Ninja Adventure style (2026-10-07)
+
+The author found the interface plain and asked for a nicer UI and animations, based on what similar games do. Chosen with the author: the asset pack's own pixel style for menus, HUD and terrain, sound effects that can be switched off, and an on-screen AI panel with a downloadable match log. Same rules as above: rendering only, FX switches the battlefield art off, FPS measured before and after.
+
+References used: game-feel and "juice" practice (easing, squash and stretch, particles; screen shake stays rejected, hit-stop left out because it would touch simulation timing), RTS HUD practice (information in one or two places, primary information always visible, bars that do not clutter big battles), top-down pixel-art practice (one-pixel walk bob, drop shadows, one consistent art style).
+
+| # | Step | Status |
+|---|---|---|
+| U1 | Theme, full-window layout, HUD, menu | ✅ |
+| U2 | AI panel and match log | |
+| U3 | Terrain art from the pack's tilesets | |
+| U4 | Unit animation | |
+| U5 | Sound | |
+
+### U1. Theme, layout, HUD, menu
+- Theme from the pack (`src/ui/theme.css`): wooden 9-patch panels and buttons, tabs, slider and the pack's pixel font, drawn at 2x/3x with nearest-neighbour scaling. The font's space is very narrow, so text uses extra word spacing.
+- The battlefield canvas fills the window (`Renderer.resize()`); the smallest zoom fits the whole map and centres it. Top bar with pixel icons, a match banner (points and control-point flags, base HP or units, time left in red under 30 s), and a side panel with the minimap (2x, with control points, bases and heroes), both armies (soldiers, total HP, each hero's HP and flight/rest) and area counts.
+- Selected-unit card with the unit's sprite as a portrait, HP, courage, state and the hero's current order and its source.
+- Menu as one card; LLM model rows and AI timing only appear when an LLM or any AI is chosen. Controls screen with the pack's key and mouse icons. Match result card with both sides' units, heroes, HP left and points or base HP.
+- Fixed on the way: Space behind the open menu unpaused the run; the menu had no way back to the running match (now Continue and Esc); R during a stress test restarted it as a Default game; a drawn match was described as "more points"; the loading screen talked about berserker waves in battle mode.
+- Cost: render time per frame measured in the browser (stress mode, 4,062 units, 100 renders): FX on 2.06 ms at 1140×836 vs 2.13 ms at 750×750; FX off 1.12 vs 1.13 ms. The larger canvas does not change the cost of drawing.
+
 ## Versions
 
 | Tag | Step |
