@@ -4,653 +4,211 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>2D Battle Simulation</title>
-  <style>
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }
-
-    body {
-      background: #1a1a1a;
-      color: #e0e0e0;
-      font-family: monospace;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      min-height: 100vh;
-    }
-
-    #control-bar {
-      width: 900px;
-      height: 40px;
-      background: #2a2a2a;
-      display: flex;
-      align-items: center;
-      gap: 16px;
-      padding: 0 12px;
-      border-bottom: 1px solid #444;
-      flex-shrink: 0;
-    }
-
-    #control-bar button {
-      background: #3a3a3a;
-      color: #e0e0e0;
-      border: 1px solid #555;
-      padding: 4px 10px;
-      cursor: pointer;
-      font-family: monospace;
-      font-size: 13px;
-    }
-
-    #control-bar button:hover {
-      background: #4a4a4a;
-    }
-
-    #speed-display {
-      font-size: 13px;
-      color: #aaa;
-    }
-
-    #wave-counter {
-      font-size: 13px;
-      color: #aaa;
-      margin-left: auto;
-    }
-
-    #unit-count {
-      font-size: 13px;
-      color: #aaa;
-    }
-
-    #canvas-area {
-      display: flex;
-      gap: 0;
-      position: relative;
-    }
-
-    #battleCanvas {
-      display: block;
-      background: #000;
-      cursor: crosshair;
-    }
-
-    #right-panel {
-      display: flex;
-      flex-direction: column;
-      width: 150px;
-      border-left: 1px solid #444;
-    }
-
-    #minimapCanvas {
-      display: block;
-      background: #000;
-      cursor: crosshair;
-    }
-
-    #area-stats {
-      flex: 1;
-      background: #1a1a1a;
-      border-top: 1px solid #333;
-      padding: 8px 10px;
-      font-size: 11px;
-      color: #666;
-      line-height: 1.8;
-    }
-
-    #area-stats .stat-title {
-      color: #555;
-      margin-bottom: 4px;
-      border-bottom: 1px solid #2a2a2a;
-      padding-bottom: 3px;
-    }
-
-    #area-stats .stat-w { color: #FFD700; }
-    #area-stats .stat-b { color: #4169E1; }
-    #area-stats .stat-h { color: #FF0000; }
-    #area-stats .stat-total { color: #888; margin-top: 4px; }
-
-    #info-panel {
-      width: 900px;
-      height: 50px;
-      background: #2a2a2a;
-      display: flex;
-      align-items: center;
-      padding: 0 12px;
-      gap: 20px;
-      border-top: 1px solid #444;
-      font-size: 13px;
-      color: #aaa;
-      flex-shrink: 0;
-    }
-
-    #unit-hp, #unit-courage, #unit-state, #unit-type {
-      color: #ccc;
-    }
-
-    #hotkeys {
-      margin-left: auto;
-      font-size: 11px;
-      color: #666;
-    }
-
-    /* Tooltip */
-    #tooltip {
-      display: none;
-      position: absolute;
-      background: rgba(0, 0, 0, 0.85);
-      color: #ddd;
-      font-size: 11px;
-      padding: 4px 7px;
-      pointer-events: none;
-      white-space: nowrap;
-      border: 1px solid #555;
-      line-height: 1.6;
-      z-index: 10;
-    }
-
-    /* Drag-select rectangle */
-    #select-overlay {
-      display: none;
-      position: absolute;
-      border: 1px dashed #fff;
-      background: rgba(255, 255, 255, 0.06);
-      pointer-events: none;
-      z-index: 10;
-    }
-
-    /* Main menu overlay */
-    #main-menu {
-      position: fixed;
-      inset: 0;
-      background: rgba(0, 0, 0, 0.88);
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      gap: 16px;
-      z-index: 100;
-    }
-
-    #main-menu h1 {
-      font-size: 26px;
-      color: #e0e0e0;
-      letter-spacing: 2px;
-      margin-bottom: 4px;
-    }
-
-    /* Mode tabs */
-    #menu-tabs {
-      display: flex;
-      gap: 0;
-      border: 1px solid #555;
-    }
-
-    #menu-tabs button {
-      background: #2a2a2a;
-      color: #888;
-      border: none;
-      padding: 6px 28px;
-      cursor: pointer;
-      font-family: monospace;
-      font-size: 13px;
-    }
-
-    #menu-tabs button.active {
-      background: #3a3a3a;
-      color: #e0e0e0;
-    }
-
-    #menu-tabs button:hover:not(.active) {
-      background: #333;
-    }
-
-    /* Config form */
-    #menu-config {
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-      width: 340px;
-      padding: 14px 16px;
-      background: #1e1e1e;
-      border: 1px solid #333;
-    }
-
-    #menu-config.locked {
-      opacity: 0.45;
-      pointer-events: none;
-    }
-
-    .cfg-row {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      font-size: 12px;
-    }
-
-    .cfg-row label {
-      color: #888;
-      width: 72px;
-      flex-shrink: 0;
-    }
-
-    .cfg-row input[type=range] {
-      flex: 1;
-      accent-color: #FFD700;
-    }
-
-    .cfg-val {
-      color: #ccc;
-      width: 36px;
-      text-align: right;
-      font-size: 12px;
-    }
-
-    .cfg-opts {
-      display: flex;
-      gap: 4px;
-    }
-
-    .cfg-opts button {
-      background: #2a2a2a;
-      color: #777;
-      border: 1px solid #444;
-      padding: 3px 10px;
-      cursor: pointer;
-      font-family: monospace;
-      font-size: 12px;
-    }
-
-    .cfg-opts button.active {
-      background: #3a3a3a;
-      color: #e0e0e0;
-      border-color: #888;
-    }
-
-    .cfg-opts button:hover:not(.active) {
-      background: #333;
-    }
-
-    .cfg-row input[type=number] {
-      width: 52px;
-      background: #2a2a2a;
-      color: #ccc;
-      border: 1px solid #444;
-      font-family: monospace;
-      font-size: 12px;
-      padding: 2px 4px;
-      text-align: center;
-    }
-
-    .cfg-row input[type=number]::-webkit-inner-spin-button,
-    .cfg-row input[type=number]::-webkit-outer-spin-button {
-      -webkit-appearance: none;
-    }
-
-    .cfg-row input[type=number] { -moz-appearance: textfield; }
-
-    #stress-info, #battle-info {
-      text-align: center;
-      font-size: 12px;
-      color: #888;
-      padding: 20px 0 10px;
-      line-height: 1.8;
-    }
-
-    /* Start / Instructions buttons */
-    #menu-start {
-      background: #3a3a3a;
-      color: #e0e0e0;
-      border: 1px solid #666;
-      padding: 9px 0;
-      cursor: pointer;
-      font-family: monospace;
-      font-size: 14px;
-      width: 340px;
-    }
-
-    #menu-start:hover { background: #4a4a4a; }
-
-    #menu-instructions-btn {
-      background: none;
-      color: #555;
-      border: none;
-      cursor: pointer;
-      font-family: monospace;
-      font-size: 12px;
-      padding: 2px 0;
-    }
-
-    #menu-instructions-btn:hover { color: #888; }
-
-    /* Instructions overlay */
-    #instructions-overlay {
-      display: none;
-      position: fixed;
-      inset: 0;
-      background: rgba(0, 0, 0, 0.92);
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      gap: 14px;
-      z-index: 110;
-    }
-
-    #instructions-overlay h2 {
-      font-size: 18px;
-      color: #ccc;
-      margin-bottom: 6px;
-    }
-
-    #instructions-overlay table {
-      border-collapse: collapse;
-      font-size: 13px;
-      color: #aaa;
-    }
-
-    #instructions-overlay td {
-      padding: 5px 18px;
-    }
-
-    #instructions-overlay td:first-child {
-      color: #e0e0e0;
-      text-align: right;
-    }
-
-    #instructions-overlay button {
-      background: #3a3a3a;
-      color: #e0e0e0;
-      border: 1px solid #555;
-      padding: 8px 24px;
-      cursor: pointer;
-      font-family: monospace;
-      font-size: 13px;
-      margin-top: 10px;
-    }
-
-    #instructions-overlay button:hover {
-      background: #4a4a4a;
-    }
-
-    /* "Building simulation" screen shown after Start */
-    #loading-overlay {
-      position: fixed;
-      inset: 0;
-      background: rgba(0, 0, 0, 0.92);
-      display: none;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      gap: 18px;
-      z-index: 110;
-      cursor: pointer;
-      opacity: 1;
-      transition: opacity 0.4s ease;
-    }
-
-    #loading-overlay.fading {
-      opacity: 0;
-    }
-
-    #loading-overlay h2 {
-      font-size: 22px;
-      letter-spacing: 2px;
-      color: #e0e0e0;
-    }
-
-    /* Two units walking toward each other (sprite sheets: 64×112, frames 16×16, ×4 scale) */
-    #loading-units {
-      display: flex;
-      gap: 120px;
-    }
-
-    .loading-unit {
-      width: 64px;
-      height: 64px;
-      background-size: 256px 448px;
-      background-repeat: no-repeat;
-      image-rendering: pixelated;
-      animation: loading-walk 0.5s steps(4) infinite;
-    }
-
-    /* Walk rows 0–3; column 3 faces right, column 2 faces left */
-    #loading-warrior {
-      background-position-x: -192px;
-      animation-name: loading-walk, loading-bob-right;
-      animation-duration: 0.5s, 1s;
-      animation-timing-function: steps(4), ease-in-out;
-    }
-
-    #loading-berserker {
-      background-position-x: -128px;
-      animation-name: loading-walk, loading-bob-left;
-      animation-duration: 0.5s, 1s;
-      animation-timing-function: steps(4), ease-in-out;
-    }
-
-    @keyframes loading-walk {
-      from { background-position-y: 0; }
-      to { background-position-y: -256px; }
-    }
-
-    @keyframes loading-bob-right {
-      0%, 100% { transform: translateX(0); }
-      50% { transform: translateX(12px); }
-    }
-
-    @keyframes loading-bob-left {
-      0%, 100% { transform: translateX(0); }
-      50% { transform: translateX(-12px); }
-    }
-
-    #loading-step {
-      font-size: 13px;
-      color: #aaa;
-      height: 16px;
-    }
-
-    #loading-bar {
-      width: 320px;
-      height: 8px;
-      background: #2a2a2a;
-      border: 1px solid #444;
-    }
-
-    #loading-fill {
-      width: 0;
-      height: 100%;
-      background: #FFD700;
-      transition: width 0.6s ease;
-    }
-
-    #loading-hint {
-      font-size: 11px;
-      color: #555;
-    }
-
-    @media (prefers-reduced-motion: reduce) {
-      .loading-unit {
-        animation: none;
-      }
-    }
-  </style>
-  <script type="module" crossorigin src="./assets/index-3hI54kHQ.js"></script>
+  <script type="module" crossorigin src="./assets/index-D4s4LLZz.js"></script>
+  <link rel="stylesheet" crossorigin href="./assets/index-CJk49Dt2.css">
 </head>
 <body>
 
+  <div id="app">
+    <!-- Top bar: run controls, match banner, view toggles -->
+    <header id="topbar">
+      <div class="tb-group">
+        <button id="btn-pause" class="icon-btn" title="Pause / resume (Space)"></button>
+        <button id="btn-slower" class="icon-btn" title="Slower (−)"></button>
+        <span id="speed-display" class="speed well">1x</span>
+        <button id="btn-faster" class="icon-btn" title="Faster (+)"></button>
+        <button id="btn-restart" class="icon-btn" title="Restart (R)"></button>
+        <button id="btn-menu" class="btn" title="Back to the menu (Esc)">Menu</button>
+      </div>
+      <div id="match-banner"></div>
+      <div class="tb-group">
+        <button id="btn-effects" class="btn toggle" title="Visual effects and sprites (off: original squares)">FX</button>
+        <button id="btn-debug" class="btn toggle" title="Debug overlay: FPS, units, effect counters">Debug</button>
+        <button id="btn-save-map" class="icon-btn" title="Save this map"></button>
+        <button id="btn-help" class="icon-btn" title="Controls"></button>
+      </div>
+    </header>
+
+    <main id="stage">
+      <div id="canvas-area">
+        <canvas id="battleCanvas" width="750" height="750"></canvas>
+        <div id="tooltip" class="panel-sm"></div>
+        <div id="select-overlay"></div>
+        <div id="waiting-ai" class="panel-sm" hidden>Waiting for AI…</div>
+
+        <!-- Selected unit -->
+        <div id="unit-card" class="panel-sm" hidden>
+          <canvas id="unit-portrait" width="48" height="48"></canvas>
+          <div class="uc-body">
+            <div id="unit-type" class="uc-title">—</div>
+            <div class="uc-row"><span class="uc-label">HP</span><div class="bar"><i id="unit-hp-bar"></i></div><span id="unit-hp" class="uc-val">—</span></div>
+            <div class="uc-row" id="unit-courage-row"><span class="uc-label">Courage</span><div class="bar courage"><i id="unit-courage-bar"></i></div><span id="unit-courage" class="uc-val">—</span></div>
+            <div class="uc-line"><span class="uc-label">State</span> <span id="unit-state">—</span></div>
+            <div class="uc-line" id="unit-order-row"><span class="uc-label">Order</span> <span id="unit-order">—</span></div>
+          </div>
+        </div>
+
+        <!-- Battle result -->
+        <div id="match-result" class="panel" hidden></div>
+      </div>
+
+      <aside id="side-panel">
+        <section class="side-section panel">
+          <h3>Map</h3>
+          <canvas id="minimapCanvas" width="300" height="300"></canvas>
+        </section>
+        <section class="side-section panel">
+          <h3 id="armies-title">Armies</h3>
+          <div id="armies-body"></div>
+        </section>
+        <section class="side-section panel">
+          <h3>Area</h3>
+          <div id="stat-content" class="faint">Drag on the map to count the units in an area</div>
+        </section>
+      </aside>
+    </main>
+  </div>
+
   <!-- Main menu -->
-  <div id="main-menu">
-    <h1>2D Battle Simulation</h1>
+  <div id="main-menu" class="overlay">
+    <div class="menu-card panel">
+      <div class="menu-title">
+        <div class="title-unit" id="title-west"></div>
+        <h1>2D Battle Simulation</h1>
+        <div class="title-unit" id="title-east"></div>
+      </div>
 
-    <div id="menu-tabs">
-      <button id="tab-default" class="active">Default</button>
-      <button id="tab-custom">Custom</button>
-      <button id="tab-stress">Stress</button>
-      <button id="tab-battle">Battle</button>
+      <div id="menu-tabs" class="seg tabs">
+        <button id="tab-default" class="active">Default</button>
+        <button id="tab-custom">Custom</button>
+        <button id="tab-stress">Stress</button>
+        <button id="tab-battle">Battle</button>
+      </div>
+
+      <div class="menu-body">
+        <div class="menu-section well" id="menu-map">
+          <h4>Map</h4>
+          <div class="cfg-row">
+            <div class="seg" id="cfg-map">
+              <button data-val="random" class="active">Random</button>
+              <button data-val="fixed">Fixed</button>
+              <button data-val="saved">Saved</button>
+            </div>
+            <select id="cfg-map-saved" hidden></select>
+          </div>
+        </div>
+
+        <div class="menu-section well locked" id="menu-config">
+          <h4 id="cfg-army-title">Army</h4>
+          <div class="cfg-row">
+            <label id="cfg-warriors-label" for="cfg-warriors">Warriors</label>
+            <input type="range" id="cfg-warriors" min="0" max="2000" step="1" value="300">
+            <input type="number" id="cfg-warriors-num" min="0" max="2000" value="300">
+          </div>
+          <div class="cfg-row" id="cfg-wave-row">
+            <label for="cfg-wave-slider">Waves</label>
+            <input type="range" id="cfg-wave-slider" min="0.5" max="10" step="0.5" value="1">
+            <span class="cfg-val" id="cfg-wave-val">1×</span>
+          </div>
+          <div class="cfg-row">
+            <label>Terrain</label>
+            <div class="seg" id="cfg-terrain">
+              <button data-val="light">Light</button>
+              <button data-val="normal" class="active">Normal</button>
+              <button data-val="dense">Dense</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="menu-section well" id="stress-info" hidden>
+          <h4>Stress test</h4>
+          <p>2200 warriors against 2000 berserkers, normal terrain, waves ×1.</p>
+        </div>
+
+        <div class="menu-section well" id="battle-info" hidden>
+          <h4>Battle</h4>
+          <p class="faint">3 heroes per side, no waves. Select one of your heroes and right-click to give it an order.</p>
+          <div class="cfg-row">
+            <label>Objective</label>
+            <div class="seg" id="cfg-objective">
+              <button data-val="elimination" class="active">Elimination</button>
+              <button data-val="control">Control A-B</button>
+              <button data-val="base">Base</button>
+            </div>
+          </div>
+          <div class="cfg-row">
+            <label class="west-text">West</label>
+            <div class="seg" id="cfg-west">
+              <button data-val="none" class="active">You</button>
+              <button data-val="jev">Jev</button>
+              <button data-val="llm">LLM</button>
+              <button data-val="jev+llm">Jev + LLM</button>
+            </div>
+          </div>
+          <div class="cfg-row sub" id="row-west-model" hidden>
+            <label>West LLM</label>
+            <div class="seg" id="cfg-west-model">
+              <button data-val="haiku">Haiku</button>
+              <button data-val="sonnet" class="active">Sonnet</button>
+              <button data-val="opus">Opus</button>
+            </div>
+          </div>
+          <div class="cfg-row">
+            <label class="east-text">East</label>
+            <div class="seg" id="cfg-opponent">
+              <button data-val="none" class="active">Rules</button>
+              <button data-val="jev">Jev</button>
+              <button data-val="llm">LLM</button>
+              <button data-val="jev+llm">Jev + LLM</button>
+            </div>
+          </div>
+          <div class="cfg-row sub" id="row-east-model" hidden>
+            <label>East LLM</label>
+            <div class="seg" id="cfg-east-model">
+              <button data-val="haiku">Haiku</button>
+              <button data-val="sonnet" class="active">Sonnet</button>
+              <button data-val="opus">Opus</button>
+            </div>
+          </div>
+          <div class="cfg-row" id="row-timing" hidden>
+            <label>AI timing</label>
+            <div class="seg" id="cfg-timing">
+              <button data-val="realtime" class="active">Real-time</button>
+              <button data-val="paused">Paused</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="menu-actions">
+        <button id="menu-continue" class="btn" hidden title="Back to the current run (Esc)">Continue</button>
+        <button id="menu-start" class="btn btn-primary">Start</button>
+        <button id="menu-instructions" class="btn btn-quiet">Controls</button>
+      </div>
     </div>
-
-    <div class="cfg-row" id="menu-map">
-      <label>Map</label>
-      <div class="cfg-opts" id="cfg-map">
-        <button data-val="random" class="active">Random</button>
-        <button data-val="fixed">Fixed</button>
-        <button data-val="saved">Saved</button>
-      </div>
-      <select id="cfg-map-saved" style="display:none;"></select>
-    </div>
-
-    <div id="menu-config" class="locked">
-      <div class="cfg-row">
-        <label id="cfg-warriors-label">Warriors</label>
-        <input type="range" id="cfg-warriors" min="0" max="2000" step="1" value="300">
-        <input type="number" id="cfg-warriors-num" min="0" max="2000" value="300">
-      </div>
-      <div class="cfg-row" id="cfg-wave-row">
-        <label>Wave ×</label>
-        <input type="range" id="cfg-wave-slider" min="0.5" max="10" step="0.5" value="1">
-        <span class="cfg-val" id="cfg-wave-val">1×</span>
-      </div>
-      <div class="cfg-row">
-        <label>Terrain</label>
-        <div class="cfg-opts" id="cfg-terrain">
-          <button data-val="light">Light</button>
-          <button data-val="normal" class="active">Normal</button>
-          <button data-val="dense">Dense</button>
-        </div>
-      </div>
-    </div>
-
-    <div id="stress-info" style="display:none;">
-      2200 warriors vs 2000 berserkers<br>
-      Normal terrain · Wave ×1
-    </div>
-
-    <div id="battle-info" style="display:none;">
-      3 heroes per side · soldiers per side and terrain above · no waves<br>
-      Select one of your heroes, right-click to command it
-      <div class="cfg-row" style="justify-content:center;">
-        <label>Objective</label>
-        <div class="cfg-opts" id="cfg-objective">
-          <button data-val="elimination" class="active">Elimination</button>
-          <button data-val="control">Control A-B</button>
-          <button data-val="base">Base</button>
-        </div>
-      </div>
-      <div class="cfg-row" style="justify-content:center;">
-        <label>West</label>
-        <div class="cfg-opts" id="cfg-west">
-          <button data-val="none" class="active">You</button>
-          <button data-val="jev">Jev</button>
-          <button data-val="llm">LLM</button>
-          <button data-val="jev+llm">Jev + LLM</button>
-        </div>
-      </div>
-      <div class="cfg-row" style="justify-content:center;">
-        <label>East</label>
-        <div class="cfg-opts" id="cfg-opponent">
-          <button data-val="none" class="active">Rules</button>
-          <button data-val="jev">Jev</button>
-          <button data-val="llm">LLM</button>
-          <button data-val="jev+llm">Jev + LLM</button>
-        </div>
-      </div>
-      <div class="cfg-row" style="justify-content:center;">
-        <label>West LLM</label>
-        <div class="cfg-opts" id="cfg-west-model">
-          <button data-val="haiku">Haiku</button>
-          <button data-val="sonnet" class="active">Sonnet</button>
-          <button data-val="opus">Opus</button>
-        </div>
-      </div>
-      <div class="cfg-row" style="justify-content:center;">
-        <label>East LLM</label>
-        <div class="cfg-opts" id="cfg-east-model">
-          <button data-val="haiku">Haiku</button>
-          <button data-val="sonnet" class="active">Sonnet</button>
-          <button data-val="opus">Opus</button>
-        </div>
-      </div>
-      <div class="cfg-row" style="justify-content:center;">
-        <label>AI timing</label>
-        <div class="cfg-opts" id="cfg-timing">
-          <button data-val="realtime" class="active">Real-time</button>
-          <button data-val="paused">Paused</button>
-        </div>
-      </div>
-    </div>
-
-    <button id="menu-start">Start Simulation</button>
-    <button id="menu-instructions">Instructions</button>
   </div>
 
   <!-- Building simulation (shown after Start) -->
-  <div id="loading-overlay">
-    <h2>Building simulation</h2>
-    <div id="loading-units">
-      <div id="loading-warrior" class="loading-unit"></div>
-      <div id="loading-berserker" class="loading-unit"></div>
-    </div>
-    <div id="loading-step"></div>
-    <div id="loading-bar"><div id="loading-fill"></div></div>
-    <div id="loading-hint">click to skip</div>
-  </div>
-
-  <!-- Instructions -->
-  <div id="instructions-overlay">
-    <h2>Controls</h2>
-    <table>
-      <tr><td>Left click</td><td>Select unit</td></tr>
-      <tr><td>Right click</td><td>Set hero target point</td></tr>
-      <tr><td>Drag</td><td>Show area unit counts</td></tr>
-      <tr><td>Shift + drag</td><td>Pan camera</td></tr>
-      <tr><td>Scroll</td><td>Zoom</td></tr>
-      <tr><td>Space</td><td>Pause / Resume</td></tr>
-      <tr><td>+  /  −</td><td>Increase / Decrease speed</td></tr>
-      <tr><td>R</td><td>Restart simulation</td></tr>
-    </table>
-    <button id="btn-close-instructions">Close</button>
-  </div>
-
-  <div id="match-result" style="display:none; position:fixed; top:40%; left:50%; transform:translate(-50%,-50%);
-    background:rgba(0,0,0,0.85); color:#fff; padding:20px 30px; font:15px monospace; border:1px solid #888;
-    border-radius:6px; text-align:center; line-height:1.8; z-index:50;"></div>
-
-  <div id="control-bar">
-    <button id="btn-pause">Pause</button>
-    <button id="btn-slower">−</button>
-    <span id="speed-display">1x</span>
-    <button id="btn-faster">+</button>
-    <button id="btn-restart">Restart</button>
-    <button id="btn-menu">Menu</button>
-    <button id="btn-debug">Debug</button>
-    <button id="btn-effects">FX: On</button>
-    <button id="btn-save-map">Save Map</button>
-    <span id="wave-counter">Wave: 0</span>
-    <span id="warrior-count" style="color:#FFD700;">W: 0</span>
-    <span id="berserker-count" style="color:#4169E1;">B: 0</span>
-    <span id="elapsed-time" style="color:#aaa;">T: 0s</span>
-  </div>
-
-  <div id="canvas-area">
-    <canvas id="battleCanvas" width="750" height="750"></canvas>
-    <div id="right-panel">
-      <canvas id="minimapCanvas" width="150" height="150"></canvas>
-      <div id="area-stats">
-        <div class="stat-title">Area Selection</div>
-        <div id="stat-content" style="color:#444;">drag to select</div>
+  <div id="loading-overlay" class="overlay">
+    <div class="loading-card panel">
+      <h2>Building simulation</h2>
+      <div id="loading-units">
+        <div id="loading-warrior" class="loading-unit"></div>
+        <div id="loading-berserker" class="loading-unit"></div>
       </div>
+      <div id="loading-step"></div>
+      <div id="loading-bar" class="bar"><i id="loading-fill"></i></div>
+      <div id="loading-hint" class="faint">click to skip</div>
     </div>
-    <div id="tooltip"></div>
-    <div id="select-overlay"></div>
   </div>
 
-  <div id="info-panel">
-    <span>Selected:</span>
-    <span id="unit-type">—</span>
-    <span>HP: <span id="unit-hp">—</span></span>
-    <span>Courage: <span id="unit-courage">—</span></span>
-    <span>State: <span id="unit-state">—</span></span>
-    <span id="hotkeys">SPACE: pause &nbsp;|&nbsp; +/−: speed &nbsp;|&nbsp; R: restart &nbsp;|&nbsp; Right-click: hero target &nbsp;|&nbsp; Drag: area stats &nbsp;|&nbsp; Shift+drag: pan</span>
+  <!-- Controls -->
+  <div id="instructions-overlay" class="overlay">
+    <div class="help-card panel">
+      <h2>Controls</h2>
+      <table id="help-table"></table>
+      <button id="btn-close-instructions" class="btn">Close</button>
+    </div>
   </div>
 
 </body>
