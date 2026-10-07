@@ -154,6 +154,10 @@ export class SimulationEngine {
     return this.battleMode;
   }
 
+  isStressMode(): boolean {
+    return this.stressMode;
+  }
+
   getResult(): MatchResult | null {
     return this.result;
   }
