@@ -126,7 +126,7 @@ References used: game-feel and "juice" practice (easing, squash and stretch, par
 |---|---|---|
 | U1 | Theme, full-window layout, HUD, menu | ✅ |
 | U2 | AI panel and match log | ✅ |
-| U3 | Terrain art from the pack's tilesets | |
+| U3 | Terrain art from the pack's tilesets | ✅ |
 | U4 | Unit animation | |
 | U5 | Sound | |
 
@@ -142,6 +142,15 @@ References used: game-feel and "juice" practice (easing, squash and stretch, par
 - AI section in the side panel (battle with an AI side): the LLM's stance, plan, valid orders and rejected-order count, Jev's latest choice per hero with its confidence and threat score, time since the last answer, response times, skipped requests, "thinking…" while a request is open, and why a layer stopped. LLM text is escaped before it is shown.
 - Match log (Log button in the Armies header, "Download log" on the result card): JSON with the code version (`git describe`, built in by Vite), settings, result, a timeline of both armies per simulation second (soldiers, heroes, HP, fleeing, points or base HP) and every LLM and Jev decision with its response time, plus each layer's failure and the LLM rulebook. Replaces copying `ai.*.decisions` from the console during live tests.
 - Tested in the browser with fake LLM and Jev answers (no real AI calls): panel contents, an HTML tag in the LLM plan shown as text, an LLM failing with HTTP 500 (panel shows it, its heroes switch to rules), and the downloaded JSON (33 samples, 3 LLM and 36 Jev decisions, failure reason, 5,800-character rulebook).
+
+### U3. Terrain art
+- `TerrainArt.ts` builds the battlefield from the pack's tilesets once per map: lime grass for open ground, darker grass under forests, the pack's water recoloured to murky green for swamps, its dark earth recoloured to grey-green rock for mountains. 8 art pixels per tile, the same pixel size as the unit sprites (16 px over 2 tiles).
+- Edges follow the simulation's tiles: each pixel takes the terrain with the largest bilinear weight of the four nearest tile centres, plus value noise (±0.18), so an edge moves at most ~1.5 px from the real tile edge and corners are rounded. A one-pixel outline marks where a terrain meets a lower one; swamps also get a light rim.
+- Decorations only where every tile under them matches: overlapping trees and bushes in forests, rock groups and single rocks (brown and blue rocks recoloured to the grey palette) on mountains, reeds and lily pads in swamps, a few flowers and tufts on open ground. Positions come from a hash of the tile, never from `Math.random`, so a map always looks the same and no simulation randomness is used.
+- `ObjectiveArt.ts`: control points get a waving flag in the holder's colour (white when nobody holds it) and a dashed ring; bases are towers (west wooden, east stone) that show damage below 50% HP and ruins at 0.
+- The art is drawn smoothed when shown smaller than its own pixels (the full-map view) and sharp when magnified. The minimap shrinks the same art. FX off shows the original flat colours, also on the minimap.
+- Cost: building the art takes 40–60 ms per map (behind the loading screen). Render time per frame, stress mode with ~4,100 units: FX on 2.07 ms with the art vs 2.06 ms before it; with a GPU sync after every frame (1-pixel readback) 11.44 ms with the art vs 11.24 ms with flat colours.
+- Seen in the browser: image decoding waits while the page is hidden (a hidden tab or preview pane); until then the terrain stays flat and units stay squares, and the art appears as soon as the page is visible.
 
 ## Versions
 
