@@ -13,7 +13,7 @@ export async function POST(request: Request): Promise<Response> {
   // Only the site itself may use the proxy: the browser sends its Origin with every POST.
   // This does not stop a determined caller, but keeps the key from being used by other sites.
   const origin = request.headers.get('origin');
-  if (!origin || new URL(origin).host !== new URL(request.url).host) {
+  if (!origin || !sameHost(origin, request.url)) {
     return json(403, { error: 'requests are only accepted from this site' });
   }
 
@@ -36,4 +36,13 @@ function json(status: number, body: unknown): Response {
     status,
     headers: { 'Content-Type': 'application/json' },
   });
+}
+
+// A malformed Origin (e.g. "null" from a sandboxed page) is refused instead of throwing.
+function sameHost(origin: string, url: string): boolean {
+  try {
+    return new URL(origin).host === new URL(url).host;
+  } catch {
+    return false;
+  }
 }

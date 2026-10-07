@@ -55,6 +55,7 @@ export interface JevOptions {
   withCommander: boolean; // an LLM commands the same side (changes Jev's role and goal)
   endpoint: string;
   fetchFn: typeof fetch;
+  timeoutMs: number; // a request without an answer by then counts as a failure
 }
 
 const DEFAULTS: JevOptions = {
@@ -64,6 +65,7 @@ const DEFAULTS: JevOptions = {
   withCommander: false,
   endpoint: aiEndpoint('/api/jev'),
   fetchFn: (...args) => fetch(...args),
+  timeoutMs: 30_000,
 };
 
 const MAP_CELL = 2; // local map: one character per 2×2 tiles
@@ -86,6 +88,8 @@ export class JevController {
   readonly decisions: JevDecision[] = [];
   skippedRequests = 0; // a new request was due while the previous one was still open (Q7)
   failure: string | null = null; // why the layer stopped, for the AI panel and the match log
+  private disposed = false;
+  private inFlight: AbortController | null = null;
   private lastForce = new Map<number, number>(); // force ratio per hero at the previous request
   private lastChoice = new Map<number, string>();
   private assessments = new Map<number, Omit<JevAssessment, 'recentDecisions'>>();
@@ -103,9 +107,15 @@ export class JevController {
     return this.pending;
   }
 
+  // The match ended or restarted: no more requests, and a late answer is dropped.
+  dispose(): void {
+    this.disposed = true;
+    this.inFlight?.abort();
+  }
+
   // Called by the engine every simulation step.
   tick(elapsed: number): void {
-    if (this.failed || elapsed < this.nextAt) return;
+    if (this.failed || this.disposed || elapsed < this.nextAt) return;
     this.nextAt = elapsed + this.opts.intervalSec;
     if (this.pending) {
       this.skippedRequests++;
@@ -188,13 +198,19 @@ export class JevController {
 
     this.pending = true;
     const started = performance.now();
+    // An answer that never comes would block the layer, and in paused mode the whole battle
+    const abort = new AbortController();
+    this.inFlight = abort;
+    const timer = setTimeout(() => abort.abort(), this.opts.timeoutMs);
     try {
       const res = await this.opts.fetchFn(this.opts.endpoint, {
         method: 'POST',
         headers: aiHeaders(),
+        signal: abort.signal,
         body: JSON.stringify({ model: 'jev-latest', state, questions }),
       });
       const latencyMs = performance.now() - started;
+      if (this.disposed) return;
 
       if (!res.ok) {
         this.fail(
@@ -214,6 +230,7 @@ export class JevController {
           { choice?: string; confidence?: number; score?: number; noul?: number }
         >;
       };
+      if (this.disposed) return;
       const a = body.answers ?? {};
       for (const hero of heroes) {
         const key = `hero${hero.heroIndex}`;
@@ -245,8 +262,12 @@ export class JevController {
         });
       }
     } catch (err) {
-      this.fail(String(err), unreachableHint());
+      if (this.disposed) return;
+      if (abort.signal.aborted) this.fail(`no answer within ${this.opts.timeoutMs / 1000} s`, '');
+      else this.fail(String(err), unreachableHint());
     } finally {
+      clearTimeout(timer);
+      this.inFlight = null;
       this.pending = false;
     }
   }

@@ -53,6 +53,9 @@ const WARRIOR_ARRIVE_RADIUS = 2;
 export interface AIController {
   tick(elapsed: number): void;
   isWaiting(): boolean; // a request is open and its answer has not arrived yet
+  // The match is over for this controller: stop asking, and ignore answers still on the way,
+  // so they cannot reach the heroes of the next match
+  dispose(): void;
 }
 
 // Battle mode result: the side whose units (heroes and soldiers) all die first loses.
@@ -168,6 +171,7 @@ export class SimulationEngine {
 
   // AI controllers for the current match; cleared on every restart.
   setControllers(controllers: AIController[]): void {
+    for (const c of this.controllers) if (!controllers.includes(c)) c.dispose();
     this.controllers = controllers;
   }
 
@@ -182,7 +186,7 @@ export class SimulationEngine {
     this.stressMode = false;
     this.stateManager.setStressMode(false);
     this.stateManager.reset(this.lastConfig);
-    this.controllers = [];
+    this.setControllers([]);
     this.result = null;
     this.battleMode = this.stateManager.isBattleMode();
     this.renderer.setBattleMode(this.battleMode);
@@ -197,7 +201,7 @@ export class SimulationEngine {
     this.stressMode = true;
     this.stateManager.setStressMode(true);
     this.stateManager.reset();
-    this.controllers = [];
+    this.setControllers([]);
     this.result = null;
     this.battleMode = false;
     this.renderer.setBattleMode(false);

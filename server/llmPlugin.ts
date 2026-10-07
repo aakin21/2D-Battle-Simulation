@@ -94,12 +94,42 @@ class Session {
 
 const sessions = new Map<string, Session>();
 
+// Reached through the tunnel too (D37), so requests are bounded: a report is ~10 KB.
+const MAX_BODY_BYTES = 1_000_000;
+// The browser gives up after 120 s; a session that has not answered by then is stuck.
+const ANSWER_TIMEOUT_MS = 150_000;
+const SIDES = ['west', 'east'];
+
+class TooLarge extends Error {}
+
 function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
     let data = '';
-    req.on('data', (chunk) => (data += chunk));
+    req.on('data', (chunk) => {
+      data += chunk;
+      if (data.length > MAX_BODY_BYTES) {
+        reject(new TooLarge());
+        req.destroy();
+      }
+    });
     req.on('end', () => resolve(data));
     req.on('error', reject);
+  });
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`no answer within ${ms / 1000} s`)), ms);
+    promise.then(
+      (v) => {
+        clearTimeout(timer);
+        resolve(v);
+      },
+      (e) => {
+        clearTimeout(timer);
+        reject(e);
+      }
+    );
   });
 }
 
@@ -115,23 +145,25 @@ export function llmPlugin(): Plugin {
     configureServer(server) {
       server.middlewares.use('/api/llm', async (req, res) => {
         if (req.method !== 'POST') return send(res, 405, { error: 'POST only' });
+        let body: {
+          model?: string;
+          side?: string;
+          matchId?: string;
+          system?: string;
+          prompt?: string;
+        };
         try {
-          const {
-            side,
-            matchId,
-            system,
-            prompt,
-            model: requested,
-          } = JSON.parse(await readBody(req)) as {
-            model?: string;
-            side: string;
-            matchId: string;
-            system: string;
-            prompt: string;
-          };
-          if (!side || !matchId || !system || !prompt)
-            return send(res, 400, { error: 'side, matchId, system and prompt are required' });
-
+          body = JSON.parse(await readBody(req));
+        } catch (err) {
+          if (err instanceof TooLarge) return send(res, 413, { error: 'request too large' });
+          return send(res, 400, { error: 'body must be JSON' });
+        }
+        const { side, matchId, system, prompt, model: requested } = body ?? {};
+        if (!side || !matchId || !system || !prompt)
+          return send(res, 400, { error: 'side, matchId, system and prompt are required' });
+        // One session per side; any other value would open extra Agent SDK sessions
+        if (!SIDES.includes(side)) return send(res, 400, { error: 'side must be west or east' });
+        try {
           let session = sessions.get(side);
           const model: Model = (MODELS as readonly string[]).includes(requested ?? '')
             ? (requested as Model)
@@ -143,7 +175,15 @@ export function llmPlugin(): Plugin {
           }
 
           const started = Date.now();
-          const text = await session.ask(prompt);
+          let text: string;
+          try {
+            text = await withTimeout(session.ask(prompt), ANSWER_TIMEOUT_MS);
+          } catch (err) {
+            // A session that failed or hangs is closed; the next request starts a fresh one
+            session.close();
+            if (sessions.get(side) === session) sessions.delete(side);
+            throw err;
+          }
           send(res, 200, { text, latencyMs: Date.now() - started, model });
         } catch (err) {
           send(res, 500, { error: String(err) });

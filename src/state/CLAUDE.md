@@ -12,3 +12,5 @@
 - Battle-mode units spawn at tile centres and only inside the main walkable region (`isInMainRegion`), never in pockets enclosed by mountains.
 - `reset(config)` rebuilds everything; a `presetGrid` in the config is copied, never mutated.
 - Local storage can be unavailable: every access in `MapStore` is wrapped and falls back safely.
+- Battle mode spawns exactly `warriorCount` soldiers per side (as many as fit in the side's area); classic mode spawns the hero on any clear tile if its usual area has none, and none at all on a map without clear tiles.
+- `decodeGrid` refuses anything malformed (not a string, wrong size, a run longer than the row) without allocating it.
