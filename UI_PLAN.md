@@ -128,7 +128,7 @@ References used: game-feel and "juice" practice (easing, squash and stretch, par
 | U2 | AI panel and match log | ✅ |
 | U3 | Terrain art from the pack's tilesets | ✅ |
 | U4 | Unit animation | ✅ |
-| U5 | Sound | |
+| U5 | Sound | ✅ |
 
 ### U1. Theme, layout, HUD, menu
 - Theme from the pack (`src/ui/theme.css`): wooden 9-patch panels and buttons, tabs, slider and the pack's pixel font, drawn at 2x/3x with nearest-neighbour scaling. The font's space is very narrow, so text uses extra word spacing.
@@ -162,6 +162,12 @@ References used: game-feel and "juice" practice (easing, squash and stretch, par
 - Bars: with FX on, HP and courage bars only over units that are hurt, fighting, fleeing or resting, over heroes and the selected unit (Bars button: every unit). Fewer bars is the main clutter fix for big battles.
 - Narrow windows: below 1000 px the match banner moves to its own row in the top bar.
 - Cost (render time per frame, stress mode, 1440×900 window): before the armies meet (20 s, 4,201 units) FX on 1.41 ms with smart bars vs 2.23 ms with all bars, FX off 1.20 ms; in the battle (57 s, 4,075 units, up to 58 bursts at once) 1.65 ms smart vs 2.40 ms all bars; zoomed on the front 0.61 ms vs 0.30 ms with FX off.
+
+### U5. Sound
+- `src/ui/Sound.ts` plays the pack's sounds (converted to mono 22 kHz WAV, 224 KB for nine sounds) with the Web Audio API: slashes and hits for hits, a thud for deaths, a blip for user orders, a soft click for buttons, an alert when a run starts, a jingle when a match ends (a win or a loss for the player's side; a spectator hears the win jingle for a decided match).
+- Only hits and deaths inside the view make a sound, and like strategy games it keeps crowds readable: a 75 ms cooldown for hit sounds and 120 ms for deaths, at most 8 sounds at once, ±6% pitch variation, quieter when zoomed out. Pitch and choice use their own small generator, not `Math.random`.
+- Audio starts after the first click or key (browser rule). The speaker button mutes it; the choice is saved per browser. Combat sounds follow the effects layer, so FX off is silent in battle.
+- Tested in the browser: after a real click the audio context runs and all 9 sounds decode; 100 rapid combat calls play 2 sounds (cooldown); 20 rapid order sounds play 8 at once (voice limit); mute stops playback and is saved.
 
 ## Versions
 
