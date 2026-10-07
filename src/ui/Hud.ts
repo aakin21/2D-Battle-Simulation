@@ -359,8 +359,11 @@ export class Hud {
       winner === null
         ? '<h2>Draw</h2>'
         : `<h2 class="${SIDE_CLASS[winner]}-text">${SIDE_NAME[winner]} wins</h2>`;
-    const how =
-      winner === null
+    // A side with nowhere to deploy (e.g. a saved map split by mountains) loses at once
+    const noRoom = r.reason === 'elimination' && r.time < 1;
+    const how = noRoom
+      ? 'one army had no room to deploy on this map'
+      : winner === null
         ? r.reason === 'elimination'
           ? 'both sides destroyed at once'
           : 'time up, both sides equal'

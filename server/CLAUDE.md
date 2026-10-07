@@ -16,3 +16,4 @@ The Jev proxy (`/api/jev`) is configured directly in `vite.config.ts`: it adds `
 - The system prompt defines the reply format; the browser validates every reply anyway.
 - Not part of `npm run build`: the static build has no `/api/*` endpoints. The online demo reaches them through a tunnel to the author's computer (D37); `vite.config.ts` allows the tunnel host names (`allowedHosts`).
 - `aiAccess` must stay the first plugin, so its check runs before the Jev proxy and the LLM endpoint.
+- `/api/llm` is reachable through the tunnel, so it is bounded: bodies over 1 MB get 413, `side` must be `west` or `east` (one session each), a body that is not JSON gets 400, and an answer that has not come after 150 s fails with the session closed (the next request opens a fresh one).

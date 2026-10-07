@@ -71,6 +71,7 @@ export interface LlmOptions {
   fetchFn: typeof fetch;
   jevAssessment: ((heroIndex: number) => JevAssessment) | null; // set when Jev runs on the same side
   model: LlmModel;
+  timeoutMs: number; // a request without an answer by then counts as a failure
 }
 
 const DEFAULTS: LlmOptions = {
@@ -80,6 +81,7 @@ const DEFAULTS: LlmOptions = {
   fetchFn: (...args) => fetch(...args),
   jevAssessment: null,
   model: 'sonnet',
+  timeoutMs: 120_000,
 };
 
 interface RawOrder {
@@ -101,6 +103,8 @@ export class LlmController {
   readonly decisions: LlmDecision[] = [];
   skippedRequests = 0;
   failure: string | null = null; // why the layer stopped, for the AI panel and the match log
+  private disposed = false;
+  private inFlight: AbortController | null = null;
 
   // Memory between reports
   private lastForceRatio: number | null = null;
@@ -130,9 +134,15 @@ export class LlmController {
     return this.pending;
   }
 
+  // The match ended or restarted: no more requests, and a late answer is dropped.
+  dispose(): void {
+    this.disposed = true;
+    this.inFlight?.abort();
+  }
+
   tick(elapsed: number): void {
     this.watchEvents(elapsed);
-    if (this.failed || elapsed < this.nextAt) return;
+    if (this.failed || this.disposed || elapsed < this.nextAt) return;
     this.nextAt = elapsed + this.opts.intervalSec;
     if (this.pending) {
       this.skippedRequests++;
@@ -181,10 +191,15 @@ export class LlmController {
 
     this.pending = true;
     const started = performance.now();
+    // An answer that never comes would block the layer, and in paused mode the whole battle
+    const abort = new AbortController();
+    this.inFlight = abort;
+    const timer = setTimeout(() => abort.abort(), this.opts.timeoutMs);
     try {
       const res = await this.opts.fetchFn(this.opts.endpoint, {
         method: 'POST',
         headers: aiHeaders(),
+        signal: abort.signal,
         body: JSON.stringify({
           side: this.side,
           matchId: this.matchId,
@@ -194,6 +209,7 @@ export class LlmController {
         }),
       });
       const latencyMs = performance.now() - started;
+      if (this.disposed) return;
       if (!res.ok) {
         this.fail(
           `HTTP ${res.status}`,
@@ -206,10 +222,15 @@ export class LlmController {
         return;
       }
       const { text, model } = (await res.json()) as { text: string; model?: string };
+      if (this.disposed) return;
       this.apply(time, latencyMs, text ?? '', model ?? this.opts.model);
     } catch (err) {
-      this.fail(String(err), unreachableHint());
+      if (this.disposed) return;
+      if (abort.signal.aborted) this.fail(`no answer within ${this.opts.timeoutMs / 1000} s`, '');
+      else this.fail(String(err), unreachableHint());
     } finally {
+      clearTimeout(timer);
+      this.inFlight = null;
       this.pending = false;
     }
   }
@@ -250,7 +271,13 @@ export class LlmController {
       d.rejected.push('no "orders" list');
       return;
     }
-    for (const raw of parsed.orders as RawOrder[]) {
+    for (const entry of parsed.orders as unknown[]) {
+      // One malformed entry must not stop the layer: skip it with a reason
+      if (!entry || typeof entry !== 'object') {
+        d.rejected.push(`order is not an object: ${JSON.stringify(entry)}`);
+        continue;
+      }
+      const raw = entry as RawOrder;
       const hero = this.myHeroes().find((h) => h.heroIndex === Number(raw.hero));
       if (!hero) {
         d.rejected.push(`unknown or dead hero ${String(raw.hero)}`);
