@@ -35,8 +35,9 @@ Read `CLAUDE.md` (architecture, rules that must not be broken) and `THESIS_DOCUM
 ## Open items, in order
 1. **Live tests by the author**, one by one (port of `npm run dev`): D33–D36 with Jev and the
    LLM; Jev only, Jev + LLM, each objective; the tunnel (D37) end to end; a re-run of the first
-   LLM vs LLM match with the courage fix (P4, D3). Collect `ai.east.jev.decisions` /
-   `ai.east.llm.decisions` from the browser console.
+   LLM vs LLM match with the courage fix (P4, D3). The AI panel shows the decisions live, and
+   the Log button (or "Download log" on the result card) saves settings, timeline and every AI
+   decision as JSON, so nothing has to be copied from the browser console.
 2. **Exact objective positions for the AI** (author request): add exact tile coordinates
    (x, y) of points A/B and of both bases to the LLM report (`LlmController.objectiveReport`)
    and Jev's state (`JevController.objectiveState`), next to the sub-sector names. Also show
