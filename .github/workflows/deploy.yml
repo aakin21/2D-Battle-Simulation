@@ -10,11 +10,16 @@ jobs:
     permissions:
       contents: write
     steps:
+      # Full history with tags, so the build's version (git describe) names the nearest tag.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-      - run: npm install
+      # npm ci installs the lockfile as committed; npm install rewrote it and made the
+      # version end in -dirty.
+      - run: npm ci
       - run: npm run build
       - uses: peaceiris/actions-gh-pages@v3
         with:
