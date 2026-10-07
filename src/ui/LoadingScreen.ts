@@ -5,13 +5,31 @@ import berserkerUrl from '../assets/sprites/berserker_lion.png';
 // immediately and kept paused behind the overlay; the screen walks through the setup
 // steps, then fades out and the battle starts. Clicking the overlay skips it.
 
-const STEPS = [
-  'Generating terrain',
-  'Deploying warriors',
-  'Preparing berserker waves',
-  'Calculating paths',
-  'Ready',
-];
+export type LoadingKind = 'classic' | 'stress' | 'battle';
+
+const STEPS: Record<LoadingKind, string[]> = {
+  classic: [
+    'Generating terrain',
+    'Deploying warriors',
+    'Preparing berserker waves',
+    'Calculating paths',
+    'Ready',
+  ],
+  stress: [
+    'Generating terrain',
+    'Deploying 2200 warriors',
+    'Preparing 2000 berserkers',
+    'Calculating paths',
+    'Ready',
+  ],
+  battle: [
+    'Generating terrain',
+    'Deploying both armies',
+    'Placing heroes',
+    'Setting the objective',
+    'Ready',
+  ],
+};
 const DURATION_MS = 3500;
 const FADE_MS = 400; // matches the CSS opacity transition
 
@@ -37,11 +55,12 @@ export class LoadingScreen {
   }
 
   // Shows the screen, steps through the messages, fades out. Resolves when hidden.
-  async run(): Promise<void> {
+  async run(kind: LoadingKind = 'classic'): Promise<void> {
+    const steps = STEPS[kind];
     this.active = true;
     this.el.classList.remove('fading');
     this.el.style.display = 'flex';
-    this.setProgress(0, STEPS[0]);
+    this.setProgress(0, steps[0]);
 
     let skipped = false;
     const skipPromise = new Promise<void>((resolve) => {
@@ -51,14 +70,14 @@ export class LoadingScreen {
       };
     });
 
-    const stepMs = DURATION_MS / STEPS.length;
-    for (let i = 0; i < STEPS.length && !skipped; i++) {
-      this.setProgress((i + 1) / STEPS.length, STEPS[i]);
+    const stepMs = DURATION_MS / steps.length;
+    for (let i = 0; i < steps.length && !skipped; i++) {
+      this.setProgress((i + 1) / steps.length, steps[i]);
       await Promise.race([wait(stepMs), skipPromise]);
     }
     this.skip = null;
 
-    this.setProgress(1, STEPS[STEPS.length - 1]);
+    this.setProgress(1, steps[steps.length - 1]);
     this.el.classList.add('fading');
     await wait(FADE_MS);
     this.el.style.display = 'none';

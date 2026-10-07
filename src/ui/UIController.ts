@@ -17,6 +17,7 @@ import {
   SideAI,
   LlmModel,
   Objective,
+  GRID_SIZE,
 } from '../types/types';
 import { decodeGrid, listSavedMaps, loadSavedMap, saveMap } from '../state/MapStore';
 import { FIXED_MAP } from '../maps/fixedMap';
@@ -24,10 +25,34 @@ import { JevController } from '../ai/JevController';
 import { LlmController } from '../ai/LlmController';
 import { AIController, MatchResult } from '../engine/SimulationEngine';
 import { LoadingScreen } from './LoadingScreen';
+import { Hud } from './Hud';
+import { icon } from './icons';
+import heroWestUrl from '../assets/sprites/hero_knight_gold.png';
+import heroEastUrl from '../assets/sprites/hero_shaman_lion.png';
+import keySpaceUrl from '../assets/ui/keys/Space.png';
+import keyRUrl from '../assets/ui/keys/R.png';
+import keyShiftUrl from '../assets/ui/keys/Shift.png';
+import keyEscapeUrl from '../assets/ui/keys/Escape.png';
+import mouseLeftUrl from '../assets/ui/keys/MouseButtonLeft.png';
+import mouseRightUrl from '../assets/ui/keys/MouseButtonRight.png';
+import mouseWheelUrl from '../assets/ui/keys/MouseWheelUp.png';
 
 const LS_SPEED = 'sim_speed';
 const LS_DEBUG = 'sim_debug';
 const LS_EFFECTS = 'sim_effects';
+
+// Rows of the Controls screen: key images or key names, then what they do
+const HELP: Array<[string[], string]> = [
+  [[mouseLeftUrl], 'Select a unit'],
+  [[mouseRightUrl], 'Order the selected hero to a point'],
+  [[mouseLeftUrl, 'drag'], 'Count the units in an area (zoomed out) or pan (zoomed in)'],
+  [[keyShiftUrl, mouseLeftUrl], 'Pan the map'],
+  [[mouseWheelUrl], 'Zoom'],
+  [[keySpaceUrl], 'Pause / resume'],
+  [['+', '−'], 'Faster / slower'],
+  [[keyRUrl], 'Restart'],
+  [[keyEscapeUrl], 'Menu'],
+];
 
 export class UIController {
   private engine: SimulationEngine;
@@ -36,35 +61,28 @@ export class UIController {
   private minimapRenderer: MinimapRenderer;
   private inputHandler: InputHandler;
   private loading = new LoadingScreen();
+  private hud: Hud;
   private selectedUnitId: string | null = null;
   private debugMode: boolean = false;
   private lastConfig: SimConfig = DEFAULT_CONFIG;
+  // A run started from the menu exists (the menu can go back to it)
+  private runStarted: boolean = false;
+  private pausedBeforeMenu: boolean = false;
+  private shownPaused: boolean | null = null;
 
   // Throttle tooltip updates — only recalculate when cursor moves significantly
   private lastTooltipX: number = -999;
   private lastTooltipY: number = -999;
 
   private elBtnPause: HTMLButtonElement;
-  private elBtnFaster: HTMLButtonElement;
-  private elBtnSlower: HTMLButtonElement;
-  private elBtnRestart: HTMLButtonElement;
-  private elBtnMenu: HTMLButtonElement;
   private elBtnDebug: HTMLButtonElement;
   private elBtnEffects: HTMLButtonElement;
   private elSpeedDisplay: HTMLElement;
-  private elWaveCounter: HTMLElement;
-  private elWarriorCount: HTMLElement;
-  private elBerserkerCount: HTMLElement;
-  private elElapsedTime: HTMLElement;
-  private elUnitType: HTMLElement;
-  private elUnitHp: HTMLElement;
-  private elUnitCourage: HTMLElement;
-  private elUnitState: HTMLElement;
   private elTooltip: HTMLElement;
   private elSelectOverlay: HTMLElement;
-  private elAreaStatContent: HTMLElement;
   private elMainMenu: HTMLElement;
   private elInstructions: HTMLElement;
+  private elCanvasArea: HTMLElement;
 
   constructor(
     engine: SimulationEngine,
@@ -77,35 +95,77 @@ export class UIController {
     this.renderer = renderer;
     this.minimapRenderer = minimapRenderer;
     this.inputHandler = new InputHandler('battleCanvas');
+    this.hud = new Hud(engine, stateManager, renderer);
 
     this.elBtnPause = document.getElementById('btn-pause') as HTMLButtonElement;
-    this.elBtnFaster = document.getElementById('btn-faster') as HTMLButtonElement;
-    this.elBtnSlower = document.getElementById('btn-slower') as HTMLButtonElement;
-    this.elBtnRestart = document.getElementById('btn-restart') as HTMLButtonElement;
-    this.elBtnMenu = document.getElementById('btn-menu') as HTMLButtonElement;
     this.elBtnDebug = document.getElementById('btn-debug') as HTMLButtonElement;
     this.elBtnEffects = document.getElementById('btn-effects') as HTMLButtonElement;
     this.elSpeedDisplay = document.getElementById('speed-display')!;
-    this.elWaveCounter = document.getElementById('wave-counter')!;
-    this.elWarriorCount = document.getElementById('warrior-count')!;
-    this.elBerserkerCount = document.getElementById('berserker-count')!;
-    this.elElapsedTime = document.getElementById('elapsed-time')!;
-    this.elUnitType = document.getElementById('unit-type')!;
-    this.elUnitHp = document.getElementById('unit-hp')!;
-    this.elUnitCourage = document.getElementById('unit-courage')!;
-    this.elUnitState = document.getElementById('unit-state')!;
     this.elTooltip = document.getElementById('tooltip')!;
     this.elSelectOverlay = document.getElementById('select-overlay')!;
-    this.elAreaStatContent = document.getElementById('stat-content')!;
     this.elMainMenu = document.getElementById('main-menu')!;
     this.elInstructions = document.getElementById('instructions-overlay')!;
+    this.elCanvasArea = document.getElementById('canvas-area')!;
 
+    this.setIcons();
+    this.buildHelp();
+    this.watchCanvasSize();
     this.loadSettings();
     this.wireMainMenu();
     this.engine.setOnMatchEnd((r) => this.showMatchResult(r));
     this.wireButtonEvents();
     this.wireInputEvents();
     this.startUIRefresh();
+  }
+
+  // --- Page setup ---
+
+  private setIcons(): void {
+    const set = (id: string, svg: string) => (document.getElementById(id)!.innerHTML = svg);
+    set('btn-slower', icon('slower'));
+    set('btn-faster', icon('faster'));
+    set('btn-restart', icon('restart'));
+    set('btn-save-map', icon('save'));
+    set('btn-help', icon('help'));
+    document.getElementById('title-west')!.style.backgroundImage = `url(${heroWestUrl})`;
+    document.getElementById('title-east')!.style.backgroundImage = `url(${heroEastUrl})`;
+    this.updatePauseButton();
+  }
+
+  private updatePauseButton(): void {
+    const paused = this.engine.isPaused();
+    if (paused === this.shownPaused) return;
+    this.shownPaused = paused;
+    this.elBtnPause.innerHTML = icon(paused ? 'play' : 'pause');
+    this.elBtnPause.title = paused ? 'Resume (Space)' : 'Pause (Space)';
+  }
+
+  private buildHelp(): void {
+    const table = document.getElementById('help-table')!;
+    table.innerHTML = HELP.map(([keys, what]) => {
+      const shown = keys
+        .map((k) =>
+          k.length > 2 && k !== 'drag'
+            ? `<img src="${k}" alt="">`
+            : `<span class="key-text">${k}</span>`
+        )
+        .join('');
+      return `<tr><td>${shown}</td><td>${what}</td></tr>`;
+    }).join('');
+  }
+
+  // The battlefield canvas fills its area; the renderer and minimap follow its size.
+  private watchCanvasSize(): void {
+    const apply = () => {
+      const w = this.elCanvasArea.clientWidth;
+      const h = this.elCanvasArea.clientHeight;
+      if (w <= 0 || h <= 0) return;
+      this.renderer.resize(w, h);
+      const view = this.renderer.getViewSize();
+      this.minimapRenderer.setViewSize(view.width, view.height);
+    };
+    new ResizeObserver(apply).observe(this.elCanvasArea);
+    apply();
   }
 
   // --- Main menu ---
@@ -124,17 +184,23 @@ export class UIController {
     const waveVal = document.getElementById('cfg-wave-val')!;
 
     const setTab = (active: HTMLElement) => {
-      [tabDefault, tabCustom, tabStress, tabBattle].forEach(t => t.classList.remove('active'));
+      [tabDefault, tabCustom, tabStress, tabBattle].forEach((t) => t.classList.remove('active'));
       active.classList.add('active');
       const isStress = active === tabStress;
       const isCustom = active === tabCustom;
       const isBattle = active === tabBattle;
       // Battle uses the soldier count (per side) and terrain settings, but not waves.
       config.classList.toggle('locked', !isCustom && !isBattle);
-      document.getElementById('cfg-wave-row')!.style.display = isBattle ? 'none' : '';
-      document.getElementById('cfg-warriors-label')!.textContent = isBattle ? 'Soldiers/side' : 'Warriors';
-      stressInfo.style.display = isStress ? 'block' : 'none';
-      battleInfo.style.display = isBattle ? 'block' : 'none';
+      config.hidden = isStress;
+      document.getElementById('cfg-wave-row')!.hidden = isBattle;
+      document.getElementById('cfg-warriors-label')!.textContent = isBattle
+        ? 'Soldiers'
+        : 'Warriors';
+      document.getElementById('cfg-army-title')!.textContent = isBattle
+        ? 'Army (per side)'
+        : 'Army';
+      stressInfo.hidden = !isStress;
+      battleInfo.hidden = !isBattle;
     };
 
     tabDefault.addEventListener('click', () => {
@@ -161,7 +227,10 @@ export class UIController {
     warriorNum.addEventListener('input', () => {
       const v = Math.min(2000, Math.max(0, parseInt(warriorNum.value) || 0));
       warriorSlider.value = v.toString();
-      warriorNum.value = v.toString();
+    });
+    // Show the clamped value once editing is done (clamping while typing would fight the user)
+    warriorNum.addEventListener('change', () => {
+      warriorNum.value = warriorSlider.value;
     });
 
     // Wave size slider
@@ -181,29 +250,50 @@ export class UIController {
       const btn = (e.target as HTMLElement).closest('button');
       if (!btn) return;
       this.setOptActive('cfg-map', btn.dataset.val!);
-      mapSaved.style.display = btn.dataset.val === 'saved' ? '' : 'none';
+      mapSaved.hidden = btn.dataset.val !== 'saved';
     });
     this.refreshSavedMaps();
 
-    // Battle opponent (rules / AI layers) and AI timing (D4)
-    for (const id of ['cfg-west', 'cfg-opponent', 'cfg-timing', 'cfg-west-model', 'cfg-east-model', 'cfg-objective']) {
+    // Battle sides (rules / AI layers), LLM models and AI timing (D4). Model and timing rows
+    // only appear when an LLM or any AI is chosen.
+    const showAiRows = () => {
+      const west = this.getOptActive('cfg-west');
+      const east = this.getOptActive('cfg-opponent');
+      document.getElementById('row-west-model')!.hidden = !west.includes('llm');
+      document.getElementById('row-east-model')!.hidden = !east.includes('llm');
+      document.getElementById('row-timing')!.hidden = west === 'none' && east === 'none';
+    };
+    for (const id of [
+      'cfg-west',
+      'cfg-opponent',
+      'cfg-timing',
+      'cfg-west-model',
+      'cfg-east-model',
+      'cfg-objective',
+    ]) {
       document.getElementById(id)!.addEventListener('click', (e) => {
         const btn = (e.target as HTMLElement).closest('button');
-        if (btn) this.setOptActive(id, btn.dataset.val!);
+        if (!btn) return;
+        this.setOptActive(id, btn.dataset.val!);
+        showAiRows();
       });
     }
 
     // Start: set up the run, keep it paused behind the loading screen, then start it
     document.getElementById('menu-start')!.addEventListener('click', async () => {
+      if (this.loading.isActive()) return;
       this.selectedUnitId = null;
       this.renderer.setSelectedUnit(null);
+      this.hud.showUnit(null);
       this.renderer.clearTerrainCache();
       this.minimapRenderer.clearTerrainCache();
-      this.elMainMenu.style.display = 'none';
-      this.elBtnPause.textContent = 'Pause';
+      this.closeMenu();
 
       if (tabStress.classList.contains('active')) {
+        // Restart (R) repeats the stress test; no AI layers in classic modes
+        this.lastConfig = DEFAULT_CONFIG;
         this.engine.restartStressTest();
+        this.startControllers();
       } else {
         const isDefault = tabDefault.classList.contains('active');
         const isBattle = tabBattle.classList.contains('active');
@@ -214,20 +304,22 @@ export class UIController {
               terrainDensity: this.getOptActive('cfg-terrain') as TerrainDensity,
               objective: this.getOptActive('cfg-objective') as Objective,
             }
-          : isDefault ? DEFAULT_CONFIG : {
-          ...DEFAULT_CONFIG,
-          warriorCount: parseInt(warriorSlider.value),
-          waveMultiplier: parseFloat(waveSlider.value),
-          terrainDensity: this.getOptActive('cfg-terrain') as TerrainDensity,
-        };
+          : isDefault
+            ? DEFAULT_CONFIG
+            : {
+                ...DEFAULT_CONFIG,
+                warriorCount: parseInt(warriorSlider.value),
+                waveMultiplier: parseFloat(waveSlider.value),
+                terrainDensity: this.getOptActive('cfg-terrain') as TerrainDensity,
+              };
         const cfg: SimConfig = {
           ...base,
           presetGrid: this.chosenMap(mapSaved.value),
           friendlyAI: isBattle ? (this.getOptActive('cfg-west') as SideAI) : 'none',
           enemyAI: isBattle ? (this.getOptActive('cfg-opponent') as SideAI) : 'none',
           aiTiming: this.getOptActive('cfg-timing') === 'paused' ? 'paused' : 'realtime',
-        friendlyModel: this.getOptActive('cfg-west-model') as LlmModel,
-        enemyModel: this.getOptActive('cfg-east-model') as LlmModel,
+          friendlyModel: this.getOptActive('cfg-west-model') as LlmModel,
+          enemyModel: this.getOptActive('cfg-east-model') as LlmModel,
         };
         this.lastConfig = cfg;
         this.engine.applyConfig(cfg);
@@ -235,14 +327,19 @@ export class UIController {
         // AI controllers tick inside the engine update, so they stay idle while paused
         this.startControllers();
       }
+      this.runStarted = true;
+      this.hud.reset();
       this.updateSpeedDisplay();
 
       // restart() unpauses; pause before the first frame so no sim time passes
       this.engine.pause();
-      await this.loading.run();
+      await this.loading.run(
+        this.engine.isStressMode() ? 'stress' : this.engine.isBattleMode() ? 'battle' : 'classic'
+      );
       this.engine.resume();
-      this.elBtnPause.textContent = 'Pause';
     });
+
+    document.getElementById('menu-continue')!.addEventListener('click', () => this.closeMenu());
 
     document.getElementById('menu-instructions')!.addEventListener('click', () => {
       this.elInstructions.style.display = 'flex';
@@ -251,6 +348,31 @@ export class UIController {
     document.getElementById('btn-close-instructions')!.addEventListener('click', () => {
       this.elInstructions.style.display = 'none';
     });
+  }
+
+  private isMenuOpen(): boolean {
+    return this.elMainMenu.style.display !== 'none';
+  }
+
+  private isHelpOpen(): boolean {
+    return this.elInstructions.style.display === 'flex';
+  }
+
+  // Opens the menu over the current run, which waits paused behind it.
+  private openMenu(): void {
+    if (this.isMenuOpen()) return;
+    this.pausedBeforeMenu = this.engine.isPaused();
+    this.engine.pause();
+    document.getElementById('menu-continue')!.hidden = !this.runStarted;
+    this.elMainMenu.style.display = 'flex';
+  }
+
+  // Back to the run; it resumes only if it was running when the menu opened.
+  private closeMenu(): void {
+    this.elMainMenu.style.display = 'none';
+    if (this.runStarted && !this.pausedBeforeMenu && !this.engine.getResult()) {
+      this.engine.resume();
+    }
   }
 
   // Terrain for the chosen map option; undefined means "generate a new random map".
@@ -289,44 +411,30 @@ export class UIController {
   }
 
   private getOptActive(groupId: string): string {
-    const active = document.getElementById(groupId)!.querySelector('button.active') as HTMLButtonElement | null;
+    const active = document
+      .getElementById(groupId)!
+      .querySelector('button.active') as HTMLButtonElement | null;
     return active?.dataset.val ?? '';
   }
 
   // --- Button events ---
 
   private wireButtonEvents(): void {
-    this.elBtnPause.addEventListener('click', () => {
-      this.engine.togglePause();
-      this.elBtnPause.textContent = this.engine.isPaused() ? 'Resume' : 'Pause';
-    });
+    this.elBtnPause.addEventListener('click', () => this.togglePause());
 
-    this.elBtnFaster.addEventListener('click', () => {
-      this.engine.increaseSpeed();
-      this.updateSpeedDisplay();
-      this.saveSettings();
-    });
-
-    this.elBtnSlower.addEventListener('click', () => {
-      this.engine.decreaseSpeed();
-      this.updateSpeedDisplay();
-      this.saveSettings();
-    });
-
-    this.elBtnRestart.addEventListener('click', () => this.doRestart());
-
+    document.getElementById('btn-faster')!.addEventListener('click', () => this.changeSpeed(1));
+    document.getElementById('btn-slower')!.addEventListener('click', () => this.changeSpeed(-1));
+    document.getElementById('btn-restart')!.addEventListener('click', () => this.doRestart());
     document.getElementById('btn-save-map')!.addEventListener('click', () => this.saveCurrentMap());
-
-    this.elBtnMenu.addEventListener('click', () => {
-      this.engine.pause();
-      this.elBtnPause.textContent = 'Resume';
-      this.elMainMenu.style.display = 'flex';
+    document.getElementById('btn-menu')!.addEventListener('click', () => this.openMenu());
+    document.getElementById('btn-help')!.addEventListener('click', () => {
+      this.elInstructions.style.display = 'flex';
     });
 
     this.elBtnDebug.addEventListener('click', () => {
       this.debugMode = !this.debugMode;
       this.renderer.setDebugMode(this.debugMode);
-      this.elBtnDebug.style.color = this.debugMode ? '#00ff88' : '';
+      this.elBtnDebug.classList.toggle('on', this.debugMode);
       this.saveSettings();
     });
 
@@ -337,10 +445,26 @@ export class UIController {
     });
   }
 
+  private togglePause(): void {
+    // A finished match stays stopped; restart or the menu starts a new one
+    if (this.engine.getResult()) return;
+    this.engine.togglePause();
+    this.updatePauseButton();
+  }
+
+  private changeSpeed(step: 1 | -1): void {
+    if (step > 0) this.engine.increaseSpeed();
+    else this.engine.decreaseSpeed();
+    this.updateSpeedDisplay();
+    this.saveSettings();
+  }
+
   private updateEffectsButton(): void {
     const on = this.renderer.isEffectsEnabled();
-    this.elBtnEffects.textContent = on ? 'FX: On' : 'FX: Off';
-    this.elBtnEffects.style.color = on ? '#00ff88' : '';
+    this.elBtnEffects.classList.toggle('on', on);
+    this.elBtnEffects.title = on
+      ? 'Visual effects and sprites are on (click for the original squares)'
+      : 'Visual effects are off: original squares (click to turn on)';
   }
 
   // --- Input events ---
@@ -349,21 +473,25 @@ export class UIController {
     this.inputHandler.onKeyDown((key: string) => {
       // Shortcuts would unpause or restart the run behind the loading screen
       if (this.loading.isActive()) return;
+      if (key === 'Escape') {
+        if (this.isHelpOpen()) this.elInstructions.style.display = 'none';
+        else if (this.isMenuOpen()) {
+          if (this.runStarted) this.closeMenu();
+        } else this.openMenu();
+        return;
+      }
+      // Game shortcuts only act on the battlefield, not behind the menu or the help screen
+      if (this.isMenuOpen() || this.isHelpOpen()) return;
       switch (key) {
         case ' ':
-          this.engine.togglePause();
-          this.elBtnPause.textContent = this.engine.isPaused() ? 'Resume' : 'Pause';
+          this.togglePause();
           break;
         case '+':
         case '=':
-          this.engine.increaseSpeed();
-          this.updateSpeedDisplay();
-          this.saveSettings();
+          this.changeSpeed(1);
           break;
         case '-':
-          this.engine.decreaseSpeed();
-          this.updateSpeedDisplay();
-          this.saveSettings();
+          this.changeSpeed(-1);
           break;
         case 'r':
         case 'R':
@@ -401,14 +529,17 @@ export class UIController {
       const clicked = nearby[0] ?? null;
       this.selectedUnitId = clicked?.id ?? null;
       this.renderer.setSelectedUnit(this.selectedUnitId);
-      this.updateInfoPanel(clicked);
+      this.hud.showUnit(clicked);
     });
 
     // Right click → task point for the selected friendly hero, or the first one
     this.inputHandler.onRightClick((cx, cy) => {
       const grid = this.renderer.canvasToGrid(cx, cy);
+      // Orders outside the map would send the hero to an unreachable point
+      if (grid.x < 0 || grid.y < 0 || grid.x >= GRID_SIZE || grid.y >= GRID_SIZE) return;
       const hero = this.commandableHero();
-      if (hero) this.engine.issueCommand(hero, { type: 'move', target: { x: grid.x, y: grid.y } }, 'user');
+      if (hero)
+        this.engine.issueCommand(hero, { type: 'move', target: { x: grid.x, y: grid.y } }, 'user');
     });
 
     // Hover → tooltip
@@ -422,14 +553,15 @@ export class UIController {
     // Leave canvas → hide tooltip
     this.inputHandler.onCanvasLeave(() => {
       this.elTooltip.style.display = 'none';
+      this.lastTooltipX = this.lastTooltipY = -999;
     });
 
-    // Shift + drag → show selection rectangle
+    // Drag at full zoom → show selection rectangle
     this.inputHandler.onSelectDrag((x1, y1, x2, y2) => {
       this.showSelectOverlay(x1, y1, x2, y2);
     });
 
-    // Shift + drag end → show area stats
+    // Selection drag end → show area stats
     this.inputHandler.onSelectDragEnd((x1, y1, x2, y2) => {
       this.elSelectOverlay.style.display = 'none';
       this.showSelectStats(x1, y1, x2, y2);
@@ -439,11 +571,8 @@ export class UIController {
     const minimapEl = document.getElementById('minimapCanvas') as HTMLCanvasElement;
     minimapEl.addEventListener('click', (e: MouseEvent) => {
       const r = minimapEl.getBoundingClientRect();
-      const mx = e.clientX - r.left;
-      const my = e.clientY - r.top;
-      // Minimap is GRID_SIZE × GRID_SIZE pixels covering the full 150×150 tile grid
-      const tileX = (mx / r.width) * 150;
-      const tileY = (my / r.height) * 150;
+      const tileX = ((e.clientX - r.left) / r.width) * GRID_SIZE;
+      const tileY = ((e.clientY - r.top) / r.height) * GRID_SIZE;
       this.renderer.centerOn(tileX, tileY);
     });
   }
@@ -472,21 +601,33 @@ export class UIController {
       }
     }
 
+    const battle = this.engine.isBattleMode();
     const stateLabel =
       closest.state === BehaviorState.IDLE && closest.path.length > 0
-        ? 'MOVING'
-        : BehaviorState[closest.state];
-
+        ? 'Moving'
+        : (['Standing', 'Moving', 'Fighting', 'Fleeing', 'Resting'][closest.state] ??
+          BehaviorState[closest.state]);
+    const side = battle ? `${closest.faction === Faction.FRIENDLY ? 'West' : 'East'} ` : '';
+    const kind =
+      closest.unitType === UnitType.HERO
+        ? `hero ${(closest as IHero).heroIndex}`
+        : battle
+          ? 'soldier'
+          : UnitType[closest.unitType].toLowerCase();
     this.elTooltip.innerHTML =
-      `${UnitType[closest.unitType]}<br>` +
+      `<span class="${closest.faction === Faction.FRIENDLY ? 'west' : 'east'}-text">${side}${kind}</span><br>` +
       `HP ${Math.ceil(closest.hp)}/${closest.maxHp}<br>` +
-      stateLabel;
+      `<span class="dim">${stateLabel}</span>`;
 
-    // Position near cursor, flip left if too close to right edge of canvas
-    const tipX = cx > 660 ? cx - 90 : cx + 14;
-    this.elTooltip.style.left = `${tipX}px`;
-    this.elTooltip.style.top = `${Math.max(0, cy - 12)}px`;
+    // Position near the cursor; flip to the other side near the right or bottom edge
     this.elTooltip.style.display = 'block';
+    const tw = this.elTooltip.offsetWidth;
+    const th = this.elTooltip.offsetHeight;
+    const { width, height } = this.renderer.getViewSize();
+    const tipX = cx + 16 + tw > width ? cx - tw - 12 : cx + 16;
+    const tipY = Math.max(0, Math.min(height - th, cy - 12));
+    this.elTooltip.style.left = `${tipX}px`;
+    this.elTooltip.style.top = `${tipY}px`;
   }
 
   // --- Drag-select overlay ---
@@ -504,7 +645,9 @@ export class UIController {
   }
 
   private commandableHero(): IHero | undefined {
-    const selected = this.selectedUnitId ? this.stateManager.getUnitById(this.selectedUnitId) : undefined;
+    const selected = this.selectedUnitId
+      ? this.stateManager.getUnitById(this.selectedUnitId)
+      : undefined;
     if (
       selected &&
       selected.unitType === UnitType.HERO &&
@@ -520,30 +663,28 @@ export class UIController {
   private showSelectStats(x1: number, y1: number, x2: number, y2: number): void {
     const g1 = this.renderer.canvasToGrid(Math.min(x1, x2), Math.min(y1, y2));
     const g2 = this.renderer.canvasToGrid(Math.max(x1, x2), Math.max(y1, y2));
-
-    let warriors = 0;
-    let berserkers = 0;
-    let heroes = 0;
+    const inside: IUnit[] = [];
     for (const u of this.stateManager.getBattlefield().units) {
       if (u.position.x < g1.x || u.position.x > g2.x) continue;
       if (u.position.y < g1.y || u.position.y > g2.y) continue;
-      if (u.unitType === UnitType.WARRIOR) warriors++;
-      else if (u.unitType === UnitType.BERSERKER) berserkers++;
-      else if (u.unitType === UnitType.HERO) heroes++;
+      inside.push(u);
     }
-
-    const total = warriors + berserkers + heroes;
-    this.elAreaStatContent.innerHTML =
-      `<span class="stat-w">Warrior: ${warriors}</span><br>` +
-      `<span class="stat-b">Berserker: ${berserkers}</span><br>` +
-      `<span class="stat-h">Hero: ${heroes}</span><br>` +
-      `<span class="stat-total">Total: ${total}</span>`;
+    this.hud.showArea(inside);
   }
 
   // --- LocalStorage ---
 
+  // Storage can be unavailable (private windows, blocked site data); settings then stay
+  // at their defaults for this session.
   private loadSettings(): void {
-    const speed = localStorage.getItem(LS_SPEED);
+    const read = (key: string) => {
+      try {
+        return localStorage.getItem(key);
+      } catch {
+        return null;
+      }
+    };
+    const speed = read(LS_SPEED);
     if (speed) {
       const parsed = parseFloat(speed) as 0.5 | 1 | 2 | 4;
       if ([0.5, 1, 2, 4].includes(parsed)) {
@@ -552,60 +693,61 @@ export class UIController {
       }
     }
 
-    if (localStorage.getItem(LS_DEBUG) === 'true') {
+    if (read(LS_DEBUG) === 'true') {
       this.debugMode = true;
       this.renderer.setDebugMode(true);
-      this.elBtnDebug.style.color = '#00ff88';
+      this.elBtnDebug.classList.add('on');
     }
 
     // Effects default to on; only an explicit 'false' turns them off
-    this.renderer.setEffectsEnabled(localStorage.getItem(LS_EFFECTS) !== 'false');
+    this.renderer.setEffectsEnabled(read(LS_EFFECTS) !== 'false');
     this.updateEffectsButton();
   }
 
   private saveSettings(): void {
-    localStorage.setItem(LS_SPEED, this.engine.getSpeed().toString());
-    localStorage.setItem(LS_DEBUG, this.debugMode.toString());
-    localStorage.setItem(LS_EFFECTS, this.renderer.isEffectsEnabled().toString());
+    try {
+      localStorage.setItem(LS_SPEED, this.engine.getSpeed().toString());
+      localStorage.setItem(LS_DEBUG, this.debugMode.toString());
+      localStorage.setItem(LS_EFFECTS, this.renderer.isEffectsEnabled().toString());
+    } catch {
+      // Storage unavailable: settings last for this session only
+    }
   }
 
-  // Battle mode: shown when one side has no units left.
+  // Battle mode: shown when the match is decided.
   private showMatchResult(r: MatchResult): void {
-    const el = document.getElementById('match-result')!;
-    const label = (ai: SideAI | undefined, none: string) => (!ai || ai === 'none' ? none : ai);
-    const west = label(this.lastConfig.friendlyAI, 'you');
-    const east = label(this.lastConfig.enemyAI, 'rules');
-    const who =
-      r.winner === null ? 'Draw' : r.winner === Faction.FRIENDLY ? `West (${west}) wins` : `East (${east}) wins`;
-    const how =
-      r.reason === 'base'
-        ? 'base destroyed'
-        : r.reason === 'points'
-          ? `time up, points ${r.scores?.friendly ?? 0}–${r.scores?.enemy ?? 0}`
-          : r.reason === 'time'
-            ? 'time up, more HP left'
-            : 'all enemy units destroyed';
-    el.innerHTML =
-      `<b>${who}</b> (${how})<br>West: ${west} · East: ${east}<br>` +
-      `Time: ${Math.round(r.time)} s · Units left: ${r.survivors}<br>` +
-      `<span style="color:#888">R: restart · Menu: new battle</span>`;
-    el.style.display = 'block';
-    this.elBtnPause.textContent = 'Resume';
+    this.hud.showResult(r, this.lastConfig, {
+      restart: () => this.doRestart(),
+      menu: () => this.openMenu(),
+    });
+    this.updatePauseButton();
   }
 
   // Attaches the AI layers chosen for each side of this match. Restart clears them, so this
   // runs after every engine.restart(). Running controllers are exposed as window.ai.west /
   // window.ai.east ({ jev, llm }) for inspection in the browser console.
   private startControllers(): void {
-    document.getElementById('match-result')!.style.display = 'none';
-    const debug = window as unknown as { ai?: Record<string, { jev?: JevController; llm?: LlmController }> };
+    this.hud.hideResult();
+    const debug = window as unknown as {
+      ai?: Record<string, { jev?: JevController; llm?: LlmController }>;
+    };
     debug.ai = {};
     if (this.lastConfig.mode !== 'battle') return;
 
     const controllers: AIController[] = [];
     const sides: Array<[Faction, SideAI, string, LlmModel]> = [
-      [Faction.FRIENDLY, this.lastConfig.friendlyAI ?? 'none', 'west', this.lastConfig.friendlyModel ?? 'sonnet'],
-      [Faction.ENEMY, this.lastConfig.enemyAI ?? 'none', 'east', this.lastConfig.enemyModel ?? 'sonnet'],
+      [
+        Faction.FRIENDLY,
+        this.lastConfig.friendlyAI ?? 'none',
+        'west',
+        this.lastConfig.friendlyModel ?? 'sonnet',
+      ],
+      [
+        Faction.ENEMY,
+        this.lastConfig.enemyAI ?? 'none',
+        'east',
+        this.lastConfig.enemyModel ?? 'sonnet',
+      ],
     ];
     for (const [faction, ai, name, model] of sides) {
       if (ai === 'none') continue;
@@ -634,70 +776,22 @@ export class UIController {
   // --- Restart ---
 
   private doRestart(): void {
+    if (this.loading.isActive()) return;
     this.selectedUnitId = null;
     this.renderer.setSelectedUnit(null);
-    this.updateInfoPanel(null);
+    this.hud.showUnit(null);
     this.renderer.clearTerrainCache();
     this.minimapRenderer.clearTerrainCache();
-    this.engine.applyConfig(this.lastConfig);
-    this.engine.restart();
+    // Restarting a stress test runs the stress test again (it used to restart as Default)
+    if (this.engine.isStressMode()) this.engine.restartStressTest();
+    else {
+      this.engine.applyConfig(this.lastConfig);
+      this.engine.restart();
+    }
     this.startControllers();
-    this.elBtnPause.textContent = 'Pause';
+    this.hud.reset();
+    this.updatePauseButton();
     this.updateSpeedDisplay();
-  }
-
-  // --- Info panel ---
-
-  updateInfoPanel(unit: IUnit | null): void {
-    if (!unit) {
-      this.elUnitType.textContent = '—';
-      this.elUnitHp.textContent = '—';
-      this.elUnitCourage.textContent = '—';
-      this.elUnitState.textContent = '—';
-      return;
-    }
-    this.elUnitType.textContent = UnitType[unit.unitType];
-    this.elUnitHp.textContent = `${Math.ceil(unit.hp)} / ${unit.maxHp}`;
-    this.elUnitCourage.textContent = Math.round(unit.courage).toString();
-    this.elUnitState.textContent =
-      unit.state === BehaviorState.IDLE && unit.path.length > 0
-        ? 'MOVING'
-        : BehaviorState[unit.state];
-  }
-
-  // D30: points and time left (control) or base HP (base mode) for the control bar.
-  private objectiveStatus(): string | null {
-    if (!this.engine.isBattleMode()) return null;
-    const bf = this.stateManager.getBattlefield();
-    const o = bf.objective;
-    const left = o.timeLimit === null ? 0 : Math.max(0, Math.ceil(o.timeLimit - bf.elapsedTime));
-    if (o.mode === 'control') {
-      const holder = (f: Faction | null) => (f === null ? '-' : f === Faction.FRIENDLY ? 'W' : 'E');
-      const pts = o.points.map((p) => `${p.name}:${holder(p.holder)}`).join(' ');
-      return `W ${Math.floor(o.scores.friendly)} – ${Math.floor(o.scores.enemy)} E · ${pts} · ${left}s`;
-    }
-    if (o.mode === 'base') {
-      const pct = (f: Faction) => {
-        const b = o.bases.find((x) => x.faction === f);
-        return b ? Math.round((100 * b.hp) / b.maxHp) : 0;
-      };
-      return `Base W ${pct(Faction.FRIENDLY)}% – ${pct(Faction.ENEMY)}% E · ${left}s`;
-    }
-    return `Elimination · ${left}s`;
-  }
-
-  private updateControlBar(): void {
-    const bf = this.stateManager.getBattlefield();
-    let warriors = 0;
-    let berserkers = 0;
-    for (const u of bf.units) {
-      if (u.unitType === UnitType.WARRIOR) warriors++;
-      else if (u.unitType === UnitType.BERSERKER) berserkers++;
-    }
-    this.elWaveCounter.textContent = this.objectiveStatus() ?? `Wave: ${bf.waveNumber}`;
-    this.elWarriorCount.textContent = `W: ${warriors}`;
-    this.elBerserkerCount.textContent = `B: ${berserkers}`;
-    this.elElapsedTime.textContent = `T: ${Math.floor(bf.elapsedTime)}s${this.engine.isWaitingForAI() ? " · waiting for AI…" : ""}`;
   }
 
   private updateSpeedDisplay(): void {
@@ -706,11 +800,15 @@ export class UIController {
 
   private startUIRefresh(): void {
     setInterval(() => {
-      this.updateControlBar();
+      this.hud.update(this.lastConfig);
+      this.updatePauseButton();
       if (this.selectedUnitId) {
         const unit = this.stateManager.getUnitById(this.selectedUnitId);
-        this.updateInfoPanel(unit ?? null);
-        if (!unit) this.selectedUnitId = null;
+        this.hud.showUnit(unit ?? null);
+        if (!unit) {
+          this.selectedUnitId = null;
+          this.renderer.setSelectedUnit(null);
+        }
       }
     }, 100);
   }

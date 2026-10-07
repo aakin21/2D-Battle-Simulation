@@ -1,0 +1,344 @@
+/* UI theme in the style of the Ninja Adventure asset pack (CC0, D25): its wooden 9-patch
+   frames, buttons, tabs and slider, and its pixel font. The art is scaled by whole pixels
+   (2x or 3x) and drawn with nearest-neighbour sampling so it stays crisp. Colours are taken
+   from the theme images. */
+
+@font-face {
+  font-family: 'Pixel';
+  src: url('../assets/ui/NormalFont.ttf') format('truetype');
+  font-display: block;
+}
+
+:root {
+  --ink: #131b1b;
+  --wood-light: #ffad55;
+  --wood: #f06733;
+  --wood-mid: #f38c4c;
+  --wood-dark: #9b513c;
+  --wood-tan: #a3754e;
+  --bark: #6f573c;
+  --well: #46402e;
+  --well-dark: #34312c;
+  --page: #1d1b17;
+  --text: #f4e3c1;
+  --text-dim: #c9b48f;
+  --text-faint: #8f8166;
+  /* Team colours match the unit sprites: west is tinted gold, east blue (UNIT_COLORS) */
+  --west: #ffd23f;
+  --east: #6aa8ff;
+  --west-dark: #8a6d00;
+  --east-dark: #23417f;
+  --neutral: #e8e0d0;
+  --hp: #7bd65b;
+  --hp-low: #f0b43c;
+  --hp-crit: #e8513a;
+  --courage: #f7c948;
+  --bar-bg: #1f1b14;
+  --font: 'Pixel', monospace;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background: var(--page);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 16px;
+  line-height: 1.25;
+  /* The font's space glyph is very narrow */
+  word-spacing: 0.3em;
+  -webkit-font-smoothing: none;
+  overflow: hidden;
+  user-select: none;
+}
+
+img,
+canvas,
+.pixel {
+  image-rendering: pixelated;
+}
+
+button,
+input,
+select {
+  font: inherit;
+  color: inherit;
+  word-spacing: inherit;
+}
+
+button:focus-visible,
+select:focus-visible,
+input:focus-visible {
+  outline: 2px solid var(--wood-light);
+  outline-offset: 2px;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+/* ---------- Frames ---------- */
+
+/* Wooden frame with a dark inside (panel.png, 5 px border scaled 3x) */
+.panel {
+  border: 15px solid transparent;
+  border-image: url('../assets/ui/panel.png') 5 / 15px / 0 stretch;
+  background: var(--well);
+  background-clip: padding-box;
+  image-rendering: pixelated;
+}
+
+/* The same frame at 2x for smaller boxes */
+.panel-sm {
+  border: 10px solid transparent;
+  border-image: url('../assets/ui/panel.png') 5 / 10px / 0 stretch;
+  background: var(--well);
+  background-clip: padding-box;
+  image-rendering: pixelated;
+}
+
+/* Sunken area inside a panel (well.png, 3 px border scaled 2x) */
+.well {
+  border: 6px solid transparent;
+  border-image: url('../assets/ui/well-dark.png') 3 fill / 6px / 0 stretch;
+  image-rendering: pixelated;
+}
+
+/* ---------- Buttons ---------- */
+
+.btn,
+.icon-btn,
+.seg button {
+  border: 6px solid transparent;
+  border-image: url('../assets/ui/button.png') 2 fill / 6px / 0 stretch;
+  background: none;
+  image-rendering: pixelated;
+  color: #fff;
+  text-shadow: 2px 2px 0 var(--wood-dark);
+  cursor: pointer;
+  line-height: 1;
+  padding: 2px 6px 4px;
+  white-space: nowrap;
+}
+
+.btn:hover,
+.icon-btn:hover,
+.seg button:hover {
+  border-image-source: url('../assets/ui/button-hover.png');
+  color: var(--ink);
+  text-shadow: none;
+}
+
+.btn:active,
+.icon-btn:active,
+.seg button:active {
+  border-image-source: url('../assets/ui/button-pressed.png');
+  transform: translateY(2px);
+}
+
+.btn:disabled {
+  border-image-source: url('../assets/ui/button-disabled.png');
+  color: var(--text-faint);
+  text-shadow: none;
+  cursor: default;
+  transform: none;
+}
+
+.btn-primary {
+  font-size: 24px;
+  padding: 6px 28px 9px;
+}
+
+/* Darker button for secondary actions and inactive toggles */
+.btn-quiet,
+.seg button,
+.toggle {
+  border-image-source: url('../assets/ui/well-dark.png');
+  border-image-slice: 3 fill;
+  color: var(--text-dim);
+  text-shadow: none;
+}
+
+.btn-quiet:hover,
+.seg button:hover,
+.toggle:hover {
+  border-image-source: url('../assets/ui/well.png');
+  color: var(--text);
+}
+
+.seg button.active,
+.toggle.on {
+  border-image-source: url('../assets/ui/button.png');
+  border-image-slice: 2 fill;
+  color: #fff;
+  text-shadow: 2px 2px 0 var(--wood-dark);
+}
+
+.seg button.active:hover,
+.toggle.on:hover {
+  border-image-source: url('../assets/ui/button-hover.png');
+  color: var(--ink);
+  text-shadow: none;
+}
+
+.icon-btn {
+  width: 40px;
+  height: 36px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.icon-btn svg {
+  width: 16px;
+  height: 16px;
+  shape-rendering: crispEdges;
+  fill: currentColor;
+  filter: drop-shadow(2px 2px 0 var(--wood-dark));
+}
+
+.icon-btn:hover svg {
+  filter: none;
+}
+
+/* Segmented control: one row of options, the active one in orange */
+.seg {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.seg button {
+  padding: 3px 8px 5px;
+}
+
+/* ---------- Inputs ---------- */
+
+input[type='range'] {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  height: 24px;
+  cursor: pointer;
+}
+
+input[type='range']::-webkit-slider-runnable-track {
+  height: 10px;
+  background: var(--well-dark);
+  border: 2px solid var(--ink);
+  border-radius: 4px;
+}
+
+input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 26px;
+  height: 22px;
+  margin-top: -8px;
+  border: none;
+  background: url('../assets/ui/slider-thumb.png') center / 26px 22px no-repeat;
+  image-rendering: pixelated;
+}
+
+input[type='range']:hover::-webkit-slider-thumb {
+  background-image: url('../assets/ui/slider-thumb-hover.png');
+}
+
+input[type='range']::-moz-range-track {
+  height: 6px;
+  background: var(--well-dark);
+  border: 2px solid var(--ink);
+  border-radius: 4px;
+}
+
+input[type='range']::-moz-range-thumb {
+  width: 26px;
+  height: 22px;
+  border: none;
+  border-radius: 0;
+  background: url('../assets/ui/slider-thumb.png') center / 26px 22px no-repeat;
+  image-rendering: pixelated;
+}
+
+input[type='number'],
+select {
+  background: var(--well-dark);
+  border: 2px solid var(--ink);
+  box-shadow: inset 2px 2px 0 #00000055;
+  color: var(--text);
+  padding: 3px 6px;
+}
+
+input[type='number'] {
+  width: 64px;
+  text-align: center;
+  -moz-appearance: textfield;
+}
+
+input[type='number']::-webkit-inner-spin-button,
+input[type='number']::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+}
+
+/* ---------- Bars ---------- */
+
+.bar {
+  position: relative;
+  height: 10px;
+  background: var(--bar-bg);
+  border: 2px solid var(--ink);
+}
+
+.bar > i {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--hp);
+  box-shadow: inset 0 2px 0 #ffffff40;
+}
+
+.bar.courage > i {
+  background: var(--courage);
+}
+
+.bar.west > i {
+  background: var(--west);
+}
+
+.bar.east > i {
+  background: var(--east);
+}
+
+.west-text {
+  color: var(--west);
+}
+
+.east-text {
+  color: var(--east);
+}
+
+.dim {
+  color: var(--text-dim);
+}
+
+.faint {
+  color: var(--text-faint);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001s !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001s !important;
+  }
+}

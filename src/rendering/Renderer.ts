@@ -15,17 +15,12 @@ import {
 } from '../types/types';
 import { EffectsManager } from './effects/EffectsManager';
 import { CONTROL_RADIUS, BASE_RADIUS } from '../engine/Rules';
-import {
-  UnitSprites,
-  FRAME,
-  COL_LEFT,
-  COL_RIGHT,
-  WALK_FRAMES,
-  ROW_ATTACK,
-} from './UnitSprites';
+import { UnitSprites, FRAME, COL_LEFT, COL_RIGHT, WALK_FRAMES, ROW_ATTACK } from './UnitSprites';
 
-const ZOOM_MIN = TILE_SIZE; // full map visible: 150 tiles × 5px = 750px
-const ZOOM_MAX = 40; // max zoom: ~19 tiles visible
+// The canvas fills the window, so the smallest zoom is the one that fits the whole map
+// (see resize()); until the first resize it is the original 750 px view.
+const ZOOM_FIT_DEFAULT = TILE_SIZE; // 150 tiles × 5 px = 750 px
+const ZOOM_MAX = 40; // max zoom: ~19 tiles visible on a 750 px view
 const ENEMY_HERO_COLOR = '#00E5FF'; // battle mode: enemy heroes stand out from blue berserkers
 
 // Sprite animation
@@ -43,7 +38,8 @@ export class Renderer {
   // Offscreen canvas with full terrain at TILE_SIZE resolution — built once per terrain
   private offscreenTerrain: HTMLCanvasElement | null = null;
 
-  private camera: Camera = { x: 0, y: 0, zoom: ZOOM_MIN };
+  private zoomMin: number = ZOOM_FIT_DEFAULT;
+  private camera: Camera = { x: 0, y: 0, zoom: ZOOM_FIT_DEFAULT };
   private selectedUnitId: string | null = null;
   private battleMode: boolean = false;
 
@@ -128,12 +124,46 @@ export class Renderer {
     return this.effects.isEnabled();
   }
 
+  // --- Canvas size ---
+
+  // The canvas follows the size of its area in the page. The smallest zoom shows the whole
+  // map; a view that was fully zoomed out stays fully zoomed out.
+  resize(width: number, height: number): void {
+    const w = Math.max(1, Math.floor(width));
+    const h = Math.max(1, Math.floor(height));
+    if (w === this.canvas.width && h === this.canvas.height) return;
+    const wasFit = this.camera.zoom <= this.zoomMin * 1.0001;
+    this.canvas.width = w;
+    this.canvas.height = h;
+    // Resizing resets the context state
+    this.ctx.imageSmoothingEnabled = false;
+    this.zoomMin = Math.min(w, h) / GRID_SIZE;
+    if (wasFit || this.camera.zoom < this.zoomMin) this.camera.zoom = this.zoomMin;
+    this.clampCamera();
+  }
+
+  getViewSize(): { width: number; height: number } {
+    return { width: this.canvas.width, height: this.canvas.height };
+  }
+
+  // Portrait for the selected-unit card: the unit's sprite facing down, scaled by whole
+  // pixels. Draws nothing until the sprites are loaded.
+  drawPortrait(target: CanvasRenderingContext2D, unit: IUnit): void {
+    const { width, height } = target.canvas;
+    target.imageSmoothingEnabled = false;
+    target.clearRect(0, 0, width, height);
+    if (!this.unitSprites.isReady()) return;
+    const heroIndex = unit.unitType === UnitType.HERO ? (unit as IHero).heroIndex - 1 : 0;
+    const set = this.unitSprites.get(unit.unitType, unit.faction, heroIndex);
+    target.drawImage(set.normal, 0, 0, FRAME, FRAME, 0, 0, width, height);
+  }
+
   // --- Camera controls ---
 
   zoomAt(delta: number, mouseCanvasX: number, mouseCanvasY: number): void {
     const factor = delta > 0 ? 1.15 : 1 / 1.15;
     const oldZoom = this.camera.zoom;
-    const newZoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, oldZoom * factor));
+    const newZoom = Math.max(this.zoomMin, Math.min(ZOOM_MAX, oldZoom * factor));
     if (newZoom === oldZoom) return;
 
     // Keep the tile under the mouse cursor fixed on screen
@@ -163,7 +193,7 @@ export class Renderer {
   }
 
   isZoomed(): boolean {
-    return this.camera.zoom > ZOOM_MIN;
+    return this.camera.zoom > this.zoomMin * 1.0001;
   }
 
   centerOn(tileX: number, tileY: number): void {
@@ -177,7 +207,8 @@ export class Renderer {
   // Call on reset — clears terrain and returns camera to default
   clearTerrainCache(): void {
     this.offscreenTerrain = null;
-    this.camera = { x: 0, y: 0, zoom: ZOOM_MIN };
+    this.camera = { x: 0, y: 0, zoom: this.zoomMin };
+    this.clampCamera();
     this.selectedUnitId = null;
     this.effects.reset();
     this.fxHitCount = 0;
@@ -186,11 +217,18 @@ export class Renderer {
 
   // --- Private helpers ---
 
+  // Keeps the view on the map. Along an axis where the whole map fits, it is centred.
   private clampCamera(): void {
     const visW = this.canvas.width / this.camera.zoom;
     const visH = this.canvas.height / this.camera.zoom;
-    this.camera.x = Math.max(0, Math.min(Math.max(0, GRID_SIZE - visW), this.camera.x));
-    this.camera.y = Math.max(0, Math.min(Math.max(0, GRID_SIZE - visH), this.camera.y));
+    this.camera.x =
+      visW >= GRID_SIZE
+        ? (GRID_SIZE - visW) / 2
+        : Math.max(0, Math.min(GRID_SIZE - visW, this.camera.x));
+    this.camera.y =
+      visH >= GRID_SIZE
+        ? (GRID_SIZE - visH) / 2
+        : Math.max(0, Math.min(GRID_SIZE - visH, this.camera.y));
   }
 
   private buildTerrainCanvas(grid: TerrainType[][]): void {
@@ -210,22 +248,26 @@ export class Renderer {
     this.offscreenTerrain = oc;
   }
 
+  // Draws the visible part of the map; outside the map the canvas stays clear.
   private drawTerrain(): void {
     if (!this.offscreenTerrain) return;
     const { x, y, zoom } = this.camera;
-    const visW = this.canvas.width / zoom;
-    const visH = this.canvas.height / zoom;
+    const x0 = Math.max(0, x);
+    const y0 = Math.max(0, y);
+    const x1 = Math.min(GRID_SIZE, x + this.canvas.width / zoom);
+    const y1 = Math.min(GRID_SIZE, y + this.canvas.height / zoom);
+    if (x1 <= x0 || y1 <= y0) return;
 
     this.ctx.drawImage(
       this.offscreenTerrain,
-      x * TILE_SIZE,
-      y * TILE_SIZE,
-      visW * TILE_SIZE,
-      visH * TILE_SIZE,
-      0,
-      0,
-      this.canvas.width,
-      this.canvas.height
+      x0 * TILE_SIZE,
+      y0 * TILE_SIZE,
+      (x1 - x0) * TILE_SIZE,
+      (y1 - y0) * TILE_SIZE,
+      (x0 - x) * zoom,
+      (y0 - y) * zoom,
+      (x1 - x0) * zoom,
+      (y1 - y0) * zoom
     );
   }
 
@@ -402,9 +444,9 @@ export class Renderer {
   // radius (influence area) is shown by the hero aura. Only visible while the hero is selected.
   private drawHeroSight(units: IUnit[]): void {
     if (!this.selectedUnitId) return;
-    const hero = units.find(
-      (u) => u.unitType === UnitType.HERO && u.id === this.selectedUnitId
-    ) as IHero | undefined;
+    const hero = units.find((u) => u.unitType === UnitType.HERO && u.id === this.selectedUnitId) as
+      | IHero
+      | undefined;
     if (!hero) return;
 
     const { x: camX, y: camY, zoom } = this.camera;
@@ -427,13 +469,18 @@ export class Renderer {
     const o = battlefield.objective;
     const { x: camX, y: camY, zoom } = this.camera;
     const sideColor = (f: Faction | null) =>
-      f === Faction.FRIENDLY ? '255, 80, 80' : f === Faction.ENEMY ? '0, 229, 255' : '220, 220, 220';
+      f === Faction.FRIENDLY
+        ? '255, 210, 63'
+        : f === Faction.ENEMY
+          ? '106, 168, 255'
+          : '220, 220, 220';
 
     for (const p of o.points) {
       const sx = (p.position.x + 0.5 - camX) * zoom;
       const sy = (p.position.y + 0.5 - camY) * zoom;
       const r = CONTROL_RADIUS * zoom;
-      if (sx + r < 0 || sx - r > this.canvas.width || sy + r < 0 || sy - r > this.canvas.height) continue;
+      if (sx + r < 0 || sx - r > this.canvas.width || sy + r < 0 || sy - r > this.canvas.height)
+        continue;
       const c = sideColor(p.holder);
       this.ctx.beginPath();
       this.ctx.arc(sx, sy, r, 0, Math.PI * 2);
@@ -455,7 +502,12 @@ export class Renderer {
       const half = BASE_RADIUS * zoom;
       const sx = (b.position.x + 0.5 - camX) * zoom;
       const sy = (b.position.y + 0.5 - camY) * zoom;
-      if (sx + half < 0 || sx - half > this.canvas.width || sy + half < 0 || sy - half > this.canvas.height)
+      if (
+        sx + half < 0 ||
+        sx - half > this.canvas.width ||
+        sy + half < 0 ||
+        sy - half > this.canvas.height
+      )
         continue;
       const c = sideColor(b.faction);
       this.ctx.fillStyle = b.hp > 0 ? `rgba(${c}, 0.35)` : 'rgba(60, 60, 60, 0.5)';
