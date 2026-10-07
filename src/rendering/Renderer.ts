@@ -25,6 +25,17 @@ const ZOOM_FIT_DEFAULT = TILE_SIZE; // 150 tiles × 5 px = 750 px
 const ZOOM_MAX = 40; // max zoom: ~19 tiles visible on a 750 px view
 const ENEMY_HERO_COLOR = '#00E5FF'; // battle mode: enemy heroes stand out from blue berserkers
 
+// Eased camera: fraction of the remaining distance covered per second (exponential)
+const CAMERA_EASE_RATE = 18;
+// Order feedback: the ring that closes on a new task point, in real seconds
+const ORDER_PING_TIME = 0.45;
+// Attack pose: the sprite leans this far toward its facing side, as a share of its size
+const ATTACK_LUNGE = 0.12;
+
+function reducedMotion(): boolean {
+  return typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
+
 // Sprite animation
 const WALK_FPS = 8;
 // Mirrors ATTACK_INTERVAL in SimulationEngine: attackCooldown is reset to it on each hit
@@ -32,6 +43,9 @@ const ATTACK_INTERVAL = 1.0;
 // The attack frame is shown for this long after each hit
 const ATTACK_POSE_TIME = 0.25;
 const HERO_RING_COLORS = ['#FFD700', ENEMY_HERO_COLOR]; // by Faction
+// Order markers by Faction: west gold, east blue (as in the HUD)
+const SIDE_FILL = ['#ffd23f', '#6aa8ff'];
+const SIDE_LINE = ['rgba(255, 210, 63, 0.75)', 'rgba(106, 168, 255, 0.75)'];
 
 export class Renderer {
   private canvas: HTMLCanvasElement;
@@ -46,6 +60,21 @@ export class Renderer {
 
   private zoomMin: number = ZOOM_FIT_DEFAULT;
   private camera: Camera = { x: 0, y: 0, zoom: ZOOM_FIT_DEFAULT };
+  // Eased camera moves: a zoom around a fixed screen point, or a glide to a position
+  private zoomEase: {
+    target: number;
+    screenX: number;
+    screenY: number;
+    gridX: number;
+    gridY: number;
+  } | null = null;
+  private panEase: { x: number; y: number } | null = null;
+  private lastCameraStep = 0;
+  // Bars over units: 'smart' shows them only where something is happening (FX on)
+  private barsMode: 'smart' | 'all' = 'smart';
+  // Order markers: the command each hero had last frame, and when a new one appeared
+  private lastOrders = new Map<string, unknown>();
+  private orderPings: Array<{ x: number; y: number; faction: Faction; start: number }> = [];
   private selectedUnitId: string | null = null;
   private battleMode: boolean = false;
 
@@ -78,6 +107,7 @@ export class Renderer {
   }
 
   render(battlefield: IBattlefield): void {
+    this.stepCamera(performance.now());
     if (!this.offscreenTerrain) {
       this.buildTerrainCanvas(battlefield.grid);
     }
@@ -136,6 +166,16 @@ export class Renderer {
     return this.effects.isEnabled();
   }
 
+  // 'smart': with FX on, bars only over units that are hurt, fighting, fleeing, resting,
+  // selected, or heroes; 'all': over every unit (FX off always shows all)
+  setBarsMode(mode: 'smart' | 'all'): void {
+    this.barsMode = mode;
+  }
+
+  getBarsMode(): 'smart' | 'all' {
+    return this.barsMode;
+  }
+
   // --- Canvas size ---
 
   // The canvas follows the size of its area in the page. The smallest zoom shows the whole
@@ -145,6 +185,8 @@ export class Renderer {
     const h = Math.max(1, Math.floor(height));
     if (w === this.canvas.width && h === this.canvas.height) return;
     const wasFit = this.camera.zoom <= this.zoomMin * 1.0001;
+    this.zoomEase = null;
+    this.panEase = null;
     this.canvas.width = w;
     this.canvas.height = h;
     // Resizing resets the context state
@@ -172,25 +214,68 @@ export class Renderer {
 
   // --- Camera controls ---
 
-  zoomAt(delta: number, mouseCanvasX: number, mouseCanvasY: number): void {
+  // Zooms around the cursor. With smooth on (the mouse wheel), the zoom eases to its new
+  // value over a few frames; repeated wheel steps add up.
+  zoomAt(delta: number, mouseCanvasX: number, mouseCanvasY: number, smooth = false): void {
     const factor = delta > 0 ? 1.15 : 1 / 1.15;
-    const oldZoom = this.camera.zoom;
-    const newZoom = Math.max(this.zoomMin, Math.min(ZOOM_MAX, oldZoom * factor));
-    if (newZoom === oldZoom) return;
+    const from = this.zoomEase ? this.zoomEase.target : this.camera.zoom;
+    const target = Math.max(this.zoomMin, Math.min(ZOOM_MAX, from * factor));
+    if (target === from) return;
 
     // Keep the tile under the mouse cursor fixed on screen
-    const mouseGridX = this.camera.x + mouseCanvasX / oldZoom;
-    const mouseGridY = this.camera.y + mouseCanvasY / oldZoom;
-    this.camera.zoom = newZoom;
-    this.camera.x = mouseGridX - mouseCanvasX / newZoom;
-    this.camera.y = mouseGridY - mouseCanvasY / newZoom;
+    const gridX = this.camera.x + mouseCanvasX / this.camera.zoom;
+    const gridY = this.camera.y + mouseCanvasY / this.camera.zoom;
+    this.panEase = null;
+    if (smooth && !reducedMotion()) {
+      this.zoomEase = { target, screenX: mouseCanvasX, screenY: mouseCanvasY, gridX, gridY };
+      return;
+    }
+    this.zoomEase = null;
+    this.camera.zoom = target;
+    this.camera.x = gridX - mouseCanvasX / target;
+    this.camera.y = gridY - mouseCanvasY / target;
     this.clampCamera();
   }
 
   pan(dx: number, dy: number): void {
+    this.panEase = null;
+    // A zoom still easing keeps its anchor, moved along with the drag
+    if (this.zoomEase) {
+      this.zoomEase.gridX -= dx / this.camera.zoom;
+      this.zoomEase.gridY -= dy / this.camera.zoom;
+    }
     this.camera.x -= dx / this.camera.zoom;
     this.camera.y -= dy / this.camera.zoom;
     this.clampCamera();
+  }
+
+  // Advances eased zooms and pans; called once per frame with real time.
+  private stepCamera(now: number): void {
+    const dt = this.lastCameraStep ? Math.min(0.1, (now - this.lastCameraStep) / 1000) : 0;
+    this.lastCameraStep = now;
+    const k = 1 - Math.exp(-dt * CAMERA_EASE_RATE);
+    const z = this.zoomEase;
+    if (z) {
+      this.camera.zoom += (z.target - this.camera.zoom) * k;
+      if (Math.abs(z.target - this.camera.zoom) < z.target * 0.002) {
+        this.camera.zoom = z.target;
+        this.zoomEase = null;
+      }
+      this.camera.x = z.gridX - z.screenX / this.camera.zoom;
+      this.camera.y = z.gridY - z.screenY / this.camera.zoom;
+      this.clampCamera();
+    }
+    const p = this.panEase;
+    if (p) {
+      this.camera.x += (p.x - this.camera.x) * k;
+      this.camera.y += (p.y - this.camera.y) * k;
+      if (Math.abs(p.x - this.camera.x) + Math.abs(p.y - this.camera.y) < 0.02) {
+        this.camera.x = p.x;
+        this.camera.y = p.y;
+        this.panEase = null;
+      }
+      this.clampCamera();
+    }
   }
 
   canvasToGrid(canvasX: number, canvasY: number): Position {
@@ -208,9 +293,22 @@ export class Renderer {
     return this.camera.zoom > this.zoomMin * 1.0001;
   }
 
-  centerOn(tileX: number, tileY: number): void {
+  // Centres the view on a tile; with smooth on (minimap clicks) the view glides there.
+  centerOn(tileX: number, tileY: number, smooth = false): void {
     const visW = this.canvas.width / this.camera.zoom;
     const visH = this.canvas.height / this.camera.zoom;
+    this.zoomEase = null;
+    if (smooth && !reducedMotion()) {
+      // Clamp the destination the same way the camera is clamped
+      const keep = { ...this.camera };
+      this.camera.x = tileX - visW / 2;
+      this.camera.y = tileY - visH / 2;
+      this.clampCamera();
+      this.panEase = { x: this.camera.x, y: this.camera.y };
+      this.camera = keep;
+      return;
+    }
+    this.panEase = null;
     this.camera.x = tileX - visW / 2;
     this.camera.y = tileY - visH / 2;
     this.clampCamera();
@@ -220,6 +318,10 @@ export class Renderer {
   clearTerrainCache(): void {
     this.offscreenTerrain = null;
     this.artCanvas = null;
+    this.zoomEase = null;
+    this.panEase = null;
+    this.lastOrders.clear();
+    this.orderPings.length = 0;
     this.camera = { x: 0, y: 0, zoom: this.zoomMin };
     this.clampCamera();
     this.selectedUnitId = null;
@@ -384,7 +486,9 @@ export class Renderer {
       }
 
       const sheet = anyFlash && this.effects.isFlashing(unit.id, now) ? set.flash : set.normal;
-      ctx.drawImage(sheet, col * FRAME, row * FRAME, FRAME, FRAME, sx, sy, size, size);
+      // The attack frame leans toward the facing side, so a hit reads as a lunge
+      const lunge = row === ROW_ATTACK ? anim.facing * size * ATTACK_LUNGE : 0;
+      ctx.drawImage(sheet, col * FRAME, row * FRAME, FRAME, FRAME, sx + lunge, sy, size, size);
     }
   }
 
@@ -396,7 +500,16 @@ export class Renderer {
     const hpH = Math.max(1, Math.floor(zoom * 0.4));
     const cH = Math.max(1, Math.floor(zoom * 0.25));
 
+    const smart = this.barsMode === 'smart' && this.effects.isEnabled();
     for (const unit of units) {
+      if (
+        smart &&
+        unit.hp >= unit.maxHp &&
+        unit.state === BehaviorState.IDLE &&
+        unit.unitType !== UnitType.HERO &&
+        unit.id !== this.selectedUnitId
+      )
+        continue;
       const isWarrior =
         unit.unitType === UnitType.WARRIOR ||
         (this.battleMode && unit.unitType === UnitType.BERSERKER);
@@ -574,29 +687,98 @@ export class Renderer {
     }
   }
 
+  // Each hero's current task point. FX off: the original X. FX on: a small marker in the
+  // side's colour, a ring that closes on the point when a new order arrives (from the user,
+  // the rules, Jev or the LLM) and a dashed line from the selected hero to its target.
   private drawTaskPoint(units: IUnit[]): void {
     const { x: camX, y: camY, zoom } = this.camera;
+    const ctx = this.ctx;
+    const fx = this.effects.isEnabled();
+    const now = performance.now();
     const half = Math.max(5, zoom * 0.7);
 
     for (const unit of units) {
       if (unit.unitType !== UnitType.HERO) continue;
       const hero = unit as IHero;
+      if (fx) {
+        const prev = this.lastOrders.get(hero.id);
+        if (hero.command !== prev) {
+          this.lastOrders.set(hero.id, hero.command);
+          if (prev !== undefined && hero.taskPoint && !reducedMotion()) {
+            this.orderPings.push({
+              x: hero.taskPoint.x,
+              y: hero.taskPoint.y,
+              faction: hero.faction,
+              start: now,
+            });
+          }
+        }
+      }
       if (!hero.taskPoint) continue;
 
       const sx = (hero.taskPoint.x - camX) * zoom;
       const sy = (hero.taskPoint.y - camY) * zoom;
 
+      if (fx && hero.id === this.selectedUnitId) {
+        ctx.strokeStyle = SIDE_LINE[hero.faction];
+        ctx.lineWidth = 2;
+        ctx.setLineDash([6, 5]);
+        ctx.beginPath();
+        ctx.moveTo((hero.position.x - camX) * zoom, (hero.position.y - camY) * zoom);
+        ctx.lineTo(sx, sy);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+
       if (sx < -20 || sx > this.canvas.width + 20) continue;
       if (sy < -20 || sy > this.canvas.height + 20) continue;
 
-      this.ctx.strokeStyle = hero.faction === Faction.ENEMY ? ENEMY_HERO_COLOR : '#FF0000';
-      this.ctx.lineWidth = Math.max(1, zoom * 0.2);
-      this.ctx.beginPath();
-      this.ctx.moveTo(sx - half, sy - half);
-      this.ctx.lineTo(sx + half, sy + half);
-      this.ctx.moveTo(sx + half, sy - half);
-      this.ctx.lineTo(sx - half, sy + half);
-      this.ctx.stroke();
+      if (!fx) {
+        ctx.strokeStyle = hero.faction === Faction.ENEMY ? ENEMY_HERO_COLOR : '#FF0000';
+        ctx.lineWidth = Math.max(1, zoom * 0.2);
+        ctx.beginPath();
+        ctx.moveTo(sx - half, sy - half);
+        ctx.lineTo(sx + half, sy + half);
+        ctx.moveTo(sx + half, sy - half);
+        ctx.lineTo(sx - half, sy + half);
+        ctx.stroke();
+        continue;
+      }
+
+      // A diamond that bobs gently above the point
+      const r = Math.max(4, zoom * 0.55);
+      const bob = reducedMotion() ? 0 : Math.sin(now / 220) * r * 0.3;
+      const cy = sy - r * 1.4 + bob;
+      ctx.beginPath();
+      ctx.moveTo(sx, cy - r);
+      ctx.lineTo(sx + r * 0.75, cy);
+      ctx.lineTo(sx, cy + r);
+      ctx.lineTo(sx - r * 0.75, cy);
+      ctx.closePath();
+      ctx.fillStyle = SIDE_FILL[hero.faction];
+      ctx.fill();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = '#131b1b';
+      ctx.stroke();
     }
+
+    // Rings closing on new task points
+    let keep = 0;
+    for (const ping of this.orderPings) {
+      const t = (now - ping.start) / 1000 / ORDER_PING_TIME;
+      if (t >= 1) continue;
+      this.orderPings[keep++] = ping;
+      const px = (ping.x - camX) * zoom;
+      const py = (ping.y - camY) * zoom;
+      const radius = Math.max(6, zoom * 2.5) * (1 - 0.75 * t);
+      ctx.beginPath();
+      ctx.ellipse(px, py, radius, radius * 0.6, 0, 0, Math.PI * 2);
+      ctx.globalAlpha = 1 - t;
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = SIDE_FILL[ping.faction];
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+    this.orderPings.length = keep;
   }
 }
