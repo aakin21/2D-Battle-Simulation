@@ -14,6 +14,8 @@ import {
   Position,
 } from '../types/types';
 import { EffectsManager } from './effects/EffectsManager';
+import { TerrainArt, ART_PX } from './TerrainArt';
+import { ObjectiveArt } from './ObjectiveArt';
 import { CONTROL_RADIUS, BASE_RADIUS } from '../engine/Rules';
 import { UnitSprites, FRAME, COL_LEFT, COL_RIGHT, WALK_FRAMES, ROW_ATTACK } from './UnitSprites';
 
@@ -37,6 +39,10 @@ export class Renderer {
 
   // Offscreen canvas with full terrain at TILE_SIZE resolution — built once per terrain
   private offscreenTerrain: HTMLCanvasElement | null = null;
+  // Terrain and objective art (FX on); the art canvas is built once per map, ART_PX per tile
+  private terrainArt = new TerrainArt();
+  private artCanvas: HTMLCanvasElement | null = null;
+  private objectiveArt = new ObjectiveArt();
 
   private zoomMin: number = ZOOM_FIT_DEFAULT;
   private camera: Camera = { x: 0, y: 0, zoom: ZOOM_FIT_DEFAULT };
@@ -66,11 +72,17 @@ export class Renderer {
     this.effects.setUnitSprites(this.unitSprites);
     // Squares are drawn until the sprites are ready; on failure they simply stay squares
     this.unitSprites.load(this.ctx).catch((err) => console.warn('Unit sprites not loaded:', err));
+    // Flat terrain colours are drawn until the art is ready; on failure they stay
+    this.terrainArt.load().catch((err) => console.warn('Terrain art not loaded:', err));
+    this.objectiveArt.load().catch((err) => console.warn('Objective art not loaded:', err));
   }
 
   render(battlefield: IBattlefield): void {
     if (!this.offscreenTerrain) {
       this.buildTerrainCanvas(battlefield.grid);
+    }
+    if (!this.artCanvas && this.effects.isEnabled() && this.terrainArt.isReady()) {
+      this.artCanvas = this.terrainArt.build(battlefield.grid);
     }
     this.updateFps();
     this.updateEffects(battlefield);
@@ -207,6 +219,7 @@ export class Renderer {
   // Call on reset — clears terrain and returns camera to default
   clearTerrainCache(): void {
     this.offscreenTerrain = null;
+    this.artCanvas = null;
     this.camera = { x: 0, y: 0, zoom: this.zoomMin };
     this.clampCamera();
     this.selectedUnitId = null;
@@ -248,9 +261,19 @@ export class Renderer {
     this.offscreenTerrain = oc;
   }
 
-  // Draws the visible part of the map; outside the map the canvas stays clear.
+  // The terrain art while effects are on (null until it is built), for the minimap
+  getTerrainArt(): HTMLCanvasElement | null {
+    return this.effects.isEnabled() ? this.artCanvas : null;
+  }
+
+  // Draws the visible part of the map; outside the map the canvas stays clear. With FX on it
+  // draws the terrain art: smoothed when it is shown smaller than its own pixels, sharp when
+  // it is magnified.
   private drawTerrain(): void {
-    if (!this.offscreenTerrain) return;
+    const art = this.effects.isEnabled() ? this.artCanvas : null;
+    const source = art ?? this.offscreenTerrain;
+    if (!source) return;
+    const scale = art ? ART_PX : TILE_SIZE;
     const { x, y, zoom } = this.camera;
     const x0 = Math.max(0, x);
     const y0 = Math.max(0, y);
@@ -258,17 +281,23 @@ export class Renderer {
     const y1 = Math.min(GRID_SIZE, y + this.canvas.height / zoom);
     if (x1 <= x0 || y1 <= y0) return;
 
+    const smooth = art !== null && zoom < ART_PX;
+    if (smooth) {
+      this.ctx.imageSmoothingEnabled = true;
+      this.ctx.imageSmoothingQuality = 'high';
+    }
     this.ctx.drawImage(
-      this.offscreenTerrain,
-      x0 * TILE_SIZE,
-      y0 * TILE_SIZE,
-      (x1 - x0) * TILE_SIZE,
-      (y1 - y0) * TILE_SIZE,
+      source,
+      x0 * scale,
+      y0 * scale,
+      (x1 - x0) * scale,
+      (y1 - y0) * scale,
       (x0 - x) * zoom,
       (y0 - y) * zoom,
       (x1 - x0) * zoom,
       (y1 - y0) * zoom
     );
+    if (smooth) this.ctx.imageSmoothingEnabled = false;
   }
 
   // Sprites are part of the effects layer: FX off shows the original Phase 1 squares.
@@ -475,6 +504,10 @@ export class Renderer {
           ? '106, 168, 255'
           : '220, 220, 220';
 
+    // With FX on: a flag on each point and a tower for each base (ObjectiveArt)
+    const art = this.effects.isEnabled() && this.objectiveArt.isReady();
+    const simTime = this.effects.getSimTime();
+
     for (const p of o.points) {
       const sx = (p.position.x + 0.5 - camX) * zoom;
       const sy = (p.position.y + 0.5 - camY) * zoom;
@@ -488,12 +521,26 @@ export class Renderer {
       this.ctx.fill();
       this.ctx.strokeStyle = `rgba(${c}, 0.8)`;
       this.ctx.lineWidth = 2;
+      if (art) this.ctx.setLineDash([Math.max(4, zoom), Math.max(3, zoom * 0.6)]);
       this.ctx.stroke();
+      this.ctx.setLineDash([]);
+      const label = Math.min(28, Math.max(12, zoom * 2.5));
+      if (art) {
+        const size = Math.max(12, zoom * 2);
+        this.objectiveArt.drawFlag(this.ctx, p.holder, sx, sy + size * 0.4, size, simTime);
+      }
       this.ctx.fillStyle = `rgba(${c}, 0.95)`;
-      this.ctx.font = `bold ${Math.max(12, zoom * 2.5)}px monospace`;
+      this.ctx.font = art ? `${Math.round(label)}px Pixel, monospace` : `bold ${label}px monospace`;
       this.ctx.textAlign = 'center';
       this.ctx.textBaseline = 'middle';
-      this.ctx.fillText(p.name, sx, sy);
+      if (art) {
+        // Letter beside the flag, outlined for any ground
+        const lx = sx + Math.max(12, zoom * 2);
+        this.ctx.lineWidth = 3;
+        this.ctx.strokeStyle = '#131b1b';
+        this.ctx.strokeText(p.name, lx, sy);
+        this.ctx.fillText(p.name, lx, sy);
+      } else this.ctx.fillText(p.name, sx, sy);
       this.ctx.textAlign = 'start';
       this.ctx.textBaseline = 'alphabetic';
     }
@@ -509,12 +556,16 @@ export class Renderer {
         sy - half > this.canvas.height
       )
         continue;
-      const c = sideColor(b.faction);
-      this.ctx.fillStyle = b.hp > 0 ? `rgba(${c}, 0.35)` : 'rgba(60, 60, 60, 0.5)';
-      this.ctx.fillRect(sx - half, sy - half, half * 2, half * 2);
-      this.ctx.strokeStyle = `rgba(${c}, 0.9)`;
-      this.ctx.lineWidth = 2;
-      this.ctx.strokeRect(sx - half, sy - half, half * 2, half * 2);
+      if (art) {
+        this.objectiveArt.drawTower(this.ctx, b.faction, b.hp / b.maxHp, sx, sy, half * 2);
+      } else {
+        const c = sideColor(b.faction);
+        this.ctx.fillStyle = b.hp > 0 ? `rgba(${c}, 0.35)` : 'rgba(60, 60, 60, 0.5)';
+        this.ctx.fillRect(sx - half, sy - half, half * 2, half * 2);
+        this.ctx.strokeStyle = `rgba(${c}, 0.9)`;
+        this.ctx.lineWidth = 2;
+        this.ctx.strokeRect(sx - half, sy - half, half * 2, half * 2);
+      }
       const barH = Math.max(3, zoom * 0.5);
       this.ctx.fillStyle = '#550000';
       this.ctx.fillRect(sx - half, sy - half - barH - 2, half * 2, barH);
