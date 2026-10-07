@@ -100,6 +100,7 @@ export class LlmController {
   readonly system: string; // the rulebook sent as the session's system prompt
   readonly decisions: LlmDecision[] = [];
   skippedRequests = 0;
+  failure: string | null = null; // why the layer stopped, for the AI panel and the match log
 
   // Memory between reports
   private lastForceRatio: number | null = null;
@@ -318,6 +319,7 @@ export class LlmController {
     const what = this.opts.fallbackToRules
       ? 'heroes switched to rule-based control'
       : 'strategic layer stopped';
+    this.failure = `${reason}; ${what}`;
     console.warn(`LLM (${this.side}) unavailable (${reason}); ${what}. ${hint}`);
   }
 

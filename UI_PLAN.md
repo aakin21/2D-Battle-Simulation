@@ -125,7 +125,7 @@ References used: game-feel and "juice" practice (easing, squash and stretch, par
 | # | Step | Status |
 |---|---|---|
 | U1 | Theme, full-window layout, HUD, menu | ✅ |
-| U2 | AI panel and match log | |
+| U2 | AI panel and match log | ✅ |
 | U3 | Terrain art from the pack's tilesets | |
 | U4 | Unit animation | |
 | U5 | Sound | |
@@ -137,6 +137,11 @@ References used: game-feel and "juice" practice (easing, squash and stretch, par
 - Menu as one card; LLM model rows and AI timing only appear when an LLM or any AI is chosen. Controls screen with the pack's key and mouse icons. Match result card with both sides' units, heroes, HP left and points or base HP.
 - Fixed on the way: Space behind the open menu unpaused the run; the menu had no way back to the running match (now Continue and Esc); R during a stress test restarted it as a Default game; a drawn match was described as "more points"; the loading screen talked about berserker waves in battle mode.
 - Cost: render time per frame measured in the browser (stress mode, 4,062 units, 100 renders): FX on 2.06 ms at 1140×836 vs 2.13 ms at 750×750; FX off 1.12 vs 1.13 ms. The larger canvas does not change the cost of drawing.
+
+### U2. AI panel and match log
+- AI section in the side panel (battle with an AI side): the LLM's stance, plan, valid orders and rejected-order count, Jev's latest choice per hero with its confidence and threat score, time since the last answer, response times, skipped requests, "thinking…" while a request is open, and why a layer stopped. LLM text is escaped before it is shown.
+- Match log (Log button in the Armies header, "Download log" on the result card): JSON with the code version (`git describe`, built in by Vite), settings, result, a timeline of both armies per simulation second (soldiers, heroes, HP, fleeing, points or base HP) and every LLM and Jev decision with its response time, plus each layer's failure and the LLM rulebook. Replaces copying `ai.*.decisions` from the console during live tests.
+- Tested in the browser with fake LLM and Jev answers (no real AI calls): panel contents, an HTML tag in the LLM plan shown as text, an LLM failing with HTTP 500 (panel shows it, its heroes switch to rules), and the downloaded JSON (33 samples, 3 LLM and 36 Jev decisions, failure reason, 5,800-character rulebook).
 
 ## Versions
 

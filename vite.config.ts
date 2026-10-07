@@ -1,6 +1,16 @@
 import { defineConfig, loadEnv } from 'vite';
+import { execSync } from 'node:child_process';
 import { llmPlugin } from './server/llmPlugin';
 import { aiAccessPlugin } from './server/aiAccess';
+
+// Code version written into match logs, so every experiment can be traced to its commit.
+function appVersion(): string {
+  try {
+    return execSync('git describe --tags --always --dirty', { encoding: 'utf8' }).trim();
+  } catch {
+    return 'unknown';
+  }
+}
 
 export default defineConfig(({ mode }) => {
   // TYPESAFE_API_KEY comes from .env.local (not committed). It is added to Jev requests
@@ -9,6 +19,7 @@ export default defineConfig(({ mode }) => {
 
   return {
     base: './',
+    define: { __APP_VERSION__: JSON.stringify(appVersion()) },
     plugins: [aiAccessPlugin(env), llmPlugin()],
     build: {
       outDir: 'dist',

@@ -20,5 +20,5 @@ AI layers that command the heroes of one side. Each implements `AIController` (`
 - Jev has no memory: every request carries `game_rules`. The LLM gets the rulebook once per match as its system prompt.
 - Log every decision with its response time (`decisions`); these feed the latency experiments.
 - Never start a new request while one is open; count it as skipped (Q7).
-- On failure, stop the layer; hand heroes to the rule layer only if no other AI layer is attached (`fallbackToRules`).
+- On failure, stop the layer and set `failure` (shown in the AI panel and written to the match log); hand heroes to the rule layer only if no other AI layer is attached (`fallbackToRules`).
 - `window.ai.west` / `window.ai.east` (`{ jev, llm }`) expose the running controllers for inspection in the browser console.

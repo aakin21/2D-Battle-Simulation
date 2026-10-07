@@ -26,6 +26,8 @@ import { LlmController } from '../ai/LlmController';
 import { AIController, MatchResult } from '../engine/SimulationEngine';
 import { LoadingScreen } from './LoadingScreen';
 import { Hud } from './Hud';
+import { AiPanel } from './AiPanel';
+import { AiSides, MatchLog } from './MatchLog';
 import { icon } from './icons';
 import heroWestUrl from '../assets/sprites/hero_knight_gold.png';
 import heroEastUrl from '../assets/sprites/hero_shaman_lion.png';
@@ -62,6 +64,11 @@ export class UIController {
   private inputHandler: InputHandler;
   private loading = new LoadingScreen();
   private hud: Hud;
+  private aiPanel = new AiPanel();
+  private aiSides: AiSides = { west: {}, east: {} };
+  private matchLog: MatchLog | null = null;
+  // Which map the current run uses, for the match log: random, fixed or "saved: <name>"
+  private mapChoice: string = 'random';
   private selectedUnitId: string | null = null;
   private debugMode: boolean = false;
   private lastConfig: SimConfig = DEFAULT_CONFIG;
@@ -322,6 +329,9 @@ export class UIController {
           enemyModel: this.getOptActive('cfg-east-model') as LlmModel,
         };
         this.lastConfig = cfg;
+        const map = this.getOptActive('cfg-map');
+        this.mapChoice = map === 'saved' && cfg.presetGrid ? `saved: ${mapSaved.value}` : map;
+        if (map === 'saved' && !cfg.presetGrid) this.mapChoice = 'random (saved map not found)';
         this.engine.applyConfig(cfg);
         this.engine.restart();
         // AI controllers tick inside the engine update, so they stay idle while paused
@@ -430,6 +440,7 @@ export class UIController {
     document.getElementById('btn-help')!.addEventListener('click', () => {
       this.elInstructions.style.display = 'flex';
     });
+    document.getElementById('btn-log')!.addEventListener('click', () => this.downloadLog());
 
     this.elBtnDebug.addEventListener('click', () => {
       this.debugMode = !this.debugMode;
@@ -719,23 +730,30 @@ export class UIController {
     this.hud.showResult(r, this.lastConfig, {
       restart: () => this.doRestart(),
       menu: () => this.openMenu(),
+      log: () => this.downloadLog(),
     });
     this.updatePauseButton();
   }
 
-  // Attaches the AI layers chosen for each side of this match. Restart clears them, so this
-  // runs after every engine.restart(). Running controllers are exposed as window.ai.west /
-  // window.ai.east ({ jev, llm }) for inspection in the browser console.
+  private downloadLog(): void {
+    this.matchLog?.download(this.stateManager, this.engine.getResult());
+  }
+
+  // Attaches the AI layers chosen for each side of this match and starts its match log.
+  // Restart clears them, so this runs after every engine.restart(). Running controllers are
+  // exposed as window.ai.west / window.ai.east ({ jev, llm }) for inspection in the console.
   private startControllers(): void {
     this.hud.hideResult();
-    const debug = window as unknown as {
-      ai?: Record<string, { jev?: JevController; llm?: LlmController }>;
-    };
-    debug.ai = {};
-    if (this.lastConfig.mode !== 'battle') return;
+    this.aiSides = { west: {}, east: {} };
+    const debug = window as unknown as { ai?: AiSides };
+    debug.ai = this.aiSides;
+    const battle = this.lastConfig.mode === 'battle' && !this.engine.isStressMode();
+    this.matchLog = battle ? new MatchLog(this.lastConfig, this.mapChoice, this.aiSides) : null;
+    document.getElementById('btn-log')!.hidden = !battle;
+    if (!battle) return;
 
     const controllers: AIController[] = [];
-    const sides: Array<[Faction, SideAI, string, LlmModel]> = [
+    const sides: Array<[Faction, SideAI, 'west' | 'east', LlmModel]> = [
       [
         Faction.FRIENDLY,
         this.lastConfig.friendlyAI ?? 'none',
@@ -752,7 +770,7 @@ export class UIController {
     for (const [faction, ai, name, model] of sides) {
       if (ai === 'none') continue;
       const both = ai === 'jev+llm';
-      const side: { jev?: JevController; llm?: LlmController } = {};
+      const side = this.aiSides[name];
       if (ai === 'jev' || both) {
         side.jev = new JevController(this.engine, this.stateManager, faction, {
           fallbackToRules: !both,
@@ -768,7 +786,6 @@ export class UIController {
         });
         controllers.push(side.llm);
       }
-      debug.ai[name] = side;
     }
     this.engine.setControllers(controllers);
   }
@@ -801,6 +818,12 @@ export class UIController {
   private startUIRefresh(): void {
     setInterval(() => {
       this.hud.update(this.lastConfig);
+      this.matchLog?.sample(this.stateManager);
+      this.aiPanel.update(
+        this.aiSides,
+        this.lastConfig,
+        this.stateManager.getBattlefield().elapsedTime
+      );
       this.updatePauseButton();
       if (this.selectedUnitId) {
         const unit = this.stateManager.getUnitById(this.selectedUnitId);
