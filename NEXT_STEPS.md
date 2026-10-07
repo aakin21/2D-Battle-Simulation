@@ -1,4 +1,4 @@
-# Next steps (updated 2026-10-06)
+# Next steps (updated 2026-10-07)
 
 Phase 2 and the UI work are both in `main` (2026-10-04). Each change gets its own branch from
 `main`; `phase2/symmetry` (worktree `.claude/worktrees/phase2-symmetry/`) is kept equal to `main`.
@@ -26,8 +26,17 @@ Read `CLAUDE.md` (architecture, rules that must not be broken) and `THESIS_DOCUM
 - Git pushes use the `aakin21` GitHub account. The machine's active `gh` account may be
   another one; push with `GH_TOKEN="$(gh auth token --user aakin21)" git push ...` instead of
   switching accounts. The full sprite pack (CC0, D25) is at `../Ninja Adventure - Asset Pack.zip`.
+- Pushing a change to `.github/workflows/` needs the `workflow` scope on the `aakin21` token
+  (it has only `repo`, `gist`, `read:org`; GitHub refuses the push otherwise). `gh auth refresh`
+  acts on the active account, so the author switches to `aakin21`, runs
+  `gh auth refresh -h github.com -s workflow`, and switches back.
 
 ## Just done (2026-10-07)
+- Demo version string (local only, not pushed): the deploy workflow checks out the full history
+  with tags and installs with `npm ci` (`fix/deploy-version`, not tagged: no app change). In a
+  `node:20` container with CI's Node 20.20.2 / npm 10.8.2, the old steps rewrite
+  `package-lock.json` and give `<sha>-dirty`; the new ones leave the tree clean and give
+  `v2.6.1-robustness-3-g<sha>`.
 - Exact objective positions for both AI layers (`v2.1`, not logged at the author's request).
 - UI redesign in the Ninja Adventure pixel style, all in the demo (details and measurements in
   `UI_PLAN.md`, "Phase 2 UI"): theme and full-window layout (`v2.2`), AI panel and match log
@@ -43,9 +52,12 @@ Read `CLAUDE.md` (architecture, rules that must not be broken) and `THESIS_DOCUM
 - 2026-10-06: `HANDOFF.md` removed; P4 logged and D18/D23 re-measured (R10).
 
 ## Open items, in order
-1. **Fix the demo's version string:** `.github/workflows/deploy.yml` runs `npm install` (which
-   changes the lockfile) and checks out without tags, so match logs from the demo say
-   `<sha>-dirty`. Use `npm ci` and `actions/checkout` with `fetch-depth: 0`.
+1. **Push the demo version fix** once the token has the `workflow` scope (see Working
+   agreements): `main`, `phase2/symmetry`, `development`, `fix/deploy-version` and
+   `docs/next-steps-deploy-version` are ahead of `origin` locally. Then check that the deploy run passes and that the demo's
+   `assets/index-*.js` on `gh-pages` has a tag-based `version` without `-dirty`. Optional
+   follow-up: the run warns that Node 20 is deprecated (`checkout@v4`, `setup-node@v4`,
+   `actions-gh-pages@v3` are forced onto Node 24; the build itself uses Node 20).
 2. **Ask the author** whether to log the late-answer contamination between matches as P5 (it
    could have affected AI matches started right after a restart).
 3. **Live tests by the author**, one by one (port of `npm run dev`): D33–D36 with Jev and the
