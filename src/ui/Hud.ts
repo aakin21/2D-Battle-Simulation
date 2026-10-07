@@ -348,7 +348,11 @@ export class Hud {
 
   // --- Match result ---
 
-  showResult(r: MatchResult, config: SimConfig, actions: { restart(): void; menu(): void }): void {
+  showResult(
+    r: MatchResult,
+    config: SimConfig,
+    actions: { restart(): void; menu(): void; log(): void }
+  ): void {
     const bf = this.stateManager.getBattlefield();
     const winner = r.winner;
     const title =
@@ -407,9 +411,11 @@ export class Hud {
       ) +
       extra +
       `</table>` +
-      `<div class="actions"><button class="btn" data-act="restart">Restart</button><button class="btn btn-quiet" data-act="menu">Menu</button></div>`;
+      `<div class="actions"><button class="btn" data-act="restart">Restart</button><button class="btn btn-quiet" data-act="menu">Menu</button>` +
+      `<button class="btn btn-quiet" data-act="log" title="Settings, timeline and every AI decision as JSON">Download log</button></div>`;
     this.elResult.querySelector('[data-act="restart"]')!.addEventListener('click', actions.restart);
     this.elResult.querySelector('[data-act="menu"]')!.addEventListener('click', actions.menu);
+    this.elResult.querySelector('[data-act="log"]')!.addEventListener('click', actions.log);
     this.elResult.hidden = false;
   }
 

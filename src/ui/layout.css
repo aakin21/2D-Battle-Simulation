@@ -242,11 +242,88 @@
 }
 
 .side-section h3 {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
   font-size: 16px;
   font-weight: normal;
   color: var(--wood-light);
   margin-bottom: 6px;
   text-shadow: 2px 2px 0 var(--ink);
+}
+
+.btn-small {
+  border-width: 4px;
+  border-image-width: 4px;
+  padding: 0 6px 2px;
+  text-shadow: none;
+}
+
+/* AI panel */
+.ai-side {
+  margin-bottom: 10px;
+}
+
+.ai-side:last-child {
+  margin-bottom: 0;
+}
+
+.ai-layer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.ai-name {
+  color: var(--wood-light);
+}
+
+.stance {
+  padding: 0 4px 1px;
+  border: 2px solid var(--ink);
+}
+
+.stance-aggressive {
+  background: #7a2a1e;
+  color: #ffd2c4;
+}
+
+.stance-defensive {
+  background: var(--east-dark);
+  color: #d3e3ff;
+}
+
+.stance-regroup {
+  background: #5b4a14;
+  color: #ffe9a8;
+}
+
+.ai-plan {
+  margin: 2px 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.ai-orders,
+.ai-hero {
+  color: var(--text-dim);
+}
+
+.ai-fail {
+  color: var(--hp-crit);
+}
+
+.ai-busy {
+  color: var(--wood-light);
+  animation: blink 1s steps(2) infinite;
+}
+
+.ai-meta {
+  margin-top: 2px;
 }
 
 #minimapCanvas {
@@ -269,11 +346,16 @@
   display: flex;
   justify-content: space-between;
   align-items: baseline;
+  gap: 8px;
   margin-bottom: 4px;
 }
 
 .army-who {
   color: var(--text-dim);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .army-row {

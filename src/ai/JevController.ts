@@ -85,6 +85,7 @@ export class JevController {
   private failed = false;
   readonly decisions: JevDecision[] = [];
   skippedRequests = 0; // a new request was due while the previous one was still open (Q7)
+  failure: string | null = null; // why the layer stopped, for the AI panel and the match log
   private lastForce = new Map<number, number>(); // force ratio per hero at the previous request
   private lastChoice = new Map<number, string>();
   private assessments = new Map<number, Omit<JevAssessment, 'recentDecisions'>>();
@@ -258,6 +259,7 @@ export class JevController {
     const what = this.opts.fallbackToRules
       ? 'heroes switched to rule-based control'
       : 'tactical layer stopped';
+    this.failure = `${reason}; ${what}`;
     console.warn(`Jev unavailable (${reason}); ${what}. ${hint}`);
   }
 
