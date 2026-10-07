@@ -143,15 +143,21 @@ export class StateManager {
       this.addUnit(unit);
     }
 
-    const heroPositions = this.getShuffledPositions(10, 50, 60, 90);
-    const hero = this.createHero();
-    hero.position = heroPositions[0];
-    hero.home = { x: heroPositions[0].x, y: heroPositions[0].y };
-    this.addUnit(hero);
+    // A saved map can be damaged or hand-made: without a clear tile in the hero's area, try
+    // the whole map, and with no clear tile at all there is no hero (instead of a crash)
+    let heroPositions = this.getShuffledPositions(10, 50, 60, 90);
+    if (heroPositions.length === 0)
+      heroPositions = this.getShuffledPositions(0, GRID_SIZE, 0, GRID_SIZE);
+    if (heroPositions.length > 0) {
+      const hero = this.createHero();
+      hero.position = heroPositions[0];
+      hero.home = { x: heroPositions[0].x, y: heroPositions[0].y };
+      this.addUnit(hero);
+    }
 
     if (this.stressMode) {
       const extraWarriorPositions = this.getShuffledPositions(5, 60, 10, 140);
-      for (let i = 0; i < 1900; i++) {
+      for (let i = 0; i < 1900 && i < extraWarriorPositions.length; i++) {
         const unit = this.createUnit(UnitType.WARRIOR, Faction.FRIENDLY);
         unit.position = extraWarriorPositions[i];
         this.addUnit(unit);
@@ -161,7 +167,7 @@ export class StateManager {
     if (this.stressMode) {
       const berserkerPositions = this.getShuffledPositions(90, 145, 10, 140);
       const rallyPoint: Position = { x: 30, y: 75 };
-      for (let i = 0; i < 2000; i++) {
+      for (let i = 0; i < 2000 && i < berserkerPositions.length; i++) {
         const unit = this.createUnit(UnitType.BERSERKER, Faction.ENEMY);
         unit.position = berserkerPositions[i];
         unit.groupId = 'stress_all';
@@ -224,7 +230,6 @@ export class StateManager {
   // Friendly soldiers are warriors, enemy soldiers are berserkers; both use warrior stats.
   private spawnBattleUnits(config: SimConfig): void {
     const heroCount = Math.max(1, config.heroesPerSide);
-    const perHero = Math.floor(config.warriorCount / heroCount);
     const sides: Array<{
       faction: Faction;
       type: UnitType;
@@ -269,7 +274,9 @@ export class StateManager {
         1,
         GRID_SIZE - 1
       ).filter((p) => this.isInMainRegion(p.x, p.y) && !heroTiles.has(`${p.x},${p.y}`));
-      const soldiers = perHero * heroCount;
+      // Exactly the chosen number per side (it used to be rounded down to a multiple of the
+      // hero count from when soldiers started around their hero)
+      const soldiers = config.warriorCount;
       for (let i = 0; i < soldiers && i < spots.length; i++) {
         const unit = this.createUnit(side.type, side.faction, UNIT_STATS.WARRIOR);
         unit.position = { x: spots[i].x + 0.5, y: spots[i].y + 0.5 };

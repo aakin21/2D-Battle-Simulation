@@ -27,7 +27,9 @@ export function encodeGrid(grid: TerrainType[][]): string {
   return `${VERSION};${GRID_SIZE};${rows.join('/')}`;
 }
 
-export function decodeGrid(text: string): TerrainType[][] | null {
+export function decodeGrid(text: unknown): TerrainType[][] | null {
+  // Saved data can be damaged or edited by hand: anything unexpected means "no map"
+  if (typeof text !== 'string') return null;
   const [version, size, body] = text.split(';');
   if (version !== VERSION || Number(size) !== GRID_SIZE || !body) return null;
 
@@ -41,6 +43,7 @@ export function decodeGrid(text: string): TerrainType[][] | null {
       const tile = Number(run[0]) as TerrainType;
       const count = Number(run.slice(1));
       if (!(tile in TerrainType) || !Number.isInteger(count) || count <= 0) return null;
+      if (tiles.length + count > GRID_SIZE) return null; // checked before filling a huge run
       for (let i = 0; i < count; i++) tiles.push(tile);
     }
     if (tiles.length !== GRID_SIZE) return null;
@@ -66,6 +69,8 @@ export function listSavedMaps(): string[] {
 }
 
 export function saveMap(name: string, grid: TerrainType[][]): boolean {
+  // "__proto__" would set the object's prototype instead of saving a map
+  if (name === '__proto__') return false;
   try {
     const all = readAll();
     all[name] = encodeGrid(grid);
@@ -77,6 +82,6 @@ export function saveMap(name: string, grid: TerrainType[][]): boolean {
 }
 
 export function loadSavedMap(name: string): TerrainType[][] | null {
-  const text = readAll()[name];
-  return text ? decodeGrid(text) : null;
+  const all = readAll();
+  return Object.prototype.hasOwnProperty.call(all, name) ? decodeGrid(all[name]) : null;
 }
