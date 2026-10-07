@@ -791,7 +791,11 @@ export class SimulationEngine {
 
     const battlefield = this.stateManager.getBattlefield();
     this.renderer.render(battlefield);
-    this.minimapRenderer.render(battlefield, this.renderer.getCamera());
+    this.minimapRenderer.render(
+      battlefield,
+      this.renderer.getCamera(),
+      this.renderer.getTerrainArt()
+    );
 
     this.rafId = requestAnimationFrame(this.loop.bind(this));
   }

@@ -46,4 +46,4 @@ TypeScript · Vite · HTML5 Canvas · GitHub Pages
 
 ## Credits
 
-Unit sprites, the UI theme, key icons and the pixel font: [Ninja Adventure Asset Pack](https://pixel-boy.itch.io/ninja-adventure-asset-pack) by Pixel-boy, released under CC0 (see `src/assets/sprites/LICENSE.txt` and `src/assets/ui/LICENSE.txt`).
+Unit sprites, terrain tilesets, flags and towers, the UI theme, key icons and the pixel font: [Ninja Adventure Asset Pack](https://pixel-boy.itch.io/ninja-adventure-asset-pack) by Pixel-boy, released under CC0 (see the `LICENSE.txt` files in `src/assets/`).

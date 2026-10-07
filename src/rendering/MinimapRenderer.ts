@@ -38,8 +38,9 @@ export class MinimapRenderer {
   // Reused ImageData — allocated once, updated each frame
   private imageData: ImageData;
 
-  // Cached terrain RGBA bytes — rebuilt only on reset
+  // Cached terrain RGBA bytes — rebuilt on reset and when the terrain art changes
   private terrainPixels: Uint8ClampedArray | null = null;
+  private terrainSource: HTMLCanvasElement | null = null;
 
   constructor(canvasId: string) {
     this.canvas = document.getElementById(canvasId) as HTMLCanvasElement;
@@ -56,7 +57,23 @@ export class MinimapRenderer {
     this.viewHeight = height;
   }
 
-  render(battlefield: IBattlefield, camera: Camera): void {
+  // art: the main view's terrain art (FX on), shrunk to one pixel per tile; null for the flat
+  // terrain colours
+  render(battlefield: IBattlefield, camera: Camera, art: HTMLCanvasElement | null = null): void {
+    if (art !== this.terrainSource) {
+      this.terrainSource = art;
+      this.terrainPixels = null;
+    }
+    if (!this.terrainPixels && art) {
+      const c = document.createElement('canvas');
+      c.width = GRID_SIZE;
+      c.height = GRID_SIZE;
+      const cctx = c.getContext('2d')!;
+      cctx.imageSmoothingEnabled = true;
+      cctx.imageSmoothingQuality = 'high';
+      cctx.drawImage(art, 0, 0, GRID_SIZE, GRID_SIZE);
+      this.terrainPixels = cctx.getImageData(0, 0, GRID_SIZE, GRID_SIZE).data;
+    }
     // Build terrain pixel cache once per grid generation
     if (!this.terrainPixels) {
       this.terrainPixels = new Uint8ClampedArray(GRID_SIZE * GRID_SIZE * 4);
