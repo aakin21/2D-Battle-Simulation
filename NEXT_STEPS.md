@@ -27,36 +27,46 @@ Read `CLAUDE.md` (architecture, rules that must not be broken) and `THESIS_DOCUM
   another one; push with `GH_TOKEN="$(gh auth token --user aakin21)" git push ...` instead of
   switching accounts. The full sprite pack (CC0, D25) is at `../Ninja Adventure - Asset Pack.zip`.
 
-## Just done (2026-10-06, see the thesis log)
-- `HANDOFF.md` removed; the rules that still apply are in the working agreements above.
-- P4 (courage bug) logged; D18 and D23 re-measured with the fix (R10): D18 holds with a larger
-  effect, D23's "every match ended" did not hold even with the bug.
+## Just done (2026-10-07)
+- Exact objective positions for both AI layers (`v2.1`, not logged at the author's request).
+- UI redesign in the Ninja Adventure pixel style, all in the demo (details and measurements in
+  `UI_PLAN.md`, "Phase 2 UI"): theme and full-window layout (`v2.2`), AI panel and match log
+  (`v2.3`), terrain art (`v2.4`), unit animation and smart bars (`v2.5`), sound (`v2.6`).
+- Project-wide smoke test and robustness fixes (`v2.6.1`). Tests outside the repo in
+  `../tests/smoke/` (`engine.ts`, `ai.ts`, `maps.ts`, `server.ts`; build each with esbuild, the
+  server test with `--alias:@anthropic-ai/claude-agent-sdk=../tests/smoke/sdk-stub.ts`).
+  Results: engine 84/84, AI 14/14, maps 26/26, server 15/15. Fixed: late AI answers reaching
+  the next match's heroes (controllers are disposed on restart), paused AI timing freezing
+  forever without an answer (request timeouts), one malformed LLM order stopping the layer,
+  unbounded `/api/llm` requests, damaged saved maps, classic mode crashing on a map without
+  clear tiles, soldiers per side rounded down to a multiple of 3.
+- 2026-10-06: `HANDOFF.md` removed; P4 logged and D18/D23 re-measured (R10).
 
 ## Open items, in order
-1. **Live tests by the author**, one by one (port of `npm run dev`): D33–D36 with Jev and the
+1. **Fix the demo's version string:** `.github/workflows/deploy.yml` runs `npm install` (which
+   changes the lockfile) and checks out without tags, so match logs from the demo say
+   `<sha>-dirty`. Use `npm ci` and `actions/checkout` with `fetch-depth: 0`.
+2. **Ask the author** whether to log the late-answer contamination between matches as P5 (it
+   could have affected AI matches started right after a restart).
+3. **Live tests by the author**, one by one (port of `npm run dev`): D33–D36 with Jev and the
    LLM; Jev only, Jev + LLM, each objective; the tunnel (D37) end to end; a re-run of the first
    LLM vs LLM match with the courage fix (P4, D3). The AI panel shows the decisions live, and
    the Log button (or "Download log" on the result card) saves settings, timeline and every AI
    decision as JSON, so nothing has to be copied from the browser console.
-2. **Exact objective positions for the AI** (author request): add exact tile coordinates
-   (x, y) of points A/B and of both bases to the LLM report (`LlmController.objectiveReport`)
-   and Jev's state (`JevController.objectiveState`), next to the sub-sector names. Also show
-   each hero's distance/direction to them for the LLM.
-3. **Rulebook per mode** (author request): checked 2026-10-06. Goal, scoring and orders in
-   `src/ai/GameRules.ts` are per mode and nothing about other modes leaks in. Open point to
-   discuss: the stance rules are the same in every mode ("defensive: hold good ground and let
-   the enemy come"), which does not fit Control, where waiting loses points.
-4. ~~Elimination stalemates~~: solved by the time limit (D33); rule heroes still often never
-   meet in elimination (all 10 test matches ended on time).
-5. ~~Courage bug~~: logged as P4, D18 and D23 re-measured (R10, 2026-10-06). The D3 match re-run
-   is part of item 1.
-6. **AI in the online demo through a tunnel (D37):** code done and deployed (2026-10-04). To use
-   it: `AI_PASSWORD=...` in `.env.local`, `npm run dev`, `cloudflared tunnel --url
-   http://localhost:5173`, then open the demo once with `?ai=<tunnel address>&key=<password>`.
-   The end-to-end test is part of item 1. Vercel with the Claude API comes later, for the final
-   experiments (D10).
-7. **Experiments** (Q11): conditions Rules / Jev / LLM / Jev + LLM, timing modes, models
+4. **Rulebook per mode** (to discuss): the stance rules are the same in every mode ("defensive:
+   hold good ground and let the enemy come"), which does not fit Control, where waiting loses
+   points. Also proposed and not decided: a seeded simulation (same map and seed, same match)
+   for paired experiments.
+5. **Experiments** (Q11): conditions Rules / Jev / LLM / Jev + LLM, timing modes, models
    (D29), objectives; metrics: win rate, time, losses, decision latency, skipped requests, cost.
-   Needs a headless experiment runner with a safety cut-off per match.
+   Needs a headless experiment runner with a safety cut-off per match; the match log format
+   (`src/ui/MatchLog.ts`) can be reused.
+6. Known, not fixed: stress-mode berserkers clip mountain corners by ~0.06 tiles (Phase 1
+   classic behaviour, 6 units in 40 s; never seen in battle mode); one-off 90–220 ms frames in
+   stress mode and base mode (Q17); an exception in the engine update stops the frame loop; an
+   unreadable saved map silently falls back to a random one.
+7. **AI in the online demo through a tunnel (D37):** `AI_PASSWORD=...` in `.env.local`,
+   `npm run dev`, `cloudflared tunnel --url http://localhost:5173`, then open the demo once with
+   `?ai=<tunnel address>&key=<password>`. Vercel with the Claude API comes later (D10).
 8. Later ideas: cross-match learning (D11, research first), threat-aware pathfinding (D27),
    LLM as tactical layer vs Jev (to be logged as a new Q#; Q17 is taken).
