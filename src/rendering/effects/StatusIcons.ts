@@ -1,6 +1,9 @@
 import { BehaviorState, Camera, IUnit, UnitType } from '../../types/types';
+import alarmUrl from '../../assets/fx/emote-alarm.png';
+import sleepUrl from '../../assets/fx/emote-sleep.png';
 
-// Small icons above units: "!" while fleeing, "z" while resting.
+// Small icons above units: an alarm bubble while fleeing, a sleep bubble while resting (the
+// Ninja Adventure emotes, CC0; plain "!" and "z" glyphs until they are loaded).
 // Shown at every zoom; the icon scales with the unit so it never dwarfs it when zoomed
 // out. Icons are pre-rendered glyph sprites (fillText per unit per frame would be much
 // slower). Animation uses sim time, so it freezes on pause.
@@ -13,6 +16,12 @@ const ICON_MAX_PX = 30;
 const GLYPH_PX = 48; // sprite resolution
 const FLEE_COLOR = '#ffcc00';
 const REST_COLOR = '#9fd8ff';
+
+function loadImage(url: string): Promise<HTMLImageElement> {
+  const img = new Image();
+  img.src = url;
+  return img.decode().then(() => img);
+}
 
 function makeGlyph(text: string, color: string): HTMLCanvasElement {
   const c = document.createElement('canvas');
@@ -32,11 +41,21 @@ function makeGlyph(text: string, color: string): HTMLCanvasElement {
 }
 
 export class StatusIcons {
-  private flee: HTMLCanvasElement | null = null;
-  private rest: HTMLCanvasElement | null = null;
+  private flee: HTMLCanvasElement | HTMLImageElement | null = null;
+  private rest: HTMLCanvasElement | HTMLImageElement | null = null;
+  private emotesRequested = false;
 
   // Builds the glyph sprites; with a target, draws them once to upload them to the GPU
   prepare(warmTarget?: CanvasRenderingContext2D): void {
+    if (!this.emotesRequested) {
+      this.emotesRequested = true;
+      Promise.all([loadImage(alarmUrl), loadImage(sleepUrl)])
+        .then(([alarm, sleep]) => {
+          this.flee = alarm;
+          this.rest = sleep;
+        })
+        .catch((err) => console.warn('Emotes not loaded:', err));
+    }
     if (this.flee) return;
     this.flee = makeGlyph('!', FLEE_COLOR);
     this.rest = makeGlyph('z', REST_COLOR);
@@ -58,7 +77,8 @@ export class StatusIcons {
 
     const icon = Math.min(ICON_MAX_PX, Math.max(ICON_MIN_PX, zoom * ICON_SCALE));
     const prevSmoothing = ctx.imageSmoothingEnabled;
-    ctx.imageSmoothingEnabled = true;
+    // Glyphs are smooth text; emotes are pixel art and stay sharp
+    ctx.imageSmoothingEnabled = !(this.flee instanceof HTMLImageElement);
 
     for (const unit of units) {
       const state = unit.state;
