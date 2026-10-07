@@ -74,6 +74,8 @@ export class Renderer {
   private barsMode: 'smart' | 'all' = 'smart';
   // Order markers: the command each hero had last frame, and when a new one appeared
   private lastOrders = new Map<string, unknown>();
+  // Called each frame with the hits and deaths on screen, for sound (set by the UI)
+  private battleSound: ((hits: number, deaths: number, loudness: number) => void) | null = null;
   private orderPings: Array<{ x: number; y: number; faction: Faction; start: number }> = [];
   private selectedUnitId: string | null = null;
   private battleMode: boolean = false;
@@ -168,6 +170,10 @@ export class Renderer {
 
   // 'smart': with FX on, bars only over units that are hurt, fighting, fleeing, resting,
   // selected, or heroes; 'all': over every unit (FX off always shows all)
+  setBattleSound(fn: ((hits: number, deaths: number, loudness: number) => void) | null): void {
+    this.battleSound = fn;
+  }
+
   setBarsMode(mode: 'smart' | 'all'): void {
     this.barsMode = mode;
   }
@@ -545,6 +551,22 @@ export class Renderer {
     this.effects.update(battlefield.units, battlefield.elapsedTime);
     this.fxHitCount += this.effects.hits.length;
     this.fxDeathCount += this.effects.deaths.length;
+    if (this.battleSound && (this.effects.hits.length || this.effects.deaths.length)) {
+      const { x, y, zoom } = this.camera;
+      const x1 = x + this.canvas.width / zoom;
+      const y1 = y + this.canvas.height / zoom;
+      const seen = (e: { x: number; y: number }) => e.x >= x && e.x <= x1 && e.y >= y && e.y <= y1;
+      let hits = 0;
+      let deaths = 0;
+      for (const h of this.effects.hits) if (seen(h)) hits++;
+      for (const d of this.effects.deaths) if (seen(d)) deaths++;
+      // Closer views are louder: 0.35 at the full map, 1 from about 20 px per tile
+      const loudness = Math.min(
+        1,
+        0.35 + (0.65 * (zoom - this.zoomMin)) / Math.max(1, 20 - this.zoomMin)
+      );
+      if (hits || deaths) this.battleSound(hits, deaths, loudness);
+    }
   }
 
   private updateFps(): void {

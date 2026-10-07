@@ -6,6 +6,7 @@
 | `Hud.ts` | What is shown around the map: match banner (top bar), armies (side panel), selected-unit card, area counts, match result |
 | `AiPanel.ts` | Side-panel section with what the AI layers decided: the LLM's stance, plan and orders, Jev's latest choice per hero, response times, skipped requests, failures. LLM text is escaped before it is shown |
 | `MatchLog.ts` | Match log for experiments (Q11): settings, code version, result, a timeline of both armies per simulation second and every AI decision; downloaded as JSON (Log button, match result) |
+| `Sound.ts` | Sound effects (Web Audio, the pack's sounds): combat sounds for hits and deaths on screen, order and button sounds, start and end jingles; cooldowns, a voice limit and pitch variation; mute saved per browser |
 | `icons.ts` | Pixel icons (8×8 grids shown as SVG) for the top-bar buttons |
 | `theme.css`, `layout.css` | Theme in the Ninja Adventure style (wooden 9-patch frames, buttons, pixel font; CC0, `src/assets/ui/`) and the page layout |
 | `InputHandler.ts` | Mouse and keyboard events (click, drag, scroll, shortcuts) |
