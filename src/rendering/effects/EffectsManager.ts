@@ -3,6 +3,7 @@ import { Corpses } from './Corpses';
 import { Blood } from './Blood';
 import { StatusIcons } from './StatusIcons';
 import { HeroAura } from './HeroAura';
+import { Bursts } from './Bursts';
 import type { UnitSprites } from '../UnitSprites';
 
 // Visual effects layer. Reads simulation state, never writes it.
@@ -63,6 +64,10 @@ const FACING_EPSILON = 0.001;
 // stays visible at 4x speed; no new hits occur while paused anyway.
 const FLASH_MS = 90;
 
+// Most slashes and smoke puffs started in one update (a stress battle has hundreds of hits)
+const MAX_SLASHES_PER_FRAME = 40;
+const MAX_SMOKE_PER_FRAME = 20;
+
 export class EffectsManager {
   private enabled: boolean = true;
   private snapshots = new Map<string, UnitSnapshot>();
@@ -73,6 +78,7 @@ export class EffectsManager {
   private blood = new Blood();
   private statusIcons = new StatusIcons();
   private heroAura = new HeroAura();
+  private bursts = new Bursts();
 
   // Unit id → real time (ms) at which its hit flash ends
   private flashes = new Map<string, number>();
@@ -119,6 +125,7 @@ export class EffectsManager {
     this.flashes.clear();
     this.corpses.clear();
     this.blood.clear();
+    this.bursts.clear();
     this.hits.length = 0;
     this.deaths.length = 0;
     this.lastSimTime = -1;
@@ -238,11 +245,20 @@ export class EffectsManager {
 
     this.corpses.update(this.dt);
     this.blood.update(this.dt);
+    this.bursts.update(this.dt);
     for (const h of this.hits) this.blood.spawnHit(h);
     for (const d of this.deaths) {
       this.corpses.spawn(d);
       this.blood.spawnPool(d, simTime);
     }
+    // Slashes and smoke, capped per frame so crowded battles stay cheap
+    const slashes = Math.min(this.hits.length, MAX_SLASHES_PER_FRAME);
+    for (let i = 0; i < slashes; i++) {
+      const h = this.hits[i];
+      this.bursts.spawnSlash(h.x, h.y, ((stamp + i) & 1) === 1);
+    }
+    const puffs = Math.min(this.deaths.length, MAX_SMOKE_PER_FRAME);
+    for (let i = 0; i < puffs; i++) this.bursts.spawnSmoke(this.deaths[i].x, this.deaths[i].y);
   }
 
   // Effects that lie on the ground, drawn after terrain and before units
@@ -270,6 +286,7 @@ export class EffectsManager {
   ): void {
     if (!this.enabled) return;
     this.blood.drawDrops(ctx, camera, width, height);
+    this.bursts.draw(ctx, camera, width, height);
   }
 
   // UI-like markers drawn last, above units and their HP bars

@@ -31,6 +31,7 @@ const TINT_STRENGTH = 0.8;
 // Pixels darker than this keep their color, so outlines stay crisp
 const OUTLINE_LUMA = 0.16;
 const CORPSE_DARKEN = 0.6;
+const SHADOW_ALPHA = 0.3;
 
 const TEAM_RGB: Record<string, [number, number, number]> = {
   WARRIOR: [255, 215, 0], // UNIT_COLORS.WARRIOR
@@ -102,7 +103,29 @@ function buildSet(img: HTMLImageElement, team: [number, number, number] | null):
     p[i + 1] *= CORPSE_DARKEN;
     p[i + 2] *= CORPSE_DARKEN;
   });
+  // Living units stand on a soft shadow; corpses (the dark sheet) do not
+  addShadows(normal);
+  addShadows(flash);
   return { normal, flash, dark };
+}
+
+// A drop shadow under the feet in every walk and attack frame, drawn behind the character.
+// Baked into the sheet, so it costs nothing per frame.
+function addShadows(sheet: HTMLCanvasElement): void {
+  const ctx = sheet.getContext('2d')!;
+  ctx.globalCompositeOperation = 'destination-over';
+  ctx.fillStyle = `rgba(0, 0, 0, ${SHADOW_ALPHA})`;
+  for (let row = 0; row <= ROW_ATTACK; row++) {
+    for (let col = 0; col < sheet.width / FRAME; col++) {
+      // A pixel ellipse, 10 px wide and 3 px high, at the bottom of the frame
+      const x = col * FRAME;
+      const y = row * FRAME;
+      ctx.fillRect(x + 4, y + 13, 8, 1);
+      ctx.fillRect(x + 3, y + 14, 10, 1);
+      ctx.fillRect(x + 4, y + 15, 8, 1);
+    }
+  }
+  ctx.globalCompositeOperation = 'source-over';
 }
 
 export class UnitSprites {

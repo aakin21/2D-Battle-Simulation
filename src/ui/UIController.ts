@@ -42,6 +42,7 @@ import mouseWheelUrl from '../assets/ui/keys/MouseWheelUp.png';
 const LS_SPEED = 'sim_speed';
 const LS_DEBUG = 'sim_debug';
 const LS_EFFECTS = 'sim_effects';
+const LS_BARS = 'sim_bars';
 
 // Rows of the Controls screen: key images or key names, then what they do
 const HELP: Array<[string[], string]> = [
@@ -454,6 +455,12 @@ export class UIController {
       this.updateEffectsButton();
       this.saveSettings();
     });
+
+    document.getElementById('btn-bars')!.addEventListener('click', () => {
+      this.renderer.setBarsMode(this.renderer.getBarsMode() === 'smart' ? 'all' : 'smart');
+      this.updateBarsButton();
+      this.saveSettings();
+    });
   }
 
   private togglePause(): void {
@@ -468,6 +475,15 @@ export class UIController {
     else this.engine.decreaseSpeed();
     this.updateSpeedDisplay();
     this.saveSettings();
+  }
+
+  private updateBarsButton(): void {
+    const all = this.renderer.getBarsMode() === 'all';
+    const btn = document.getElementById('btn-bars')!;
+    btn.classList.toggle('on', all);
+    btn.title = all
+      ? 'HP and courage bars over every unit (click: only where something happens)'
+      : 'Bars only over units that are hurt, fighting, fleeing or resting, heroes and the selected unit (click: over every unit)';
   }
 
   private updateEffectsButton(): void {
@@ -516,7 +532,7 @@ export class UIController {
 
     // Scroll → zoom
     this.inputHandler.onScroll((delta, x, y) => {
-      this.renderer.zoomAt(delta, x, y);
+      this.renderer.zoomAt(delta, x, y, true);
     });
 
     // Drag → pan
@@ -584,7 +600,7 @@ export class UIController {
       const r = minimapEl.getBoundingClientRect();
       const tileX = ((e.clientX - r.left) / r.width) * GRID_SIZE;
       const tileY = ((e.clientY - r.top) / r.height) * GRID_SIZE;
-      this.renderer.centerOn(tileX, tileY);
+      this.renderer.centerOn(tileX, tileY, true);
     });
   }
 
@@ -713,6 +729,8 @@ export class UIController {
     // Effects default to on; only an explicit 'false' turns them off
     this.renderer.setEffectsEnabled(read(LS_EFFECTS) !== 'false');
     this.updateEffectsButton();
+    this.renderer.setBarsMode(read(LS_BARS) === 'all' ? 'all' : 'smart');
+    this.updateBarsButton();
   }
 
   private saveSettings(): void {
@@ -720,6 +738,7 @@ export class UIController {
       localStorage.setItem(LS_SPEED, this.engine.getSpeed().toString());
       localStorage.setItem(LS_DEBUG, this.debugMode.toString());
       localStorage.setItem(LS_EFFECTS, this.renderer.isEffectsEnabled().toString());
+      localStorage.setItem(LS_BARS, this.renderer.getBarsMode());
     } catch {
       // Storage unavailable: settings last for this session only
     }

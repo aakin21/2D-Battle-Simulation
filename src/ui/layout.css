@@ -743,6 +743,23 @@
   }
 }
 
+@media (max-width: 1000px) {
+  /* The banner gets its own row under the buttons */
+  #topbar {
+    flex-wrap: wrap;
+    row-gap: 4px;
+  }
+
+  #match-banner {
+    order: 3;
+    flex-basis: 100%;
+  }
+
+  .tb-group:last-child {
+    margin-left: auto;
+  }
+}
+
 @media (max-width: 860px) {
   #side-panel {
     display: none;

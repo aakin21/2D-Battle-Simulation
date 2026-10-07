@@ -127,7 +127,7 @@ References used: game-feel and "juice" practice (easing, squash and stretch, par
 | U1 | Theme, full-window layout, HUD, menu | ✅ |
 | U2 | AI panel and match log | ✅ |
 | U3 | Terrain art from the pack's tilesets | ✅ |
-| U4 | Unit animation | |
+| U4 | Unit animation | ✅ |
 | U5 | Sound | |
 
 ### U1. Theme, layout, HUD, menu
@@ -151,6 +151,17 @@ References used: game-feel and "juice" practice (easing, squash and stretch, par
 - The art is drawn smoothed when shown smaller than its own pixels (the full-map view) and sharp when magnified. The minimap shrinks the same art. FX off shows the original flat colours, also on the minimap.
 - Cost: building the art takes 40–60 ms per map (behind the loading screen). Render time per frame, stress mode with ~4,100 units: FX on 2.07 ms with the art vs 2.06 ms before it; with a GPU sync after every frame (1-pixel readback) 11.44 ms with the art vs 11.24 ms with flat colours.
 - Seen in the browser: image decoding waits while the page is hidden (a hidden tab or preview pane); until then the terrain stays flat and units stay squares, and the art appears as soon as the page is visible.
+
+### U4. Unit animation
+- Drop shadows under every living unit, baked into the sprite sheets (3-pixel ellipse, 30% black): no cost per frame.
+- Attack pose leans 12% of the sprite's size toward the facing side, so a hit reads as a lunge.
+- `effects/Bursts.ts`: the pack's curved slash where a unit is hit (0.24 s) and its smoke puff where one dies (0.5 s). Pooled (240 slashes, 160 puffs), at most 40 slashes and 20 puffs started per update, a pre-mirrored slash sheet instead of per-hit transforms, culled outside the view.
+- Flee and rest icons are the pack's alarm and sleep emotes (glyphs until they load), drawn sharp.
+- Hero orders: a bobbing marker in the side's colour at the task point, a ring that closes on a new task point when any order arrives (user, rules, Jev or LLM), and a dashed line from the selected hero to its target. FX off keeps the original X.
+- Camera: the mouse wheel zooms with easing around the cursor (steps add up), a minimap click glides to the spot; dragging stays direct. `prefers-reduced-motion` turns easing and marker motion off.
+- Bars: with FX on, HP and courage bars only over units that are hurt, fighting, fleeing or resting, over heroes and the selected unit (Bars button: every unit). Fewer bars is the main clutter fix for big battles.
+- Narrow windows: below 1000 px the match banner moves to its own row in the top bar.
+- Cost (render time per frame, stress mode, 1440×900 window): before the armies meet (20 s, 4,201 units) FX on 1.41 ms with smart bars vs 2.23 ms with all bars, FX off 1.20 ms; in the battle (57 s, 4,075 units, up to 58 bursts at once) 1.65 ms smart vs 2.40 ms all bars; zoomed on the front 0.61 ms vs 0.30 ms with FX off.
 
 ## Versions
 

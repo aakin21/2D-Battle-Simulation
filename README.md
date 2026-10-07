@@ -30,6 +30,7 @@ A browser-based simulation of large-scale battlefield behavior. Hundreds of unit
 | R | Restart |
 | Esc | Menu (Continue returns to the running match) |
 | FX button | Toggle visual effects (off = original squares) |
+| Bars button | Bars only where something happens (default) or over every unit |
 
 ## Running locally
 
