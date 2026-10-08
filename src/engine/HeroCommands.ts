@@ -39,6 +39,9 @@ export class HeroCommands {
     source: CommandSource,
     breakOffAllowed = false
   ): void {
+    // A point that is not a number cannot be reached: the order is ignored (no source makes
+    // one today, but a bad one would leave the hero with a NaN task point)
+    if (command && !finitePoint(command)) return;
     if (command?.type === 'move') {
       command = { type: 'move', target: nearestReachableTile(this.sm, command.target) };
     }
@@ -131,4 +134,9 @@ export function sameCommand(a: HeroCommand, b: HeroCommand): boolean {
   }
   if (a.type === 'attackHero' && b.type === 'attackHero') return a.heroIndex === b.heroIndex;
   return true;
+}
+
+function finitePoint(command: HeroCommand): boolean {
+  const p = command.type === 'move' ? command.target : command.type === 'hold' ? command.at : null;
+  return !p || (Number.isFinite(p.x) && Number.isFinite(p.y));
 }

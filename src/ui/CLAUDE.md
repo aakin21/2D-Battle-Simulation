@@ -17,5 +17,7 @@
 - Hero orders from the user go through `engine.issueCommand(hero, command, 'user')`; right-click commands the selected friendly hero (or the first one), and only heroes the user controls (never AI heroes in Agent vs Agent).
 - After every `engine.restart()`, call `startControllers()`: restart clears the AI layers.
 - Settings saved in local storage are per-browser conveniences only (speed, debug, effects); reads and writes are wrapped in try/catch, since storage can be unavailable.
-- Game shortcuts (Space, +/−, R) are ignored while the menu, the Controls screen or the loading screen is shown; Esc opens the menu, and Continue goes back to the run (it resumes only if it was running).
+- Game shortcuts (Space, +/−, R) are ignored while the menu, the Controls screen or the loading screen is shown; Esc opens the menu, and Continue goes back to the run (it resumes only if it was running). Keys with Cmd or Ctrl are left to the browser (reload, page zoom), and a held key acts once, except +/−.
+- A run stopped by a simulation error (`engine.setOnError`) shows a "Simulation stopped" card in place of the result; it cannot be resumed, only restarted, and the match log records the error.
+- A saved map that is missing or cannot be read stops Start with a message (it is never replaced by a random map), and saving under an existing name asks first.
 - New menu options become fields of `SimConfig` (`src/types/types.ts`) rather than state kept in the UI.

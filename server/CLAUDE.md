@@ -2,10 +2,10 @@
 
 Code that runs inside the Vite dev server (Node), never in the browser. Loaded from `vite.config.ts`.
 
-| File           | Role                                                                                                                                                                                                                                                       |
-| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `aiAccess.ts`  | Guard for `/api/*` (D37): CORS for the online demo's origin; requests that do not come from localhost (i.e. through a tunnel) need `AI_PASSWORD` in the `x-ai-key` header. Refusals carry `x-ai-access: denied`.                                           |
-| `llmPlugin.ts` | `POST /api/llm`: one persistent, lean Claude Agent SDK session per side (D10, D22). A new `matchId` or model starts a new session. The system prompt and the model (`haiku` / `sonnet` / `opus`, chosen per side in the menu, D29) come with each request. |
+| File           | Role                                                                                                                                                                                                                                                                                                                                                            |
+| -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `aiAccess.ts`  | Guard for `/api/*` (D37): CORS for the online demo's origin; requests that do not come from localhost (i.e. through a tunnel) need `AI_PASSWORD` in the `x-ai-key` header. Requests that carry another website's `Origin` are refused (403) even on localhost: any page open in the browser can send a simple POST there. Refusals carry `x-ai-access: denied`. |
+| `llmPlugin.ts` | `POST /api/llm`: one persistent, lean Claude Agent SDK session per side (D10, D22). A new `matchId` or model starts a new session. The system prompt and the model (`haiku` / `sonnet` / `opus`, chosen per side in the menu, D29) come with each request.                                                                                                      |
 
 The Jev proxy (`/api/jev`) is configured directly in `vite.config.ts`: it adds `TYPESAFE_API_KEY` from `.env.local` and drops the browser's `Origin` header (D7, P1).
 
@@ -16,4 +16,4 @@ The Jev proxy (`/api/jev`) is configured directly in `vite.config.ts`: it adds `
 - The system prompt defines the reply format; the browser validates every reply anyway.
 - Not part of `npm run build`: the static build has no `/api/*` endpoints. The online demo reaches them through a tunnel to the author's computer (D37); `vite.config.ts` allows the tunnel host names (`allowedHosts`).
 - `aiAccess` must stay the first plugin, so its check runs before the Jev proxy and the LLM endpoint.
-- `/api/llm` is reachable through the tunnel, so it is bounded: bodies over 1 MB get 413, `side` must be `west` or `east` (one session each), a body that is not JSON gets 400, and an answer that has not come after 150 s fails with the session closed (the next request opens a fresh one).
+- `/api/llm` is reachable through the tunnel, so it is bounded: bodies over 1 MB get 413, `side` must be `west` or `east` (one session each), a body that is not JSON or whose `side`, `matchId`, `system` and `prompt` are not text gets 400, and an answer that has not come after 150 s fails with the session closed (the next request opens a fresh one). A session that is closed (new match or model) or whose SDK stream ends fails its waiting requests at once, and an ended session is replaced by the next request.

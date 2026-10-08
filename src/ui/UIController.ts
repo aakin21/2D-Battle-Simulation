@@ -126,6 +126,7 @@ export class UIController {
     this.loadSettings();
     this.wireMainMenu();
     this.engine.setOnMatchEnd((r) => this.showMatchResult(r));
+    this.engine.setOnError((message) => this.showError(message));
     this.wireButtonEvents();
     this.wireInputEvents();
     this.startUIRefresh();
@@ -322,6 +323,20 @@ export class UIController {
     // Start: set up the run, keep it paused behind the loading screen, then start it
     document.getElementById('menu-start')!.addEventListener('click', async () => {
       if (this.loading.isActive()) return;
+      // A saved map that cannot be read must not silently become a random one: paired
+      // experiments rely on the map
+      if (!tabStress.classList.contains('active') && this.getOptActive('cfg-map') === 'saved') {
+        if (!mapSaved.value) {
+          window.alert(
+            'There is no saved map yet: save one with the "Save this map" button in the top bar first.'
+          );
+          return;
+        }
+        if (!loadSavedMap(mapSaved.value)) {
+          window.alert(`The saved map "${mapSaved.value}" could not be read. Choose another map.`);
+          return;
+        }
+      }
       this.selectedUnitId = null;
       this.renderer.setSelectedUnit(null);
       this.hud.showUnit(null);
@@ -363,8 +378,7 @@ export class UIController {
         };
         this.lastConfig = cfg;
         const map = this.getOptActive('cfg-map');
-        this.mapChoice = map === 'saved' && cfg.presetGrid ? `saved: ${mapSaved.value}` : map;
-        if (map === 'saved' && !cfg.presetGrid) this.mapChoice = 'random (saved map not found)';
+        this.mapChoice = map === 'saved' ? `saved: ${mapSaved.value}` : map;
         this.engine.applyConfig(cfg);
         this.engine.restart();
         // AI controllers tick inside the engine update, so they stay idle while paused
@@ -440,6 +454,12 @@ export class UIController {
     const defaultName = `map-${new Date().toISOString().slice(0, 16).replace('T', ' ')}`;
     const name = window.prompt('Save this map as:', defaultName)?.trim();
     if (!name) return;
+    // Saving twice within a minute gives the same default name; never replace a map unasked
+    if (
+      listSavedMaps().includes(name) &&
+      !window.confirm(`A map named "${name}" is already saved. Replace it?`)
+    )
+      return;
     if (!saveMap(name, this.stateManager.getBattlefield().grid)) {
       window.alert('Could not save the map (browser storage is unavailable).');
       return;
@@ -797,8 +817,18 @@ export class UIController {
     this.updatePauseButton();
   }
 
+  // A simulation error stopped the run: say so instead of leaving a frozen battlefield.
+  private showError(message: string): void {
+    this.hud.showError(message, this.stateManager.getBattlefield().elapsedTime, {
+      restart: () => this.doRestart(),
+      menu: () => this.openMenu(),
+      log: this.matchLog ? () => this.downloadLog() : null,
+    });
+    this.updatePauseButton();
+  }
+
   private downloadLog(): void {
-    this.matchLog?.download(this.stateManager, this.engine.getResult());
+    this.matchLog?.download(this.stateManager, this.engine.getResult(), this.engine.getError());
   }
 
   // Attaches the AI layers chosen for each side of this match and starts its match log.
