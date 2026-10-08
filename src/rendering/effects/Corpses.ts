@@ -1,6 +1,7 @@
 import { Camera, Faction, UnitType, UNIT_COLORS } from '../../types/types';
 import { UnitSprites, FRAME, COL_LEFT, COL_RIGHT, ROW_DEAD } from '../UnitSprites';
 import { Pool } from './Pool';
+import { fxRandom } from './fxRandom';
 import type { DeathEvent } from './EffectsManager';
 import {
   CORPSE_SPRITE_CANVAS,
@@ -85,7 +86,7 @@ export class Corpses {
     c.heroIndex = e.heroIndex;
     c.facing = e.facing;
     c.age = 0;
-    c.tilt = Math.floor(Math.random() * CORPSE_TILTS.length);
+    c.tilt = Math.floor(fxRandom() * CORPSE_TILTS.length);
   }
 
   update(dt: number): void {

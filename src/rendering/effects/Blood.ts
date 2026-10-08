@@ -1,5 +1,6 @@
 import { Camera, GRID_SIZE } from '../../types/types';
 import { Pool, RingBuffer } from './Pool';
+import { fxRandom } from './fxRandom';
 import type { DeathEvent, HitEvent } from './EffectsManager';
 import { makePoolSprites, POOL_ROTATIONS, POOL_SPRITE_CANVAS, POOL_SPRITE_RX } from './sprites';
 
@@ -85,12 +86,12 @@ export class Blood {
   private bakeCount: number = 0;
 
   spawnHit(e: HitEvent): void {
-    const n = DROPS_MIN + Math.floor(Math.random() * (DROPS_MAX - DROPS_MIN + 1));
+    const n = DROPS_MIN + Math.floor(fxRandom() * (DROPS_MAX - DROPS_MIN + 1));
     for (let i = 0; i < n; i++) {
       const d = this.drops.spawn();
       if (!d) return;
-      const angle = Math.random() * Math.PI * 2;
-      const speed = DROP_SPEED_MIN + Math.random() * (DROP_SPEED_MAX - DROP_SPEED_MIN);
+      const angle = fxRandom() * Math.PI * 2;
+      const speed = DROP_SPEED_MIN + fxRandom() * (DROP_SPEED_MAX - DROP_SPEED_MIN);
       d.x = e.x;
       d.y = e.y;
       d.vx = Math.cos(angle) * speed;
@@ -105,8 +106,8 @@ export class Blood {
     p.x = e.x;
     p.y = e.y;
     p.born = simTime;
-    p.scale = 0.85 + Math.random() * 0.35;
-    p.rot = Math.floor(Math.random() * POOL_ROTATIONS);
+    p.scale = 0.85 + fxRandom() * 0.35;
+    p.rot = Math.floor(fxRandom() * POOL_ROTATIONS);
   }
 
   update(dt: number): void {

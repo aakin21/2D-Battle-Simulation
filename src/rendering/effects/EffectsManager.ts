@@ -4,6 +4,7 @@ import { Blood } from './Blood';
 import { StatusIcons } from './StatusIcons';
 import { HeroAura } from './HeroAura';
 import { Bursts } from './Bursts';
+import { fxRandom } from './fxRandom';
 import type { UnitSprites } from '../UnitSprites';
 
 // Visual effects layer. Reads simulation state, never writes it.
@@ -198,7 +199,7 @@ export class EffectsManager {
           heroIndex: unit.unitType === UnitType.HERO ? (unit as IHero).heroIndex : 0,
           facing: 1,
           moving: false,
-          phase: Math.random(),
+          phase: fxRandom(),
           stamp,
         });
         continue;

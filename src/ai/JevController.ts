@@ -29,6 +29,8 @@ import {
   deniedByAiServer,
   AI_PASSWORD_HINT,
   unreachableHint,
+  failureDetail,
+  unreachableStatus,
 } from './AiServer';
 
 // Layer 2 (D6, D21, D26): Jev makes tactical decisions for each hero of one side every few
@@ -213,13 +215,17 @@ export class JevController {
       if (this.disposed) return;
 
       if (!res.ok) {
+        const detail = await failureDetail(res);
+        if (this.disposed) return;
         this.fail(
-          `HTTP ${res.status}`,
+          `HTTP ${res.status}${detail}`,
           deniedByAiServer(res)
             ? AI_PASSWORD_HINT
             : res.status === 401 || res.status === 403
               ? 'Set TYPESAFE_API_KEY in .env.local and restart the dev server.'
-              : ''
+              : unreachableStatus(res.status)
+                ? unreachableHint()
+                : ''
         );
         return;
       }
@@ -280,7 +286,8 @@ export class JevController {
     const what = this.opts.fallbackToRules
       ? 'heroes switched to rule-based control'
       : 'tactical layer stopped';
-    this.failure = `${reason}; ${what}`;
+    // The hint says what to do; it is shown in the AI panel and kept in the match log
+    this.failure = hint ? `${reason}; ${what}. ${hint}` : `${reason}; ${what}`;
     console.warn(`Jev unavailable (${reason}); ${what}. ${hint}`);
   }
 
