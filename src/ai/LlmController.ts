@@ -34,6 +34,8 @@ import {
   deniedByAiServer,
   AI_PASSWORD_HINT,
   unreachableHint,
+  failureDetail,
+  unreachableStatus,
 } from './AiServer';
 
 const MAX_STRAY_CLUSTERS = 5;
@@ -97,7 +99,9 @@ export class LlmController {
   private nextAt = 0;
   private pending = false;
   private failed = false;
-  private readonly matchId = `match_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  // Not from Math.random: the simulation draws from it, and creating a controller must not
+  // change the battle
+  private readonly matchId = `match_${Date.now()}_${crypto.getRandomValues(new Uint32Array(1))[0].toString(36)}`;
   private readonly side: 'west' | 'east';
   readonly system: string; // the rulebook sent as the session's system prompt
   readonly decisions: LlmDecision[] = [];
@@ -211,13 +215,17 @@ export class LlmController {
       const latencyMs = performance.now() - started;
       if (this.disposed) return;
       if (!res.ok) {
+        const detail = await failureDetail(res);
+        if (this.disposed) return;
         this.fail(
-          `HTTP ${res.status}`,
+          `HTTP ${res.status}${detail}`,
           deniedByAiServer(res)
             ? AI_PASSWORD_HINT
             : res.status === 404 || res.status === 405
               ? 'This site has no LLM endpoint: run npm run dev, or open the demo through the tunnel (?ai=...).'
-              : ''
+              : unreachableStatus(res.status)
+                ? unreachableHint()
+                : ''
         );
         return;
       }
@@ -346,7 +354,8 @@ export class LlmController {
     const what = this.opts.fallbackToRules
       ? 'heroes switched to rule-based control'
       : 'strategic layer stopped';
-    this.failure = `${reason}; ${what}`;
+    // The hint says what to do; it is shown in the AI panel and kept in the match log
+    this.failure = hint ? `${reason}; ${what}. ${hint}` : `${reason}; ${what}`;
     console.warn(`LLM (${this.side}) unavailable (${reason}); ${what}. ${hint}`);
   }
 
