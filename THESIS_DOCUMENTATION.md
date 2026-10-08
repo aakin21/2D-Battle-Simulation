@@ -608,6 +608,7 @@ Online demo until the final experiments: both layers through a tunnel to the aut
 - **Needed to implement:** a configurable AI endpoint address in the demo; CORS on the local server for requests from the demo's origin; a simple password, because the demo link is public and anyone could otherwise spend the author's subscription or Jev quota.
 - **Implementation (2026-10-04):** `server/aiAccess.ts` guards `/api/*`: requests from localhost pass as before; any other request (a tunnel keeps the public host name) needs `AI_PASSWORD` in an `x-ai-key` header; CORS is allowed only for the demo's origin. `vite.config.ts` allows the Cloudflare and ngrok tunnel host names. In the browser, `src/ai/AiServer.ts` reads the tunnel address and password from the demo link once (`?ai=…&key=…`), stores them in the browser and removes them from the address bar. Tested with `curl` against a dev server (no real AI calls): local requests pass; tunnel requests without or with a wrong password get 401, with the right one they pass; Jev is guarded too; preflight from the demo origin gets the CORS headers, other origins do not; unknown host names get Vite's 403. Not yet tried end to end with a real tunnel, because the demo does not contain Phase 2 yet.
 - **Limits:** works only while the computer is awake and the tunnel is running; a free Cloudflare quick tunnel gets a new address on every start (a fixed address needs an account and a domain). Without the tunnel the demo still runs, without AI.
+- **Gap found (2026-10-08):** requests to `localhost` from other websites open in the browser passed without the password; closed with an `Origin` check, see P6.
 
 ---
 
@@ -930,7 +931,21 @@ Problems encountered during the project, how they were found, and how they were 
 - **Problem:** `updateCourage` took the base courage from the unit type, so east soldiers (berserker type) started from 100 instead of the warriors' 70 and fled later than west soldiers. The sides were not symmetric.
 - **Impact:** every battle-mode measurement made before the fix favoured east: the D18 reflex test, the D19 test battle, the D23 win test and the first LLM vs LLM match (D3), which east won.
 - **Resolution:** fixed in commit `0fa3310` (2026-10-03): in battle mode both sides use the warrior base courage. D18 and D23 re-measured with the fix (R10, 2026-10-06): D18 holds with a larger effect (48% fewer hero deaths instead of 35%); D23's "every match ended" did not hold even with the bug (stalls, solved by D33). The LLM vs LLM match (D3) is to be re-run by the author.
-- **Status:** Resolved (2026-10-03); re-run of the D3 match pending
+- **Status:** Resolved (2026-10-03); re-run of the D3 match pending (see also P5)
+
+### P5: Late AI answers reached the next match (2026-10-07)
+- **Context:** project-wide smoke test with fake AI answers (`../tests/smoke/ai.ts`, outside the repository).
+- **Problem:** on a restart the old match's AI controllers were dropped but not stopped. A request still open at the restart could answer afterwards and order the new match's heroes, because heroes are found by side and number, which the new match reuses. Reproduced: an LLM answer released after a restart gave hero 1 of the new match a `retreat` order.
+- **Impact:** matches were not independent: an AI match started by a restart while a request was open could begin with orders computed for the previous match. It is not known whether this happened in the first LLM vs LLM match (D3), the only live AI match logged so far; that match is re-run anyway (P4). Rule-only measurements (D18, D23, R10) ran headless without AI and are not affected. Experiments (Q11) need every match to start free of earlier requests.
+- **Resolution:** AI controllers have a `dispose()` that the engine calls on every restart: no new requests, the open request is aborted and a late answer is dropped. Request timeouts were added at the same time, so paused AI timing (D4) cannot wait forever. Tested with fake answers: the late answer no longer changes the new match.
+- **Status:** Resolved (2026-10-07, `v2.6.1-robustness`)
+
+### P6: Other websites could use the local AI endpoints (2026-10-08)
+- **Context:** second robustness pass, testing the access guard of D37 (`server/aiAccess.ts`) with a fake Agent SDK (`../tests/smoke/server2.ts`).
+- **Problem:** the guard let every request addressed to `localhost` through without the password. While `npm run dev` runs, a page of any website open in the author's browser can send a "simple" cross-origin POST (no custom headers) to `http://localhost:5173/api/llm` or `/api/jev`. Such a request needs no CORS preflight, so it reaches the server and passed as local. The page cannot read the answer, but every request runs an LLM call on the author's Claude subscription or a Jev call on the author's quota. Reproduced: a POST with `Origin: https://evil.example` and `Host: localhost:5173` was passed on. Whether a browser blocks public sites from reaching `localhost` differs between browsers and versions (not verified here), so the guard must not rely on it.
+- **Impact:** D37's assumption that requests to `localhost` are the author's own did not hold; the password only protected the tunnel. No sign that it was used.
+- **Resolution:** a request that carries an `Origin` other than the app's own (same host) or the demo's (`AI_ALLOWED_ORIGINS`) is refused (403) before the local check; requests without an `Origin` (e.g. `curl` on this computer) still pass. Tested: other website → 403, sandboxed page (`Origin: null`) → 403; the app on `localhost` and `127.0.0.1`, the demo's origin, `curl`, and the app through the tunnel with the password → pass. The same pass made `/api/llm` refuse fields that are not text and fail waiting requests at once when their session ends.
+- **Status:** Resolved (2026-10-08, `v2.6.2-robustness-2`; local, not pushed yet)
 
 ---
 
