@@ -707,6 +707,12 @@
   margin-bottom: 10px;
 }
 
+#match-result .error-text {
+  max-width: 420px;
+  margin: 0 auto 12px;
+  overflow-wrap: anywhere;
+}
+
 #match-result table {
   margin: 0 auto 12px;
   border-collapse: collapse;

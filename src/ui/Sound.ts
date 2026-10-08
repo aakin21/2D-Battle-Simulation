@@ -59,6 +59,7 @@ type AudioContextClass = typeof AudioContext;
 
 export class Sound {
   private ctx: AudioContext | null = null;
+  private unavailable = false;
   private master: GainNode | null = null;
   private buffers = new Map<SoundName, AudioBuffer>();
   private voices = 0;
@@ -82,13 +83,20 @@ export class Sound {
   // Browsers only start audio after a user gesture, so this is called from clicks and keys.
   // The first call creates the audio context and loads the sounds.
   unlock(): void {
-    if (this.muted) return;
+    if (this.muted || this.unavailable) return;
     if (!this.ctx) {
       const Ctx: AudioContextClass | undefined =
         window.AudioContext ??
         (window as unknown as { webkitAudioContext?: AudioContextClass }).webkitAudioContext;
       if (!Ctx) return;
-      this.ctx = new Ctx();
+      try {
+        this.ctx = new Ctx();
+      } catch (err) {
+        // The browser refused an audio context (e.g. too many open): this page stays silent
+        console.warn('Sound unavailable:', err);
+        this.unavailable = true;
+        return;
+      }
       this.master = this.ctx.createGain();
       this.master.gain.value = MASTER_VOLUME;
       this.master.connect(this.ctx.destination);

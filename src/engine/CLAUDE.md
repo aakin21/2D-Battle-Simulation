@@ -19,6 +19,8 @@ The simulation itself. `SimulationEngine` owns the loop; the other files are par
 ## Conventions
 
 - Order of a frame matters: AI ticks and command application run before behavior and movement.
+- The frame loop never runs time backwards (a frame can begin just before `start()`). An exception in a simulation step stops the run (paused, `getError()`, `setOnError`) instead of the loop; `resume()` refuses until a restart. A drawing error is logged once and the run goes on.
+- `issueCommand` ignores a move or hold whose point is not a finite number.
 - Unit states: `IDLE → ATTACK → FLEE → REST`. Soldiers flee on low courage; heroes "flee" only through the reflex (D18), which a user, Jev or LLM order can end.
 - In battle mode berserkers are soldiers (`isSoldier`) and follow the nearest hero of their side within its sight (`findLeader`).
 - Rule numbers live in `Rules.ts`. The AI rulebook (`src/ai/GameRules.ts`) is built from them, so change a rule there and the prompts follow. Other tuning constants are named at the top of the file that uses them.

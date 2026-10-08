@@ -60,7 +60,7 @@ export class StateManager {
       normal: { forest: 0.25, swamp: 0.15, mountain: 0.1 },
       dense: { forest: 0.32, swamp: 0.2, mountain: 0.14 },
     };
-    const p = presets[density];
+    const p = presets[density] ?? presets.normal; // a config set from code may hold anything
     const totalTiles = GRID_SIZE * GRID_SIZE;
     this.placeBlobClusters(grid, TerrainType.FOREST, Math.floor(totalTiles * p.forest), 4, 12);
     this.placeBlobClusters(grid, TerrainType.SWAMP, Math.floor(totalTiles * p.swamp), 3, 8);

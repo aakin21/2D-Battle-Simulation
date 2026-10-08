@@ -7,6 +7,7 @@ export type SelectDragCallback = (x1: number, y1: number, x2: number, y2: number
 
 // Keys whose default browser behavior should be suppressed
 const HANDLED_KEYS = new Set([' ', '+', '=', '-', 'r', 'R']);
+const REPEATABLE_KEYS = new Set(['+', '=', '-']);
 
 export class InputHandler {
   private canvas: HTMLCanvasElement;
@@ -151,7 +152,12 @@ export class InputHandler {
 
   private setupKeyListener(): void {
     window.addEventListener('keydown', (e: KeyboardEvent) => {
+      // Browser shortcuts stay with the browser: Cmd/Ctrl+R reloads, Cmd/Ctrl +/− zooms.
+      // AltGr (Ctrl+Alt on Windows) types characters on some layouts, so it still counts.
+      if (e.metaKey || (e.ctrlKey && !e.getModifierState('AltGraph'))) return;
       if (HANDLED_KEYS.has(e.key)) e.preventDefault();
+      // A held key repeats: only the speed keys act on repeats, so holding R restarts once
+      if (e.repeat && !REPEATABLE_KEYS.has(e.key)) return;
       this.keyCallbacks.forEach((cb) => cb(e.key));
     });
   }

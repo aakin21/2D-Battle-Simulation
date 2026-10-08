@@ -41,6 +41,13 @@ export function aiAccessPlugin(env: Record<string, string>): Plugin {
           return res.end();
         }
 
+        // Any website open in this computer's browser can send a simple POST (no preflight)
+        // to localhost, which would pass as local and spend the quota. Browsers mark such
+        // requests with the site's Origin: only this app and the demo's origin may call.
+        if (origin && !allowed.has(origin) && !sameOrigin(origin, req)) {
+          return deny(res, 403, 'requests from other sites are refused');
+        }
+
         if (isLocal(req)) return next();
         if (!password) return deny(res, 503, 'AI_PASSWORD is not set on the AI server');
         if (!matches(req.headers['x-ai-key'], password)) return deny(res, 401, 'wrong AI password');
@@ -55,6 +62,16 @@ export function aiAccessPlugin(env: Record<string, string>): Plugin {
 function isLocal(req: IncomingMessage): boolean {
   const host = (req.headers.host ?? '').replace(/:\d+$/, '');
   return host === 'localhost' || host === '127.0.0.1' || host === '[::1]';
+}
+
+// The page making the request is served by this server (the app itself, locally or through
+// the tunnel). A malformed Origin ("null" from a sandboxed page) is not.
+function sameOrigin(origin: string, req: IncomingMessage): boolean {
+  try {
+    return new URL(origin).host === (req.headers.host ?? '').toLowerCase();
+  } catch {
+    return false;
+  }
 }
 
 function matches(given: string | string[] | undefined, password: string): boolean {

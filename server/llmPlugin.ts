@@ -25,6 +25,7 @@ class Session {
   private queue: SDKUserMessage[] = [];
   private wake: (() => void) | null = null;
   private closed = false;
+  private ended = false; // the SDK stream finished or failed: no answer will come any more
   private waiting: Array<{ resolve: (text: string) => void; reject: (err: Error) => void }> = [];
   private q: Query;
 
@@ -59,6 +60,7 @@ class Session {
   }
 
   private async readLoop(): Promise<void> {
+    let reason = new Error('the LLM session ended');
     try {
       for await (const message of this.q) {
         if (message.type !== 'result') continue;
@@ -68,12 +70,21 @@ class Session {
         else pending.reject(new Error(`LLM error: ${message.subtype}`));
       }
     } catch (err) {
-      for (const p of this.waiting.splice(0)) p.reject(err as Error);
+      reason = err as Error;
     }
+    // Requests still waiting would otherwise hang until the answer timeout
+    this.ended = true;
+    for (const p of this.waiting.splice(0)) p.reject(reason);
+  }
+
+  // A session that can still answer; otherwise the next request opens a new one
+  isAlive(): boolean {
+    return !this.closed && !this.ended;
   }
 
   ask(prompt: string): Promise<string> {
     return new Promise((resolve, reject) => {
+      if (!this.isAlive()) return reject(new Error('the LLM session ended'));
       this.waiting.push({ resolve, reject });
       this.queue.push({
         type: 'user',
@@ -85,10 +96,12 @@ class Session {
     });
   }
 
+  // Replaced by a new match or model, or failed: requests still waiting get an error now
   close(): void {
     this.closed = true;
     this.wake?.();
     this.q.close();
+    for (const p of this.waiting.splice(0)) p.reject(new Error('the LLM session was closed'));
   }
 }
 
@@ -133,6 +146,10 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   });
 }
 
+function isText(value: unknown): value is string {
+  return typeof value === 'string' && value !== '';
+}
+
 function send(res: ServerResponse, status: number, body: unknown): void {
   res.statusCode = status;
   res.setHeader('Content-Type', 'application/json');
@@ -145,12 +162,13 @@ export function llmPlugin(): Plugin {
     configureServer(server) {
       server.middlewares.use('/api/llm', async (req, res) => {
         if (req.method !== 'POST') return send(res, 405, { error: 'POST only' });
+        // Fields are checked below: a request can contain anything
         let body: {
-          model?: string;
-          side?: string;
-          matchId?: string;
-          system?: string;
-          prompt?: string;
+          model?: unknown;
+          side?: unknown;
+          matchId?: unknown;
+          system?: unknown;
+          prompt?: unknown;
         };
         try {
           body = JSON.parse(await readBody(req));
@@ -159,16 +177,19 @@ export function llmPlugin(): Plugin {
           return send(res, 400, { error: 'body must be JSON' });
         }
         const { side, matchId, system, prompt, model: requested } = body ?? {};
-        if (!side || !matchId || !system || !prompt)
-          return send(res, 400, { error: 'side, matchId, system and prompt are required' });
+        if (!isText(side) || !isText(matchId) || !isText(system) || !isText(prompt))
+          return send(res, 400, { error: 'side, matchId, system and prompt must be text' });
         // One session per side; any other value would open extra Agent SDK sessions
         if (!SIDES.includes(side)) return send(res, 400, { error: 'side must be west or east' });
         try {
           let session = sessions.get(side);
-          const model: Model = (MODELS as readonly string[]).includes(requested ?? '')
-            ? (requested as Model)
-            : DEFAULT_MODEL;
-          if (!session || session.matchId !== matchId || session.model !== model) {
+          const model: Model = MODELS.find((m) => m === requested) ?? DEFAULT_MODEL;
+          if (
+            !session ||
+            !session.isAlive() ||
+            session.matchId !== matchId ||
+            session.model !== model
+          ) {
             session?.close();
             session = new Session(matchId, model, system);
             sessions.set(side, session);
