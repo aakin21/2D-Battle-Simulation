@@ -68,3 +68,21 @@ export function unreachableHint(): string {
     ? `Cannot reach the AI server at ${server.base}: are npm run dev and the tunnel running?`
     : 'Is the dev server running (npm run dev)?';
 }
+
+// The AI server's own reason for an error status (its endpoints answer with { error }), so the
+// AI panel can show it. A tunnel or proxy page is not JSON and adds nothing.
+export async function failureDetail(res: Response): Promise<string> {
+  try {
+    const body = (await res.json()) as { error?: unknown } | null;
+    if (typeof body?.error === 'string') return `: ${body.error.slice(0, 200)}`;
+  } catch {
+    // not JSON
+  }
+  return '';
+}
+
+// Statuses a tunnel (Cloudflare, ngrok) or proxy gives when it cannot reach the AI server, e.g.
+// Cloudflare's 530 for a quick-tunnel address that no longer exists (a new one each start).
+export function unreachableStatus(status: number): boolean {
+  return status === 502 || status === 503 || status === 504 || (status >= 520 && status <= 530);
+}
