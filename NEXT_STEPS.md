@@ -1,4 +1,4 @@
-# Next steps (updated 2026-10-07)
+# Next steps (updated 2026-10-08)
 
 Phase 2 and the UI work are both in `main` (2026-10-04). Each change gets its own branch from
 `main`; `phase2/symmetry` (worktree `.claude/worktrees/phase2-symmetry/`) is kept equal to `main`.
@@ -31,7 +31,18 @@ Read `CLAUDE.md` (architecture, rules that must not be broken) and `THESIS_DOCUM
   acts on the active account, so the author switches to `aakin21`, runs
   `gh auth refresh -h github.com -s workflow`, and switches back.
 
-## Just done (2026-10-07)
+## Just done (2026-10-07 / 08)
+- Second robustness pass (`v2.6.2-robustness-2`, local only, not pushed). New tests in
+  `../tests/smoke/` (see its README): `edge.ts` 30/30, `server2.ts` 24/24 (12 failed on the old
+  code, with a fake Agent SDK `sdk-fake.ts`), `same.ts` shows identical battlefield hashes on
+  the old and new code in 18 cases; the earlier suites still pass (engine 84/84, AI 14/14,
+  maps, server). Fixed: an exception in a simulation step froze the page (now a "Simulation
+  stopped" card, recorded in the match log); a first frame could run time backwards; Cmd+R and
+  Ctrl+± acted as game shortcuts and a held R restarted many times a second; an unreadable
+  saved map silently became a random one, and saving under an existing name replaced a map
+  unasked; any website open in the browser could POST to `localhost` `/api/llm` and `/api/jev`
+  without the password (now refused by `Origin`); `/api/llm` requests waited 150 s on a closed
+  or ended session; Jev values that are not numbers reached the AI panel's HTML.
 - Demo version string (local only, not pushed): the deploy workflow checks out the full history
   with tags and installs with `npm ci` (`fix/deploy-version`, not tagged: no app change). In a
   `node:20` container with CI's Node 20.20.2 / npm 10.8.2, the old steps rewrite
@@ -52,14 +63,17 @@ Read `CLAUDE.md` (architecture, rules that must not be broken) and `THESIS_DOCUM
 - 2026-10-06: `HANDOFF.md` removed; P4 logged and D18/D23 re-measured (R10).
 
 ## Open items, in order
-1. **Push the demo version fix** once the token has the `workflow` scope (see Working
-   agreements): `main`, `phase2/symmetry`, `development`, `fix/deploy-version` and
-   `docs/next-steps-deploy-version` are ahead of `origin` locally. Then check that the deploy run passes and that the demo's
+1. **Push the local work** once the token has the `workflow` scope (see Working agreements):
+   `main`, `phase2/symmetry`, `development`, `fix/deploy-version`,
+   `docs/next-steps-deploy-version`, `fix/robustness-2`, `docs/next-steps-robustness-2` and the
+   tag `v2.6.2-robustness-2` are ahead of `origin` locally. Then check that the deploy run passes and that the demo's
    `assets/index-*.js` on `gh-pages` has a tag-based `version` without `-dirty`. Optional
    follow-up: the run warns that Node 20 is deprecated (`checkout@v4`, `setup-node@v4`,
    `actions-gh-pages@v3` are forced onto Node 24; the build itself uses Node 20).
 2. **Ask the author** whether to log the late-answer contamination between matches as P5 (it
-   could have affected AI matches started right after a restart).
+   could have affected AI matches started right after a restart), and whether the localhost
+   access gap closed in `v2.6.2` (other websites could use the AI endpoints, a gap in D37's
+   protection) is worth a P# entry.
 3. **Live tests by the author**, one by one (port of `npm run dev`): D33–D36 with Jev and the
    LLM; Jev only, Jev + LLM, each objective; the tunnel (D37) end to end; a re-run of the first
    LLM vs LLM match with the courage fix (P4, D3). The AI panel shows the decisions live, and
@@ -75,8 +89,9 @@ Read `CLAUDE.md` (architecture, rules that must not be broken) and `THESIS_DOCUM
    (`src/ui/MatchLog.ts`) can be reused.
 6. Known, not fixed: stress-mode berserkers clip mountain corners by ~0.06 tiles (Phase 1
    classic behaviour, 6 units in 40 s; never seen in battle mode); one-off 90–220 ms frames in
-   stress mode and base mode (Q17); an exception in the engine update stops the frame loop; an
-   unreadable saved map silently falls back to a random one.
+   stress mode and base mode (Q17); a move order to a point off the map (no source gives one
+   today) takes the ring search's first tile, which favours the top of the ring, or the point
+   itself beyond 40 tiles; left as is because changing it could change results.
 7. **AI in the online demo through a tunnel (D37):** `AI_PASSWORD=...` in `.env.local`,
    `npm run dev`, `cloudflared tunnel --url http://localhost:5173`, then open the demo once with
    `?ai=<tunnel address>&key=<password>`. Vercel with the Claude API comes later (D10).
