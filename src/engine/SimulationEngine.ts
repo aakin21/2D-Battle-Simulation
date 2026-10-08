@@ -84,6 +84,10 @@ export class SimulationEngine {
   private result: MatchResult | null = null;
   private aiTiming: AITiming = 'realtime';
   private onMatchEnd: ((result: MatchResult) => void) | null = null;
+  // An exception in a simulation step stops the run; it is kept and shown until a restart
+  private error: string | null = null;
+  private onError: ((message: string) => void) | null = null;
+  private lastDrawError: string | null = null;
   private speedMultiplier: number = 1;
   private waveMultiplier: number = 1;
   private lastConfig: SimConfig = DEFAULT_CONFIG;
@@ -110,12 +114,13 @@ export class SimulationEngine {
     this.paused = true;
   }
 
+  // A run stopped by an error stays paused: its state may be half-updated
   resume(): void {
-    this.paused = false;
+    if (!this.error) this.paused = false;
   }
 
   togglePause(): void {
-    this.paused = !this.paused;
+    if (!this.error) this.paused = !this.paused;
   }
 
   isPaused(): boolean {
@@ -169,6 +174,14 @@ export class SimulationEngine {
     this.onMatchEnd = cb;
   }
 
+  getError(): string | null {
+    return this.error;
+  }
+
+  setOnError(cb: (message: string) => void): void {
+    this.onError = cb;
+  }
+
   // AI controllers for the current match; cleared on every restart.
   setControllers(controllers: AIController[]): void {
     for (const c of this.controllers) if (!controllers.includes(c)) c.dispose();
@@ -188,6 +201,7 @@ export class SimulationEngine {
     this.stateManager.reset(this.lastConfig);
     this.setControllers([]);
     this.result = null;
+    this.error = null;
     this.battleMode = this.stateManager.isBattleMode();
     this.renderer.setBattleMode(this.battleMode);
     this.patrol.clear();
@@ -203,6 +217,7 @@ export class SimulationEngine {
     this.stateManager.reset();
     this.setControllers([]);
     this.result = null;
+    this.error = null;
     this.battleMode = false;
     this.renderer.setBattleMode(false);
     this.patrol.clear();
@@ -783,24 +798,45 @@ export class SimulationEngine {
   }
 
   private loop(timestamp: number): void {
-    const rawDelta = (timestamp - this.lastTime) / 1000;
+    // A frame's timestamp is when the frame began, which can be just before start() ran
+    const rawDelta = Math.max(0, (timestamp - this.lastTime) / 1000);
     this.lastTime = timestamp;
 
     const deltaTime = Math.min(rawDelta, 0.1) * this.speedMultiplier;
 
     if (!this.paused && !this.isWaitingForAI()) {
-      this.update(deltaTime);
-      this.stateManager.getBattlefield().elapsedTime += deltaTime;
+      try {
+        this.update(deltaTime);
+        this.stateManager.getBattlefield().elapsedTime += deltaTime;
+      } catch (err) {
+        this.fail(err);
+      }
     }
 
-    const battlefield = this.stateManager.getBattlefield();
-    this.renderer.render(battlefield);
-    this.minimapRenderer.render(
-      battlefield,
-      this.renderer.getCamera(),
-      this.renderer.getTerrainArt()
-    );
+    // Drawing never changes the simulation, so a drawing error must not stop the run
+    try {
+      const battlefield = this.stateManager.getBattlefield();
+      this.renderer.render(battlefield);
+      this.minimapRenderer.render(
+        battlefield,
+        this.renderer.getCamera(),
+        this.renderer.getTerrainArt()
+      );
+    } catch (err) {
+      const message = String(err);
+      if (message !== this.lastDrawError) console.error('Drawing failed:', err);
+      this.lastDrawError = message;
+    }
 
     this.rafId = requestAnimationFrame(this.loop.bind(this));
+  }
+
+  // An exception in a simulation step: the state may be half-updated, so the run stops here
+  // instead of the whole page freezing. The UI shows the error; a restart starts a new run.
+  private fail(err: unknown): void {
+    this.error = err instanceof Error ? err.message : String(err);
+    this.paused = true;
+    console.error('Simulation stopped:', err);
+    this.onError?.(this.error);
   }
 }

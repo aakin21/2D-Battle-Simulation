@@ -12,6 +12,7 @@ import {
   SideAI,
 } from '../types/types';
 import { positionToSubsector } from '../engine/Sectors';
+import { escapeHtml } from './AiPanel';
 
 // What the player sees around the map: the match banner in the top bar, the armies in the
 // side panel, the selected-unit card, area counts and the match result. Read-only: it never
@@ -419,6 +420,28 @@ export class Hud {
     this.elResult.querySelector('[data-act="restart"]')!.addEventListener('click', actions.restart);
     this.elResult.querySelector('[data-act="menu"]')!.addEventListener('click', actions.menu);
     this.elResult.querySelector('[data-act="log"]')!.addEventListener('click', actions.log);
+    this.elResult.hidden = false;
+  }
+
+  // The run was stopped by an error in the simulation (SimulationEngine.fail).
+  showError(
+    message: string,
+    time: number,
+    actions: { restart(): void; menu(): void; log: (() => void) | null }
+  ): void {
+    this.elResult.innerHTML =
+      '<h2>Simulation stopped</h2>' +
+      `<div class="how">An error stopped this run at ${clock(time)}:</div>` +
+      `<div class="error-text">${escapeHtml(message)}</div>` +
+      `<div class="actions"><button class="btn" data-act="restart">Restart</button><button class="btn btn-quiet" data-act="menu">Menu</button>` +
+      (actions.log
+        ? '<button class="btn btn-quiet" data-act="log" title="Settings, timeline and every AI decision as JSON">Download log</button>'
+        : '') +
+      '</div>';
+    this.elResult.querySelector('[data-act="restart"]')!.addEventListener('click', actions.restart);
+    this.elResult.querySelector('[data-act="menu"]')!.addEventListener('click', actions.menu);
+    if (actions.log)
+      this.elResult.querySelector('[data-act="log"]')!.addEventListener('click', actions.log);
     this.elResult.hidden = false;
   }
 

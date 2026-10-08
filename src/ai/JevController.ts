@@ -235,9 +235,9 @@ export class JevController {
       for (const hero of heroes) {
         const key = `hero${hero.heroIndex}`;
         const assessment = {
-          surrounded: a[`${key}_surrounded`]?.noul,
-          threat: a[`${key}_threat`]?.score,
-          orderStillFits: a[`${key}_order_fits`]?.noul,
+          surrounded: num(a[`${key}_surrounded`]?.noul),
+          threat: num(a[`${key}_threat`]?.score),
+          orderStillFits: num(a[`${key}_order_fits`]?.noul),
         };
         this.assessments.set(hero.heroIndex, assessment);
         this.lastForce.set(hero.heroIndex, forceNow.get(hero.heroIndex) ?? Infinity);
@@ -246,7 +246,7 @@ export class JevController {
         const option = options.get(hero.heroIndex)?.find((o) => o.key === answer?.choice);
         if (!answer || !option || hero.hp <= 0) continue;
 
-        const confidence = answer.confidence ?? 0;
+        const confidence = num(answer.confidence) ?? 0;
         const applied = confidence >= this.opts.minConfidence;
         // A repeated order is ignored by the command interface (D27).
         if (applied) this.engine.issueCommand(hero, option.command, 'jev');
@@ -603,4 +603,10 @@ export class JevController {
   private direction(from: IUnit, to: IUnit): string {
     return `to the ${compass(from.position, to.position)}`;
   }
+}
+
+// Answers come from another service: anything but a finite number counts as no answer, so
+// it can neither pass the confidence threshold nor reach the AI panel or the LLM's report.
+function num(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }

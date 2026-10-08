@@ -112,7 +112,12 @@ export class MatchLog {
     };
   }
 
-  build(sm: StateManager, result: MatchResult | null): Record<string, unknown> {
+  // error: the run was stopped by an exception in the simulation (SimulationEngine.fail)
+  build(
+    sm: StateManager,
+    result: MatchResult | null,
+    error: string | null = null
+  ): Record<string, unknown> {
     const now = this.measure(sm);
     const timeline =
       this.samples.length && this.samples[this.samples.length - 1].t === now.t
@@ -137,17 +142,19 @@ export class MatchLog {
             unitsLeftOnWinningSide: result.survivors,
             points: result.scores,
           }
-        : 'not finished',
+        : error
+          ? { stoppedByError: error }
+          : 'not finished',
       timeline,
       ai: { west: this.ai(this.sides.west), east: this.ai(this.sides.east) },
     };
   }
 
-  download(sm: StateManager, result: MatchResult | null): void {
+  download(sm: StateManager, result: MatchResult | null, error: string | null = null): void {
     const c = this.config;
     const stamp = new Date().toISOString().slice(0, 19).replace(/[-:]/g, '').replace('T', '-');
     const name = `match-${c.objective ?? 'elimination'}-${c.friendlyAI ?? 'none'}-vs-${c.enemyAI ?? 'none'}-${stamp}.json`;
-    const blob = new Blob([JSON.stringify(this.build(sm, result), null, 2)], {
+    const blob = new Blob([JSON.stringify(this.build(sm, result, error), null, 2)], {
       type: 'application/json',
     });
     const url = URL.createObjectURL(blob);
