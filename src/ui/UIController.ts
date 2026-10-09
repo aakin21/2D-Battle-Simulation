@@ -632,9 +632,10 @@ export class UIController {
       this.updateTooltip(cx, cy);
     });
 
-    // Leave canvas → hide tooltip
+    // Leave canvas → hide tooltip; a selection drag that leaves the canvas is cancelled
     this.inputHandler.onCanvasLeave(() => {
       this.elTooltip.style.display = 'none';
+      this.elSelectOverlay.style.display = 'none';
       this.lastTooltipX = this.lastTooltipY = -999;
     });
 
