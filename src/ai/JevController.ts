@@ -562,7 +562,7 @@ export class JevController {
           line += mark;
           continue;
         }
-        const t = grid[y][x];
+        const t = cellTerrain(grid, x, y);
         line +=
           t === TerrainType.MOUNTAIN
             ? 'M'
@@ -683,4 +683,23 @@ export class JevController {
 // it can neither pass the confidence threshold nor reach the AI panel or the LLM's report.
 function num(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+// Terrain of a 2×2 cell of the local map. Any mountain tile makes it a mountain, since units
+// cannot pass there (the pathfinder also keeps off a mountain's neighbours); otherwise the
+// terrain of most of its tiles (top-left on a tie). Reading only the top-left tile showed one
+// in six cells with a mountain as passable.
+function cellTerrain(grid: TerrainType[][], x: number, y: number): TerrainType {
+  const counts = [0, 0, 0, 0];
+  for (let dy = 0; dy < MAP_CELL; dy++) {
+    for (let dx = 0; dx < MAP_CELL; dx++) {
+      const t = grid[y + dy]?.[x + dx];
+      if (t !== undefined) counts[t]++;
+    }
+  }
+  if (counts[TerrainType.MOUNTAIN] > 0) return TerrainType.MOUNTAIN;
+  let best = grid[y][x];
+  for (const t of [TerrainType.OPEN, TerrainType.FOREST, TerrainType.SWAMP])
+    if (counts[t] > counts[best]) best = t;
+  return best;
 }
