@@ -143,6 +143,8 @@ export class InputHandler {
       'wheel',
       (e: WheelEvent) => {
         e.preventDefault();
+        // A sideways trackpad swipe has no vertical part; it read as -0, i.e. zoom out
+        if (e.deltaY === 0) return;
         const r = this.rect();
         this.scrollCallbacks.forEach((cb) => cb(-e.deltaY, e.clientX - r.left, e.clientY - r.top));
       },
