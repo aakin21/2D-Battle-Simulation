@@ -9,9 +9,16 @@ import * as R from '../engine/Rules';
 const W = UNIT_STATS.WARRIOR;
 const H = UNIT_STATS.HERO;
 const pct = (x: number) => `${Math.round(x * 100)}%`;
+// A unit's damage is dealt once per attack interval
+const perSecond = (damage: number) => Math.round((10 * damage) / R.ATTACK_INTERVAL) / 10;
+
+// How often Jev decides for each hero (D1, D21) and how far its "step" options go; the Jev
+// layer uses these values
+export const JEV_INTERVAL_SEC = 4;
+export const JEV_STEP_TILES = 10;
 
 // Battle-mode heroes move at their soldiers' speed (D18).
-const UNITS = `Both sides are identical. Soldier: ${W.hp} HP, ${W.damage} damage per second, moves ${W.speed} tiles/s, sees ${W.sight} tiles. Hero: ${H.hp} HP, ${H.damage} damage per second, moves ${W.speed} tiles/s (same as its soldiers), sees ${H.sight} tiles. Units fight any enemy within ${R.COMBAT_RANGE} tiles automatically; damage is the same from every direction.`;
+const UNITS = `Both sides are identical. Soldier: ${W.hp} HP, ${perSecond(W.damage)} damage per second, moves ${W.speed} tiles/s, sees ${W.sight} tiles. Hero: ${H.hp} HP, ${perSecond(H.damage)} damage per second, moves ${W.speed} tiles/s (same as its soldiers), sees ${H.sight} tiles. Units fight any enemy within ${R.COMBAT_RANGE} tiles automatically; damage is the same from every direction.`;
 
 const FOLLOWING = `A soldier follows the nearest hero of its side if that hero is within ${H.sight} tiles. A soldier with no hero of its side that close is a stray: it stays where it is and only fights enemies that come into its sight, until a hero comes within ${H.sight} tiles of it again (use regroup to collect strays); strays also miss the charisma bonus. When a side has no heroes left, its soldiers attack the nearest enemy. A hero that runs too far ahead leaves its soldiers behind as strays.`;
 
@@ -29,7 +36,7 @@ const TERRAIN = `Terrain: forest slows movement to ${pct(TERRAIN_SPEED.FOREST)} 
 
 const MAP = `The map is ${GRID_SIZE}x${GRID_SIZE} tiles, split into ${SECTORS_PER_SIDE}x${SECTORS_PER_SIDE} sectors of ${SECTOR_SIZE}x${SECTOR_SIZE} tiles. Columns A-J run west to east, rows 1-10 north to south. Each sector is split 3x3 into sub-sectors of 5x5 tiles named NW, N, NE, W, C, E, SW, S, SE, e.g. "D4-NE" is the north-east corner of D4; "D4" alone means its centre. Exact places are also given as tiles (x, y): x counts from 0 at the west edge to ${GRID_SIZE - 1} at the east edge, y from 0 at the north edge to ${GRID_SIZE - 1} at the south edge.`;
 
-const JEV_FOR_LLM = `A fast tactical system (Jev) watches each of your heroes and decides every 4 seconds, using only what is around that hero. It can briefly override your order to handle the local situation (hold, retreat, attack, attack a nearby enemy hero, or step a short distance in some direction), and returns to your order when the situation allows. The report shows Jev's recent decisions and its assessment of each hero (surrounded, threat level, whether your order still fits). You set the plan; Jev handles the moment.`;
+const JEV_FOR_LLM = `A fast tactical system (Jev) watches each of your heroes and decides every ${JEV_INTERVAL_SEC} seconds, using only what is around that hero. It can briefly override your order to handle the local situation (hold, retreat, attack, attack a nearby enemy hero, collect nearby strays, go to a control point or attack the enemy base when the mode has them, or step about ${JEV_STEP_TILES} tiles in some direction), and returns to your order when the situation allows. The report shows Jev's recent decisions and its assessment of each hero (surrounded, threat level, whether your order still fits). You set the plan; Jev handles the moment.`;
 
 // D30: what wins the match, per objective.
 export function goalText(objective: Objective): string {
@@ -112,7 +119,6 @@ export function jevGameRules(withCommander: boolean, objective: Objective): Reco
     hero_reflex: REFLEX,
     breaking_off: BREAK_OFF,
     terrain: TERRAIN,
-    force_ratio:
-      'force_ratio is the total HP of your units divided by the total HP of enemy units within 15 tiles of the hero. Above 1 you are stronger here; the trend compares it with 4 seconds ago.',
+    force_ratio: `force_ratio is the total HP of your units divided by the total HP of enemy units within 15 tiles of the hero. Above 1 you are stronger here; the trend compares it with ${JEV_INTERVAL_SEC} seconds ago.`,
   };
 }

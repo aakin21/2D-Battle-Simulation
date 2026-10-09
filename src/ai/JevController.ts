@@ -10,7 +10,7 @@ import {
   TerrainType,
   GRID_SIZE,
 } from '../types/types';
-import { jevGameRules } from './GameRules';
+import { jevGameRules, JEV_INTERVAL_SEC, JEV_STEP_TILES } from './GameRules';
 import {
   compass,
   COMPASS,
@@ -68,7 +68,7 @@ export interface JevOptions {
 }
 
 const DEFAULTS: JevOptions = {
-  intervalSec: 4,
+  intervalSec: JEV_INTERVAL_SEC,
   minConfidence: 0.4,
   fallbackToRules: true,
   withCommander: false,
@@ -78,7 +78,7 @@ const DEFAULTS: JevOptions = {
 };
 
 const MAP_CELL = 2; // local map: one character per 2×2 tiles
-const STEP_TILES = 10; // length of a "step" move
+const STEP_TILES = JEV_STEP_TILES; // length of a "step" move
 const HERO_SCAN = LOCAL_RADIUS * 2; // enemy heroes within this distance can be targeted
 const STRAY_REACH = 25; // stray groups within this distance are shown to Jev
 const MAX_REQUEST_CHARS = 100_000;
