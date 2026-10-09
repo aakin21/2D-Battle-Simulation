@@ -34,8 +34,10 @@ import {
   deniedByAiServer,
   AI_PASSWORD_HINT,
   unreachableHint,
-  failureDetail,
+  failureInfo,
+  transientStatus,
   unreachableStatus,
+  FAILURES_IN_A_ROW,
 } from './AiServer';
 import { AiExchange, finishExchange, startExchange } from './Exchange';
 
@@ -57,6 +59,38 @@ export interface LlmDecision {
   orders: string[]; // orders that were valid and applied, e.g. "hero 1: move D4-NE"
   rejected: string[]; // orders that could not be used, with the reason
   raw: string;
+  usage: LlmUsage | null; // cost and tokens of this answer, as the dev server reports them
+}
+
+// What one answer cost (Q11). Estimates from the Agent SDK, not a bill.
+export interface LlmUsage {
+  costUsd: number | null;
+  inputTokens: number | null; // not counting cached input
+  outputTokens: number | null;
+  cacheReadTokens: number | null;
+  cacheWriteTokens: number | null;
+  apiMs: number | null; // time in API calls, part of latencyMs
+  modelIds: string[]; // the full model ids behind the menu's alias
+}
+
+function usageOf(body: Record<string, unknown> | null): LlmUsage | null {
+  if (!body) return null;
+  const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+  const ids = Array.isArray(body.modelIds)
+    ? body.modelIds.filter((m) => typeof m === 'string')
+    : [];
+  const usage: LlmUsage = {
+    costUsd: num(body.costUsd),
+    inputTokens: num(body.inputTokens),
+    outputTokens: num(body.outputTokens),
+    cacheReadTokens: num(body.cacheReadTokens),
+    cacheWriteTokens: num(body.cacheWriteTokens),
+    apiMs: num(body.apiMs),
+    modelIds: ids as string[],
+  };
+  return Object.values(usage).some((v) => v !== null && !(Array.isArray(v) && v.length === 0))
+    ? usage
+    : null;
 }
 
 // What Jev reports upward about one hero (R5: lower layers report to the commander).
@@ -108,6 +142,9 @@ export class LlmController {
   readonly decisions: LlmDecision[] = [];
   readonly exchanges: AiExchange[] = []; // every request with its answer (request log, match log)
   skippedRequests = 0;
+  failedRequests = 0; // requests that failed but were tried again at the next report
+  lastError: string | null = null; // the latest failed request's reason, until an answer comes
+  private failuresInARow = 0;
   failure: string | null = null; // why the layer stopped, for the AI panel and the match log
   private disposed = false;
   private inFlight: AbortController | null = null;
@@ -225,11 +262,14 @@ export class LlmController {
       const latencyMs = performance.now() - started;
       if (this.disposed) return;
       if (!res.ok) {
-        const detail = await failureDetail(res);
+        const info = await failureInfo(res);
         if (this.disposed) return;
-        finishExchange(exchange, latencyMs, null, `HTTP ${res.status}${detail}`);
+        const reason = `HTTP ${res.status}${info.detail}`;
+        finishExchange(exchange, latencyMs, null, reason);
+        const retryable = !deniedByAiServer(res) && (info.retryable ?? transientStatus(res));
+        if (retryable && this.tryAgainLater(reason)) return;
         this.fail(
-          `HTTP ${res.status}${detail}`,
+          retryable ? `${reason} (${FAILURES_IN_A_ROW} failed requests in a row)` : reason,
           deniedByAiServer(res)
             ? AI_PASSWORD_HINT
             : res.status === 404 || res.status === 405
@@ -240,13 +280,15 @@ export class LlmController {
         );
         return;
       }
-      const body = (await res.json()) as { text?: unknown; model?: unknown } | null;
+      const body = (await res.json()) as Record<string, unknown> | null;
       if (this.disposed) return;
       finishExchange(exchange, latencyMs, body);
+      this.failuresInARow = 0;
+      this.lastError = null;
       // A reply that is not text is applied as an empty one: "not valid JSON", layer goes on
       const text = typeof body?.text === 'string' ? body.text : '';
       const model = typeof body?.model === 'string' ? body.model : this.opts.model;
-      this.apply(time, latencyMs, text, model);
+      this.apply(time, latencyMs, text, model, usageOf(body));
     } catch (err) {
       if (this.disposed) return;
       const reason = abort.signal.aborted
@@ -254,8 +296,11 @@ export class LlmController {
         : String(err);
       if (exchange.latencyMs === null)
         finishExchange(exchange, performance.now() - started, null, reason);
+      // A lost connection may come back (tunnel hiccup); no answer at all within the timeout
+      // means the server is stuck, since it gives up and says so first
       if (abort.signal.aborted) this.fail(reason, '');
-      else this.fail(reason, unreachableHint());
+      else if (!this.tryAgainLater(reason))
+        this.fail(`${reason} (${FAILURES_IN_A_ROW} failed requests in a row)`, unreachableHint());
     } finally {
       clearTimeout(timer);
       this.inFlight = null;
@@ -264,8 +309,15 @@ export class LlmController {
   }
 
   // Validates the LLM's reply and applies the usable orders through the command interface.
-  private apply(time: number, latencyMs: number, text: string, model: string): void {
+  private apply(
+    time: number,
+    latencyMs: number,
+    text: string,
+    model: string,
+    usage: LlmUsage | null = null
+  ): void {
     const d: LlmDecision = {
+      usage,
       time,
       model,
       latencyMs,
@@ -366,6 +418,18 @@ export class LlmController {
       default:
         return `unknown command ${String(raw.command)}`;
     }
+  }
+
+  // A request that may work next time (overloaded, rate limited, a lost connection) is counted
+  // and asked again at the next report, as the CLI behind the endpoint has already retried it;
+  // only several failures in a row stop the layer.
+  private tryAgainLater(reason: string): boolean {
+    this.failedRequests++;
+    this.failuresInARow++;
+    this.lastError = reason;
+    if (this.failuresInARow >= FAILURES_IN_A_ROW) return false;
+    console.warn(`LLM (${this.side}) request failed (${reason}); asking again at the next report.`);
+    return true;
   }
 
   private fail(reason: string, hint: string): void {

@@ -23,6 +23,10 @@ function ago(now: number, then: number): string {
   return `${Math.max(0, Math.round(now - then))} s ago`;
 }
 
+function count(n: number, noun: string): string {
+  return `${n} ${noun}${n === 1 ? '' : 's'}`;
+}
+
 function seconds(ms: number): string {
   return `${(ms / 1000).toFixed(1)} s`;
 }
@@ -80,6 +84,8 @@ export class AiPanel {
     if (llm.isWaiting()) html += '<span class="ai-busy">thinking…</span>';
     html += '</div>';
     if (llm.failure) html += `<div class="ai-fail">Stopped: ${escapeHtml(llm.failure)}</div>`;
+    else if (llm.lastError)
+      html += `<div class="ai-warn">Last request failed: ${escapeHtml(llm.lastError)} (asking again)</div>`;
     if (!d) return html + (llm.failure ? '' : '<div class="faint">no decision yet</div>');
     if (d.plan)
       html += `<div class="ai-plan" title="${escapeHtml(d.situation)}">${escapeHtml(d.plan)}</div>`;
@@ -88,7 +94,10 @@ export class AiPanel {
     if (d.rejected.length)
       html += `<div class="ai-fail" title="${escapeHtml(d.rejected.join(' | '))}">${d.rejected.length} order${d.rejected.length > 1 ? 's' : ''} rejected</div>`;
     const avg = llm.decisions.reduce((sum, x) => sum + x.latencyMs, 0) / llm.decisions.length;
-    html += `<div class="ai-meta faint">${llm.decisions.length} decisions · avg ${seconds(avg)} · ${llm.skippedRequests} skipped</div>`;
+    const costs = llm.decisions.map((x) => x.usage?.costUsd).filter((c) => typeof c === 'number');
+    const cost = costs.length ? ` · ≈$${costs.reduce((a, b) => a + b, 0).toFixed(3)}` : '';
+    const failed = llm.failedRequests ? ` · ${llm.failedRequests} failed` : '';
+    html += `<div class="ai-meta faint">${count(llm.decisions.length, 'decision')} · avg ${seconds(avg)} · ${llm.skippedRequests} skipped${failed}${cost}</div>`;
     return html;
   }
 
@@ -101,6 +110,8 @@ export class AiPanel {
     if (jev.isWaiting()) html += '<span class="ai-busy">thinking…</span>';
     html += '</div>';
     if (jev.failure) html += `<div class="ai-fail">Stopped: ${escapeHtml(jev.failure)}</div>`;
+    else if (jev.lastError)
+      html += `<div class="ai-warn">Last request failed: ${escapeHtml(jev.lastError)} (asking again)</div>`;
     if (!last) return html + (jev.failure ? '' : '<div class="faint">no decision yet</div>');
 
     // Latest decision for each hero that has one
@@ -116,10 +127,12 @@ export class AiPanel {
       })
       .join('');
     const requests = new Set(all.map((d) => d.time)).size;
+    const failed = jev.failedRequests ? ` · ${jev.failedRequests} failed` : '';
+    const model = last.model ? ` · ${escapeHtml(last.model)}` : '';
     return (
       html +
       rows +
-      `<div class="ai-meta faint">${requests} requests · ${jev.skippedRequests} skipped</div>`
+      `<div class="ai-meta faint">${count(requests, 'request')} · ${jev.skippedRequests} skipped${failed}${model}</div>`
     );
   }
 }
