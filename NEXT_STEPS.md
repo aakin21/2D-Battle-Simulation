@@ -32,6 +32,7 @@ Read `CLAUDE.md` (architecture, rules that must not be broken) and `THESIS_DOCUM
   `gh auth refresh -h github.com -s workflow`, and switches back.
 
 ## Just done (2026-10-07 / 08)
+- P7 logged (effects changed the simulation's random numbers) at the author's request.
 - Third robustness pass (`v2.6.3-robustness-3`, local only). Every case tried in passes 2 and 3
   and its outcome is in `../tests/smoke/CASES.md`. Fixed: with FX on, effects drew from the
   simulation's `Math.random`, so the same seed gave a different battle (proved with the real
@@ -76,7 +77,7 @@ Read `CLAUDE.md` (architecture, rules that must not be broken) and `THESIS_DOCUM
 1. **Push the local work** once the token has the `workflow` scope (see Working agreements):
    `main`, `phase2/symmetry`, `development`, `fix/deploy-version`,
    `docs/next-steps-deploy-version`, `fix/robustness-2`, `docs/next-steps-robustness-2`,
-   `docs/p5-p6`, `fix/robustness-3`, `docs/next-steps-robustness-3` and the tags
+   `docs/p5-p6`, `fix/robustness-3`, `docs/next-steps-robustness-3`, `docs/p7` and the tags
    `v2.6.2-robustness-2`, `v2.6.3-robustness-3` are ahead of `origin` locally (`git push origin <branches> --tags`). Then check that the deploy run passes and that the demo's
    `assets/index-*.js` on `gh-pages` has a tag-based `version` without `-dirty`. Optional
    follow-up: the run warns that Node 20 is deprecated (`checkout@v4`, `setup-node@v4`,
