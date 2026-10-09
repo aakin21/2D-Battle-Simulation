@@ -10,7 +10,7 @@ import {
   TerrainType,
   GRID_SIZE,
 } from '../types/types';
-import { jevGameRules } from './GameRules';
+import { jevGameRules, JEV_INTERVAL_SEC, JEV_STEP_TILES } from './GameRules';
 import {
   compass,
   COMPASS,
@@ -21,7 +21,7 @@ import {
   LOCAL_RADIUS,
 } from './Observations';
 import type { JevAssessment } from './LlmController';
-import { strayClusters } from '../engine/Strays';
+import { strayClusters, regroupTarget } from '../engine/Strays';
 import { enemyBase } from '../engine/Objectives';
 import {
   aiEndpoint,
@@ -68,7 +68,7 @@ export interface JevOptions {
 }
 
 const DEFAULTS: JevOptions = {
-  intervalSec: 4,
+  intervalSec: JEV_INTERVAL_SEC,
   minConfidence: 0.4,
   fallbackToRules: true,
   withCommander: false,
@@ -78,7 +78,7 @@ const DEFAULTS: JevOptions = {
 };
 
 const MAP_CELL = 2; // local map: one character per 2×2 tiles
-const STEP_TILES = 10; // length of a "step" move
+const STEP_TILES = JEV_STEP_TILES; // length of a "step" move
 const HERO_SCAN = LOCAL_RADIUS * 2; // enemy heroes within this distance can be targeted
 const STRAY_REACH = 25; // stray groups within this distance are shown to Jev
 const MAX_REQUEST_CHARS = 100_000;
@@ -426,12 +426,19 @@ export class JevController {
       });
     }
 
-    const strays = this.nearbyStrays(hero);
-    if (strays.length > 0) {
-      const s = strays[0];
+    // Offered when strays are near; described by the group the order actually leads to, which
+    // can be a bigger group farther away (regroupTarget weighs distance by group size)
+    const goal =
+      this.nearbyStrays(hero).length > 0
+        ? regroupTarget(strayClusters(this.stateManager, hero.faction), hero)
+        : null;
+    if (goal) {
+      const d = Math.round(
+        Math.hypot(goal.center.x - hero.position.x, goal.center.y - hero.position.y)
+      );
       opts.push({
         key: 'regroup',
-        what: `Collect stray soldiers of our side (nearest group: ${s.soldiers} soldiers, ${s.distance} tiles ${s.direction}); they follow the hero again and regain its courage bonus.`,
+        what: `Collect stray soldiers of our side: this order leads to a group of ${goal.soldiers} soldiers, ${d} tiles to the ${compass(hero.position, goal.center)} (a bigger group is preferred to a nearer small one); they follow the hero again and regain its courage bonus.`,
         notFor: 'When the hero is in a fight it is winning, or the strays are far away.',
         command: { type: 'regroup' },
       });
@@ -555,7 +562,7 @@ export class JevController {
           line += mark;
           continue;
         }
-        const t = grid[y][x];
+        const t = cellTerrain(grid, x, y);
         line +=
           t === TerrainType.MOUNTAIN
             ? 'M'
@@ -676,4 +683,23 @@ export class JevController {
 // it can neither pass the confidence threshold nor reach the AI panel or the LLM's report.
 function num(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+// Terrain of a 2×2 cell of the local map. Any mountain tile makes it a mountain, since units
+// cannot pass there (the pathfinder also keeps off a mountain's neighbours); otherwise the
+// terrain of most of its tiles (top-left on a tie). Reading only the top-left tile showed one
+// in six cells with a mountain as passable.
+function cellTerrain(grid: TerrainType[][], x: number, y: number): TerrainType {
+  const counts = [0, 0, 0, 0];
+  for (let dy = 0; dy < MAP_CELL; dy++) {
+    for (let dx = 0; dx < MAP_CELL; dx++) {
+      const t = grid[y + dy]?.[x + dx];
+      if (t !== undefined) counts[t]++;
+    }
+  }
+  if (counts[TerrainType.MOUNTAIN] > 0) return TerrainType.MOUNTAIN;
+  let best = grid[y][x];
+  for (const t of [TerrainType.OPEN, TerrainType.FOREST, TerrainType.SWAMP])
+    if (counts[t] > counts[best]) best = t;
+  return best;
 }
