@@ -21,7 +21,7 @@ import {
   LOCAL_RADIUS,
 } from './Observations';
 import type { JevAssessment } from './LlmController';
-import { strayClusters } from '../engine/Strays';
+import { strayClusters, regroupTarget } from '../engine/Strays';
 import { enemyBase } from '../engine/Objectives';
 import {
   aiEndpoint,
@@ -426,12 +426,19 @@ export class JevController {
       });
     }
 
-    const strays = this.nearbyStrays(hero);
-    if (strays.length > 0) {
-      const s = strays[0];
+    // Offered when strays are near; described by the group the order actually leads to, which
+    // can be a bigger group farther away (regroupTarget weighs distance by group size)
+    const goal =
+      this.nearbyStrays(hero).length > 0
+        ? regroupTarget(strayClusters(this.stateManager, hero.faction), hero)
+        : null;
+    if (goal) {
+      const d = Math.round(
+        Math.hypot(goal.center.x - hero.position.x, goal.center.y - hero.position.y)
+      );
       opts.push({
         key: 'regroup',
-        what: `Collect stray soldiers of our side (nearest group: ${s.soldiers} soldiers, ${s.distance} tiles ${s.direction}); they follow the hero again and regain its courage bonus.`,
+        what: `Collect stray soldiers of our side: this order leads to a group of ${goal.soldiers} soldiers, ${d} tiles to the ${compass(hero.position, goal.center)} (a bigger group is preferred to a nearer small one); they follow the hero again and regain its courage bonus.`,
         notFor: 'When the hero is in a fight it is winning, or the strays are far away.',
         command: { type: 'regroup' },
       });
