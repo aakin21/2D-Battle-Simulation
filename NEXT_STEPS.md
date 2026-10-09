@@ -21,6 +21,8 @@ Read `CLAUDE.md` (architecture, rules that must not be broken) and `THESIS_DOCUM
   prefers short, targeted tests over 15–20 min runs.
 - Headless test scripts live outside the repo (author's decision, D24). Bundle a test with
   `npx esbuild <file>.ts --bundle --platform=node --outfile=<file>.cjs` and run it with node.
+  `../tests/smoke/run-all.sh` builds and runs every smoke test; `../tests/smoke/CASES.md`
+  lists every case tried in the robustness passes with its outcome.
   Equivalence tests for D31 and D32: `../tests/d27/` and `../tests/paths/` (see their READMEs).
 - Jev key: `.env.local` (git-ignored). Restart `npm run dev` after changing it.
 - Git pushes use the `aakin21` GitHub account. The machine's active `gh` account may be
@@ -32,6 +34,15 @@ Read `CLAUDE.md` (architecture, rules that must not be broken) and `THESIS_DOCUM
   `gh auth refresh -h github.com -s workflow`, and switches back.
 
 ## Just done (2026-10-07 to 09)
+- Fifth robustness pass, function by function (`v2.8.1-robustness-5`, local): an LLM report
+  whose request failed lost its events and its "since the last report" baseline; sector names
+  with spaces around the dash or a typographic dash were refused and "D4-NE-X" accepted; stray
+  clustering took ~10 ms per call with 2,000 soldiers per side (now ~11× faster, identical
+  results); the demo link's AI address without `https://` or with a path gave a 404, a damaged
+  saved copy sent requests to "123/api/llm"; the Vercel Jev proxy threw when TypeSafe was
+  unreachable and hung when it was silent; an `/api/llm` request whose client went away stayed
+  pending. All smoke tests: `../tests/smoke/run-all.sh` (`quick` skips the 3-minute AI test).
+  Design question for the author: a fleeing unit cornered at the map edge does not fight back.
 - AI requests (`v2.8-ai-request-practices`, local): researched the services' own guidance
   (Claude Code errors and Agent SDK docs, TypeSafe API, models and retry docs) and applied what
   does not change the experiment design. Found and fixed: the Agent SDK's API errors, plan limits
@@ -90,8 +101,9 @@ Read `CLAUDE.md` (architecture, rules that must not be broken) and `THESIS_DOCUM
    `main`, `phase2/symmetry`, `development`, `fix/deploy-version`,
    `docs/next-steps-deploy-version`, `fix/robustness-2`, `docs/next-steps-robustness-2`,
    `docs/p5-p6`, `fix/robustness-3`, `docs/next-steps-robustness-3`, `docs/p7`, `feature/ai-exchange-log`, `feature/ai-request-practices`,
-   `docs/next-steps-ai-practices` and the tags `v2.6.2-robustness-2`, `v2.6.3-robustness-3`,
-   `v2.7-ai-request-log`, `v2.8-ai-request-practices` are ahead of `origin` locally (`git push origin <branches> --tags`). Then check that the deploy run passes and that the demo's
+   `docs/next-steps-ai-practices`, `fix/robustness-5`, `docs/next-steps-robustness-5` and the
+   tags `v2.6.2-robustness-2`, `v2.6.3-robustness-3`, `v2.7-ai-request-log`,
+   `v2.8-ai-request-practices`, `v2.8.1-robustness-5` are ahead of `origin` locally (`git push origin <branches> --tags`). Then check that the deploy run passes and that the demo's
    `assets/index-*.js` on `gh-pages` has a tag-based `version` without `-dirty`. Optional
    follow-up: the run warns that Node 20 is deprecated (`checkout@v4`, `setup-node@v4`,
    `actions-gh-pages@v3` are forced onto Node 24; the build itself uses Node 20).
