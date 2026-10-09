@@ -69,20 +69,96 @@ export function unreachableHint(): string {
     : 'Is the dev server running (npm run dev)?';
 }
 
-// The AI server's own reason for an error status (its endpoints answer with { error }), so the
-// AI panel can show it. A tunnel or proxy page is not JSON and adds nothing.
-export async function failureDetail(res: Response): Promise<string> {
+// Why a request failed, for the AI panel: the AI server's own reason (its endpoints answer with
+// { error }) and whether trying again later may help (the LLM endpoint says so with
+// `retryable`). A tunnel or proxy page is not JSON and adds nothing.
+export async function failureInfo(
+  res: Response
+): Promise<{ detail: string; retryable: boolean | null }> {
   try {
-    const body = (await res.json()) as { error?: unknown } | null;
-    if (typeof body?.error === 'string') return `: ${body.error.slice(0, 200)}`;
+    const body = (await res.json()) as { error?: unknown; retryable?: unknown } | null;
+    return {
+      detail: typeof body?.error === 'string' ? `: ${body.error.slice(0, 200)}` : '',
+      retryable: typeof body?.retryable === 'boolean' ? body.retryable : null,
+    };
   } catch {
-    // not JSON
+    return { detail: '', retryable: null };
   }
-  return '';
 }
 
 // Statuses a tunnel (Cloudflare, ngrok) or proxy gives when it cannot reach the AI server, e.g.
 // Cloudflare's 530 for a quick-tunnel address that no longer exists (a new one each start).
+// Cloudflare uses 520–527 and 530; 529 is TypeSafe's (and Anthropic's) "overloaded".
 export function unreachableStatus(status: number): boolean {
-  return status === 502 || status === 503 || status === 504 || (status >= 520 && status <= 530);
+  return (
+    status === 502 ||
+    status === 503 ||
+    status === 504 ||
+    (status >= 520 && status <= 527) ||
+    status === 530
+  );
+}
+
+// A layer stops after this many failed requests in a row; fewer are tried again later
+export const FAILURES_IN_A_ROW = 3;
+
+// Statuses that may pass on a later try: timeouts, rate limits, overload and server errors
+// (TypeSafe's 429 and 529 included). A refusal by the AI server (password) never does.
+export function transientStatus(res: Response): boolean {
+  return (res.status === 408 || res.status === 429 || res.status >= 500) && !deniedByAiServer(res);
+}
+
+// TypeSafe's own SDKs retry 408, 429, 5xx and lost connections twice, after 0.5 s and 1 s with
+// up to 25% jitter, honouring Retry-After, within the request's time budget. The same here for
+// Jev, whose answers take well under a second. Jitter comes from crypto: Math.random belongs to
+// the simulation.
+const RETRIES = 2;
+const BACKOFF_MS = 500;
+const BACKOFF_MAX_MS = 5000;
+
+export async function fetchWithRetries(
+  fetchFn: typeof fetch,
+  url: string,
+  init: RequestInit & { signal: AbortSignal }
+): Promise<{ res: Response; attempts: number }> {
+  for (let attempt = 0; ; attempt++) {
+    let wait: number;
+    try {
+      const res = await fetchFn(url, init);
+      if (attempt >= RETRIES || !transientStatus(res)) return { res, attempts: attempt + 1 };
+      wait = retryAfterMs(res) ?? backoff(attempt);
+    } catch (err) {
+      if (init.signal.aborted || attempt >= RETRIES) throw err;
+      wait = backoff(attempt);
+    }
+    await sleep(Math.min(wait, BACKOFF_MAX_MS), init.signal);
+  }
+}
+
+function backoff(attempt: number): number {
+  const jitter = crypto.getRandomValues(new Uint32Array(1))[0] / 2 ** 32;
+  return BACKOFF_MS * 2 ** attempt * (1 - 0.25 * jitter);
+}
+
+function retryAfterMs(res: Response): number | null {
+  const ms = Number(res.headers.get('retry-after-ms'));
+  if (Number.isFinite(ms) && ms > 0) return ms;
+  const s = Number(res.headers.get('retry-after'));
+  return Number.isFinite(s) && s > 0 ? s * 1000 : null;
+}
+
+// Resolves after ms, or rejects at once when the request is aborted (timeout, restart)
+function sleep(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) return reject(new DOMException('aborted', 'AbortError'));
+    const timer = setTimeout(resolve, ms);
+    signal.addEventListener(
+      'abort',
+      () => {
+        clearTimeout(timer);
+        reject(new DOMException('aborted', 'AbortError'));
+      },
+      { once: true }
+    );
+  });
 }

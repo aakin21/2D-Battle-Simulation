@@ -27,8 +27,23 @@ interface Shown {
 
 type JevAnswers = Record<
   string,
-  { choice?: unknown; confidence?: unknown; score?: unknown; noul?: unknown }
+  {
+    choice?: unknown;
+    confidence?: unknown;
+    score?: unknown;
+    noul?: unknown;
+    probabilities?: unknown;
+  }
 >;
+
+// Jev's second most likely option, from the probabilities it returns with each choice
+function runnerUp(probabilities: unknown, choice: unknown): string | null {
+  if (!probabilities || typeof probabilities !== 'object') return null;
+  const ranked = Object.entries(probabilities as Record<string, unknown>)
+    .filter(([k, p]) => k !== choice && typeof p === 'number' && Number.isFinite(p))
+    .sort((a, b) => (b[1] as number) - (a[1] as number));
+  return ranked.length ? `${pretty(ranked[0][0])} ${percent(ranked[0][1])}` : null;
+}
 
 function clock(seconds: number): string {
   const s = Math.max(0, Math.floor(seconds));
@@ -139,10 +154,11 @@ export class AiRequestLog {
   }
 
   private summaryHtml(source: Source, x: AiExchange): string {
+    const tries = x.attempts && x.attempts > 1 ? `, ${x.attempts} tries` : '';
     const timing =
       x.latencyMs === null
         ? '<span class="ai-busy">waiting…</span>'
-        : `<span class="faint">${(x.latencyMs / 1000).toFixed(1)} s</span>`;
+        : `<span class="faint">${(x.latencyMs / 1000).toFixed(1)} s${tries}</span>`;
     const head =
       `<span class="faint">${clock(x.time)}</span> ` +
       `<span class="${source.side}-text">${SIDE_NAME[source.side]}</span> ` +
@@ -220,6 +236,7 @@ export class AiRequestLog {
         const offered = Object.keys(questions[key]?.criteria ?? {}).map(pretty);
         const a = answers[key];
         const choice = typeof a?.choice === 'string' ? pretty(a.choice) : '–';
+        const next = runnerUp(a?.probabilities, a?.choice);
         const extra = [
           `threat ${value(answers[`${key}_threat`]?.score)}`,
           `surrounded ${percent(answers[`${key}_surrounded`]?.noul)}`,
@@ -230,6 +247,7 @@ export class AiRequestLog {
         return (
           `<div class="ai-x-hero">Hero ${escapeHtml(key.replace('hero', ''))}: ` +
           `<span class="ai-x-choice">${escapeHtml(choice)} ${percent(a?.confidence)}</span>` +
+          (next ? ` <span class="faint">(next: ${escapeHtml(next)})</span>` : '') +
           `<div class="faint">${escapeHtml(extra.join(' · '))}</div>` +
           `<div class="faint">offered: ${escapeHtml(offered.join(', '))}</div></div>`
         );
@@ -247,6 +265,18 @@ export class AiRequestLog {
     if (d.orders.length) html += `<div>${d.orders.map((o) => escapeHtml(o)).join('<br>')}</div>`;
     if (d.rejected.length)
       html += `<div class="ai-fail">${d.rejected.map((o) => escapeHtml(o)).join('<br>')}</div>`;
+    const u = d.usage;
+    if (u) {
+      const parts = [
+        u.costUsd !== null ? `≈$${u.costUsd.toFixed(4)}` : '',
+        u.inputTokens !== null ? `${u.inputTokens} in` : '',
+        u.cacheReadTokens ? `${u.cacheReadTokens} cached` : '',
+        u.outputTokens !== null ? `${u.outputTokens} out` : '',
+        u.apiMs !== null ? `API ${(u.apiMs / 1000).toFixed(1)} s` : '',
+        u.modelIds.join(', '),
+      ].filter(Boolean);
+      html += `<div class="faint">${escapeHtml(parts.join(' · '))}</div>`;
+    }
     return html;
   }
 }

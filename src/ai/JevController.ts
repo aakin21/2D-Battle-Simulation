@@ -29,8 +29,11 @@ import {
   deniedByAiServer,
   AI_PASSWORD_HINT,
   unreachableHint,
-  failureDetail,
+  failureInfo,
+  fetchWithRetries,
+  transientStatus,
   unreachableStatus,
+  FAILURES_IN_A_ROW,
 } from './AiServer';
 import { AiExchange, finishExchange, startExchange } from './Exchange';
 
@@ -49,6 +52,9 @@ export interface JevDecision {
   surrounded?: number;
   threat?: number;
   orderStillFits?: number;
+  model?: string; // the Jev version that answered (the request asks for jev-latest)
+  inputTokens?: number; // of the whole request, shared by its heroes
+  attempts?: number; // more than 1 when the request was retried
 }
 
 export interface JevOptions {
@@ -75,6 +81,7 @@ const MAP_CELL = 2; // local map: one character per 2×2 tiles
 const STEP_TILES = 10; // length of a "step" move
 const HERO_SCAN = LOCAL_RADIUS * 2; // enemy heroes within this distance can be targeted
 const STRAY_REACH = 25; // stray groups within this distance are shown to Jev
+const MAX_REQUEST_CHARS = 100_000;
 
 interface Option {
   key: string;
@@ -90,6 +97,9 @@ export class JevController {
   private failed = false;
   readonly decisions: JevDecision[] = [];
   readonly exchanges: AiExchange[] = []; // every request with its answer (request log, match log)
+  failedRequests = 0; // requests that failed but were not the last straw
+  lastError: string | null = null; // the latest failed request's reason, until an answer comes
+  private failuresInARow = 0;
   skippedRequests = 0; // a new request was due while the previous one was still open (Q7)
   failure: string | null = null; // why the layer stopped, for the AI panel and the match log
   private disposed = false;
@@ -200,30 +210,43 @@ export class JevController {
       }
     }
 
+    const request = { model: 'jev-latest', state, questions };
+    const body = JSON.stringify(request);
+    const exchange = startExchange(this.exchanges, time, request);
+    // Far above a normal request (~13 KB); the deployed proxy refuses more (api/jev.ts)
+    if (body.length > MAX_REQUEST_CHARS) {
+      const reason = `request too large (${Math.round(body.length / 1024)} KB)`;
+      finishExchange(exchange, 0, null, reason);
+      this.fail(reason, '');
+      return;
+    }
+
     this.pending = true;
     const started = performance.now();
-    const request = { model: 'jev-latest', state, questions };
-    const exchange = startExchange(this.exchanges, time, request);
     // An answer that never comes would block the layer, and in paused mode the whole battle
     const abort = new AbortController();
     this.inFlight = abort;
     const timer = setTimeout(() => abort.abort(), this.opts.timeoutMs);
     try {
-      const res = await this.opts.fetchFn(this.opts.endpoint, {
+      const { res, attempts } = await fetchWithRetries(this.opts.fetchFn, this.opts.endpoint, {
         method: 'POST',
         headers: aiHeaders(),
         signal: abort.signal,
-        body: JSON.stringify(request),
+        body,
       });
       const latencyMs = performance.now() - started;
       if (this.disposed) return;
 
       if (!res.ok) {
-        const detail = await failureDetail(res);
+        const info = await failureInfo(res);
         if (this.disposed) return;
-        finishExchange(exchange, latencyMs, null, `HTTP ${res.status}${detail}`);
+        const reason = `HTTP ${res.status}${info.detail}${attempts > 1 ? ` after ${attempts} tries` : ''}`;
+        finishExchange(exchange, latencyMs, null, reason);
+        exchange.attempts = attempts;
+        const retryable = transientStatus(res);
+        if (retryable && this.tryAgainLater(reason)) return;
         this.fail(
-          `HTTP ${res.status}${detail}`,
+          retryable ? `${reason} (${FAILURES_IN_A_ROW} failed requests in a row)` : reason,
           deniedByAiServer(res)
             ? AI_PASSWORD_HINT
             : res.status === 401 || res.status === 403
@@ -235,15 +258,22 @@ export class JevController {
         return;
       }
 
-      const body = (await res.json()) as {
+      const answer = (await res.json()) as {
+        model?: unknown;
+        usage?: { input_tokens?: unknown };
         answers?: Record<
           string,
           { choice?: string; confidence?: number; score?: number; noul?: number }
         >;
-      };
+      } | null;
       if (this.disposed) return;
-      finishExchange(exchange, latencyMs, body);
-      const a = body.answers ?? {};
+      finishExchange(exchange, latencyMs, answer);
+      exchange.attempts = attempts;
+      this.failuresInARow = 0;
+      this.lastError = null;
+      const model = typeof answer?.model === 'string' ? answer.model : undefined;
+      const inputTokens = num(answer?.usage?.input_tokens);
+      const a = answer?.answers ?? {};
       for (const hero of heroes) {
         const key = `hero${hero.heroIndex}`;
         const assessment = {
@@ -254,11 +284,11 @@ export class JevController {
         this.assessments.set(hero.heroIndex, assessment);
         this.lastForce.set(hero.heroIndex, forceNow.get(hero.heroIndex) ?? Infinity);
 
-        const answer = a[key];
-        const option = options.get(hero.heroIndex)?.find((o) => o.key === answer?.choice);
-        if (!answer || !option || hero.hp <= 0) continue;
+        const choice = a[key];
+        const option = options.get(hero.heroIndex)?.find((o) => o.key === choice?.choice);
+        if (!choice || !option || hero.hp <= 0) continue;
 
-        const confidence = num(answer.confidence) ?? 0;
+        const confidence = num(choice.confidence) ?? 0;
         const applied = confidence >= this.opts.minConfidence;
         // A repeated order is ignored by the command interface (D27).
         if (applied) this.engine.issueCommand(hero, option.command, 'jev');
@@ -271,6 +301,9 @@ export class JevController {
           applied,
           latencyMs,
           ...assessment,
+          model,
+          inputTokens,
+          attempts,
         });
       }
     } catch (err) {
@@ -280,13 +313,29 @@ export class JevController {
         : String(err);
       if (exchange.latencyMs === null)
         finishExchange(exchange, performance.now() - started, null, reason);
+      // Lost connections were already retried twice; the next request may still get through.
+      // No answer within the whole time budget stops the layer, as in paused mode it holds the
+      // battle.
       if (abort.signal.aborted) this.fail(reason, '');
-      else this.fail(reason, unreachableHint());
+      else if (!this.tryAgainLater(reason))
+        this.fail(`${reason} (${FAILURES_IN_A_ROW} failed requests in a row)`, unreachableHint());
     } finally {
       clearTimeout(timer);
       this.inFlight = null;
       this.pending = false;
     }
+  }
+
+  // A request that may work next time (rate limited, overloaded, a lost connection), even after
+  // the retries within it, is counted and the next one goes out as usual; only several failures
+  // in a row stop the layer.
+  private tryAgainLater(reason: string): boolean {
+    this.failedRequests++;
+    this.failuresInARow++;
+    this.lastError = reason;
+    if (this.failuresInARow >= FAILURES_IN_A_ROW) return false;
+    console.warn(`Jev request failed (${reason}); asking again at the next decision.`);
+    return true;
   }
 
   // Jev is unavailable: stop asking. If no other AI layer commands these heroes, hand them
