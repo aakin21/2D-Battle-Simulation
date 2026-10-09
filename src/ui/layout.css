@@ -326,6 +326,85 @@
   margin-top: 2px;
 }
 
+/* AI request log: every request to Jev and the LLM with its answer, newest first */
+.ai-log {
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 2px solid var(--ink);
+}
+
+.ai-log > summary {
+  cursor: pointer;
+  color: var(--wood-light);
+}
+
+.ai-log-list {
+  max-height: 300px;
+  overflow-y: auto;
+  margin-top: 4px;
+}
+
+.ai-x {
+  padding: 2px 0;
+  border-bottom: 2px solid var(--well);
+}
+
+.ai-x > summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.ai-x > summary::-webkit-details-marker {
+  display: none;
+}
+
+.ai-x-sum {
+  display: block;
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ai-x[open] .ai-x-sum {
+  white-space: normal;
+}
+
+.ai-x-body {
+  padding: 2px 0 4px 8px;
+  color: var(--text-dim);
+}
+
+.ai-x-hero {
+  margin-top: 2px;
+}
+
+.ai-x-choice {
+  color: var(--text);
+}
+
+.ai-x-raw > summary {
+  cursor: pointer;
+  color: var(--text-faint);
+}
+
+/* Raw JSON is easier to read in a small system monospace than in the pixel font */
+.ai-x-raw pre {
+  max-height: 240px;
+  overflow: auto;
+  margin: 2px 0;
+  padding: 4px;
+  background: var(--well-dark);
+  color: var(--text);
+  font:
+    11px/1.35 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
+  -webkit-font-smoothing: auto;
+  white-space: pre;
+}
+
 #minimapCanvas {
   display: block;
   width: 100%;

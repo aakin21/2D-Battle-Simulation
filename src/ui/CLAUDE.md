@@ -5,7 +5,8 @@
 | `UIController.ts` | Main menu (Default / Custom / Stress / Battle, map choice, who commands each side, AI timing), top-bar buttons, keyboard and mouse actions, tooltip, saved settings, canvas size, attaching AI controllers |
 | `Hud.ts` | What is shown around the map: match banner (top bar), armies (side panel), selected-unit card, area counts, match result |
 | `AiPanel.ts` | Side-panel section with what the AI layers decided: the LLM's stance, plan and orders, Jev's latest choice per hero, response times, skipped requests, failures. LLM text is escaped before it is shown |
-| `MatchLog.ts` | Match log for experiments (Q11): settings, code version, result, a timeline of both armies per simulation second and every AI decision; downloaded as JSON (Log button, match result) |
+| `AiRequestLog.ts` | The AI panel's "Requests and answers" list: every request to Jev and the LLM with its answer, newest first; the line shows the answer (Jev: choice and confidence per hero; LLM: stance and orders), opening it shows the options offered, assessments, plan and orders, and the raw request, answer and rulebook. Entries are added in place and built only when opened |
+| `MatchLog.ts` | Match log for experiments (Q11): settings, code version, result, a timeline of both armies per simulation second, every AI decision, and every request with its answer (Jev's game rules kept once); downloaded as JSON (Log button, match result) |
 | `Sound.ts` | Sound effects (Web Audio, the pack's sounds): combat sounds for hits and deaths on screen, order and button sounds, start and end jingles; cooldowns, a voice limit and pitch variation; mute saved per browser |
 | `icons.ts` | Pixel icons (8×8 grids shown as SVG) for the top-bar buttons |
 | `theme.css`, `layout.css` | Theme in the Ninja Adventure style (wooden 9-patch frames, buttons, pixel font; CC0, `src/assets/ui/`) and the page layout |

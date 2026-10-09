@@ -37,6 +37,7 @@ import {
   failureDetail,
   unreachableStatus,
 } from './AiServer';
+import { AiExchange, finishExchange, startExchange } from './Exchange';
 
 const MAX_STRAY_CLUSTERS = 5;
 
@@ -105,6 +106,7 @@ export class LlmController {
   private readonly side: 'west' | 'east';
   readonly system: string; // the rulebook sent as the session's system prompt
   readonly decisions: LlmDecision[] = [];
+  readonly exchanges: AiExchange[] = []; // every request with its answer (request log, match log)
   skippedRequests = 0;
   failure: string | null = null; // why the layer stopped, for the AI panel and the match log
   private disposed = false;
@@ -195,6 +197,14 @@ export class LlmController {
 
     this.pending = true;
     const started = performance.now();
+    const report = this.report(time);
+    // The rulebook is the same in every request; the log keeps it once, in `system`
+    const exchange = startExchange(this.exchanges, time, {
+      side: this.side,
+      matchId: this.matchId,
+      model: this.opts.model,
+      prompt: report,
+    });
     // An answer that never comes would block the layer, and in paused mode the whole battle
     const abort = new AbortController();
     this.inFlight = abort;
@@ -209,7 +219,7 @@ export class LlmController {
           matchId: this.matchId,
           system: this.system,
           model: this.opts.model,
-          prompt: JSON.stringify(this.report(time)),
+          prompt: JSON.stringify(report),
         }),
       });
       const latencyMs = performance.now() - started;
@@ -217,6 +227,7 @@ export class LlmController {
       if (!res.ok) {
         const detail = await failureDetail(res);
         if (this.disposed) return;
+        finishExchange(exchange, latencyMs, null, `HTTP ${res.status}${detail}`);
         this.fail(
           `HTTP ${res.status}${detail}`,
           deniedByAiServer(res)
@@ -229,13 +240,22 @@ export class LlmController {
         );
         return;
       }
-      const { text, model } = (await res.json()) as { text: string; model?: string };
+      const body = (await res.json()) as { text?: unknown; model?: unknown } | null;
       if (this.disposed) return;
-      this.apply(time, latencyMs, text ?? '', model ?? this.opts.model);
+      finishExchange(exchange, latencyMs, body);
+      // A reply that is not text is applied as an empty one: "not valid JSON", layer goes on
+      const text = typeof body?.text === 'string' ? body.text : '';
+      const model = typeof body?.model === 'string' ? body.model : this.opts.model;
+      this.apply(time, latencyMs, text, model);
     } catch (err) {
       if (this.disposed) return;
-      if (abort.signal.aborted) this.fail(`no answer within ${this.opts.timeoutMs / 1000} s`, '');
-      else this.fail(String(err), unreachableHint());
+      const reason = abort.signal.aborted
+        ? `no answer within ${this.opts.timeoutMs / 1000} s`
+        : String(err);
+      if (exchange.latencyMs === null)
+        finishExchange(exchange, performance.now() - started, null, reason);
+      if (abort.signal.aborted) this.fail(reason, '');
+      else this.fail(reason, unreachableHint());
     } finally {
       clearTimeout(timer);
       this.inFlight = null;
