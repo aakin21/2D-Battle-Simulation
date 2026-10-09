@@ -213,6 +213,8 @@ function readBody(req: IncomingMessage): Promise<string> {
     });
     req.on('end', () => resolve(data));
     req.on('error', reject);
+    // A client that goes away mid-body sends no 'end' (after 'end' this changes nothing)
+    req.on('close', () => reject(new Error('the request was closed before its body ended')));
   });
 }
 
