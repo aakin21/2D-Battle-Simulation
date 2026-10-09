@@ -377,14 +377,23 @@ export class LlmController {
 
   // Returns a command, or a reason why the order cannot be used.
   private toCommand(hero: IHero, raw: RawOrder): HeroCommand | string {
-    switch (raw.command) {
+    // Written by the model: case and outer spaces do not matter ("Move", " regroup ")
+    const command =
+      typeof raw.command === 'string' ? raw.command.trim().toLowerCase() : raw.command;
+    switch (command) {
       case 'move': {
         const place = typeof raw.place === 'string' ? raw.place : raw.sector;
+        // "A", or "point A" as the report names it (way_to_objectives)
+        const pointName =
+          typeof place === 'string'
+            ? place
+                .trim()
+                .toUpperCase()
+                .replace(/^POINT\s+/, '')
+            : '';
         const point = this.stateManager
           .getBattlefield()
-          .objective.points.find(
-            (p) => typeof place === 'string' && p.name === place.trim().toUpperCase()
-          );
+          .objective.points.find((p) => p.name === pointName);
         const target = point
           ? point.position
           : typeof place === 'string'
