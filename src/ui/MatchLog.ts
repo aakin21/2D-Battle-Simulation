@@ -2,10 +2,12 @@ import { StateManager } from '../state/StateManager';
 import type { MatchResult } from '../engine/SimulationEngine';
 import type { JevController } from '../ai/JevController';
 import type { LlmController } from '../ai/LlmController';
+import type { AiExchange } from '../ai/Exchange';
 import { BehaviorState, Faction, SimConfig, UnitType } from '../types/types';
 
 // Everything needed to study a battle afterwards (Q11): the settings, the result, a timeline
-// of both armies once per simulation second, and every AI decision with its response time.
+// of both armies once per simulation second, every AI decision with its response time, and
+// every request to the AI layers with its answer.
 // Downloaded as JSON from the AI panel or the match result. Reads the battlefield only.
 
 export interface AiSide {
@@ -100,6 +102,7 @@ export class MatchLog {
             skippedRequests: side.llm.skippedRequests,
             failure: side.llm.failure,
             rulebook: side.llm.system,
+            exchanges: side.llm.exchanges,
           }
         : undefined,
       jev: side.jev
@@ -107,6 +110,7 @@ export class MatchLog {
             decisions: side.jev.decisions,
             skippedRequests: side.jev.skippedRequests,
             failure: side.jev.failure,
+            ...jevExchanges(side.jev.exchanges),
           }
         : undefined,
     };
@@ -166,4 +170,22 @@ export class MatchLog {
     a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
+}
+
+// Every Jev request carries the same game rules (Jev has no memory); the log keeps them once
+function jevExchanges(exchanges: AiExchange[]): { rulebook?: unknown; exchanges: unknown[] } {
+  const rulesOf = (x: AiExchange) =>
+    (x.request.state as { game_rules?: unknown } | undefined)?.game_rules;
+  const rulebook = exchanges.length ? rulesOf(exchanges[0]) : undefined;
+  return {
+    rulebook,
+    exchanges: exchanges.map((x) => {
+      const state = x.request.state as Record<string, unknown> | undefined;
+      if (!state || rulesOf(x) !== rulebook) return x;
+      return {
+        ...x,
+        request: { ...x.request, state: { ...state, game_rules: '(same as rulebook)' } },
+      };
+    }),
+  };
 }

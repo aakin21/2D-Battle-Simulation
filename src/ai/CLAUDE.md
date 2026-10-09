@@ -18,7 +18,7 @@ AI layers that command the heroes of one side. Each implements `AIController` (`
 - Keep inputs small and within scope (D16): Jev sees one hero's surroundings, the LLM the whole map.
 - Code computes, the AI judges (R5): pass computed values (force ratios, group stats, recent losses), never raw unit lists or screenshots.
 - Jev has no memory: every request carries `game_rules`. The LLM gets the rulebook once per match as its system prompt.
-- Log every decision with its response time (`decisions`); these feed the latency experiments.
+- Log every decision with its response time (`decisions`); these feed the latency experiments. Every request is also kept with its answer or error (`exchanges`, `Exchange.ts`) for the AI panel's request log and the match log; the LLM's rulebook is kept once (`system`), not per request.
 - Never start a new request while one is open; count it as skipped (Q7).
 - Every request has a timeout (LLM 120 s, Jev 30 s, `timeoutMs`); a request without an answer counts as a failure, so paused AI timing can never freeze the battle.
 - Controllers implement `dispose()`: the engine disposes them on restart and when they are replaced, which aborts the open request and drops a late answer, so it cannot reach the heroes of the next match. One malformed entry in the LLM's `orders` is skipped with a reason, not treated as a failure.
