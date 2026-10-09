@@ -30,9 +30,16 @@ export function sectorCenter(sector: string): Position | null {
 export const SUBSECTORS = ['NW', 'N', 'NE', 'W', 'C', 'E', 'SW', 'S', 'SE'] as const;
 const SUB_SIZE = SECTOR_SIZE / 3;
 
-// Target tile for "D4" or "D4-NE". Returns null for an invalid name.
+// Target tile for "D4" or "D4-NE". Returns null for an invalid name. The LLM writes these
+// names, so spaces around the dash and typographic dashes ("D4 – NE") are read as "D4-NE";
+// anything more ("D4-NE-X") is refused rather than guessed.
 export function sectorTarget(name: string): Position | null {
-  const [sector, sub = 'C'] = name.trim().toUpperCase().split('-');
+  const parts = name
+    .toUpperCase()
+    .replace(/[‐-―−]/g, '-')
+    .split('-');
+  if (parts.length > 2) return null;
+  const [sector, sub = 'C'] = parts.map((p) => p.trim());
   const centre = sectorCenter(sector);
   const index = SUBSECTORS.indexOf(sub as (typeof SUBSECTORS)[number]);
   if (!centre || index < 0) return null;

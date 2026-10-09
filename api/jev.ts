@@ -5,6 +5,7 @@
 
 const TYPESAFE_URL = 'https://api.typesafe.ai/v1/systemone';
 const MAX_BODY_BYTES = 100_000; // a battle request is ~13 KB
+const UPSTREAM_TIMEOUT_MS = 25_000; // the browser gives up after 30 s
 
 export async function POST(request: Request): Promise<Response> {
   const key = process.env.TYPESAFE_API_KEY;
@@ -20,11 +21,22 @@ export async function POST(request: Request): Promise<Response> {
   const body = await request.text();
   if (body.length > MAX_BODY_BYTES) return json(413, { error: 'request too large' });
 
-  const res = await fetch(TYPESAFE_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
-    body,
-  });
+  // TypeSafe unreachable or silent: say so (the browser counts it and asks again), and answer
+  // before the browser gives up at 30 s rather than leaving the function hanging
+  let res: Response;
+  try {
+    res = await fetch(TYPESAFE_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
+      body,
+      signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+    });
+  } catch (err) {
+    const timedOut = err instanceof Error && err.name === 'TimeoutError';
+    return timedOut
+      ? json(504, { error: `TypeSafe did not answer within ${UPSTREAM_TIMEOUT_MS / 1000} s` })
+      : json(502, { error: `cannot reach TypeSafe: ${String(err)}` });
+  }
   return new Response(res.body, {
     status: res.status,
     headers: { 'Content-Type': res.headers.get('content-type') ?? 'application/json' },

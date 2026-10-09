@@ -1,4 +1,4 @@
-# Next steps (updated 2026-10-08)
+# Next steps (updated 2026-10-09)
 
 Phase 2 and the UI work are both in `main` (2026-10-04). Each change gets its own branch from
 `main`; `phase2/symmetry` (worktree `.claude/worktrees/phase2-symmetry/`) is kept equal to `main`.
@@ -31,7 +31,19 @@ Read `CLAUDE.md` (architecture, rules that must not be broken) and `THESIS_DOCUM
   acts on the active account, so the author switches to `aakin21`, runs
   `gh auth refresh -h github.com -s workflow`, and switches back.
 
-## Just done (2026-10-07 / 08)
+## Just done (2026-10-07 to 09)
+- AI requests (`v2.8-ai-request-practices`, local): researched the services' own guidance
+  (Claude Code errors and Agent SDK docs, TypeSafe API, models and retry docs) and applied what
+  does not change the experiment design. Found and fixed: the Agent SDK's API errors, plan limits
+  included ("You've hit your session limit"), reached the browser as the LLM's reply and were
+  rejected as "not valid JSON"; any error closed the LLM session and erased the match's
+  conversation (D11). Now: retryable failures are asked again at the next decision, 3 in a row
+  stop a layer; Jev retries within a request like TypeSafe's SDKs; cost, tokens, API time and
+  model ids (LLM) and the Jev version and tokens are recorded per decision; budget cap per LLM
+  session (`LLM_MAX_BUDGET_USD`, default 5). Cases 4.7–4.19 in `../tests/smoke/CASES.md`.
+- AI request log (`v2.7-ai-request-log`, local): every request to Jev and the LLM with its answer
+  in the AI panel ("Requests and answers") and in the match log. It showed a D15 bug, fixed:
+  an LLM order equal to the hero's Jev order was not remembered as the commander's.
 - P7 logged (effects changed the simulation's random numbers) at the author's request.
 - Third robustness pass (`v2.6.3-robustness-3`, local only). Every case tried in passes 2 and 3
   and its outcome is in `../tests/smoke/CASES.md`. Fixed: with FX on, effects drew from the
@@ -77,31 +89,44 @@ Read `CLAUDE.md` (architecture, rules that must not be broken) and `THESIS_DOCUM
 1. **Push the local work** once the token has the `workflow` scope (see Working agreements):
    `main`, `phase2/symmetry`, `development`, `fix/deploy-version`,
    `docs/next-steps-deploy-version`, `fix/robustness-2`, `docs/next-steps-robustness-2`,
-   `docs/p5-p6`, `fix/robustness-3`, `docs/next-steps-robustness-3`, `docs/p7` and the tags
-   `v2.6.2-robustness-2`, `v2.6.3-robustness-3` are ahead of `origin` locally (`git push origin <branches> --tags`). Then check that the deploy run passes and that the demo's
+   `docs/p5-p6`, `fix/robustness-3`, `docs/next-steps-robustness-3`, `docs/p7`, `feature/ai-exchange-log`, `feature/ai-request-practices`,
+   `docs/next-steps-ai-practices` and the tags `v2.6.2-robustness-2`, `v2.6.3-robustness-3`,
+   `v2.7-ai-request-log`, `v2.8-ai-request-practices` are ahead of `origin` locally (`git push origin <branches> --tags`). Then check that the deploy run passes and that the demo's
    `assets/index-*.js` on `gh-pages` has a tag-based `version` without `-dirty`. Optional
    follow-up: the run warns that Node 20 is deprecated (`checkout@v4`, `setup-node@v4`,
    `actions-gh-pages@v3` are forced onto Node 24; the build itself uses Node 20).
-2. **Live tests by the author**, one by one (port of `npm run dev`): D33–D36 with Jev and the
+2. **AI request proposals to decide** (they change the experiment conditions, so not applied):
+   - Pin model versions for the experiments: Jev `jev-1.13.0` instead of `jev-latest` (TypeSafe:
+     an alias moves to each new release, and thresholds such as our `minConfidence` 0.4 should be
+     tuned against a pinned version), and full Claude model ids instead of `haiku`/`sonnet`/
+     `opus` (the ids are now recorded per decision).
+   - Structured output for the LLM (`outputFormat: json_schema` in the Agent SDK): the SDK checks
+     the reply against a schema (stance and command as enums, hero as integer) and re-prompts on
+     a mismatch; the rulebook's reply-format text would shrink. Needs a live test of latency.
+   - Fewer CLI retries for real-time play (`CLAUDE_CODE_MAX_RETRIES`, default 10 with backoff up
+     to 32 s): an answer minutes late is stale at a 20 s interval; the next report retries anyway.
+   - Fix the LLM's reasoning effort (`effort` option) for all experiments and record it.
+   Then log the research as R# if the author agrees.
+3. **Live tests by the author**, one by one (port of `npm run dev`): D33–D36 with Jev and the
    LLM; Jev only, Jev + LLM, each objective; the tunnel (D37) end to end; a re-run of the first
    LLM vs LLM match with the courage fix (P4, D3). The AI panel shows the decisions live, and
    the Log button (or "Download log" on the result card) saves settings, timeline and every AI
    decision as JSON, so nothing has to be copied from the browser console.
-3. **Rulebook per mode** (to discuss): the stance rules are the same in every mode ("defensive:
+4. **Rulebook per mode** (to discuss): the stance rules are the same in every mode ("defensive:
    hold good ground and let the enemy come"), which does not fit Control, where waiting loses
    points. Also proposed and not decided: a seeded simulation (same map and seed, same match)
    for paired experiments.
-4. **Experiments** (Q11): conditions Rules / Jev / LLM / Jev + LLM, timing modes, models
+5. **Experiments** (Q11): conditions Rules / Jev / LLM / Jev + LLM, timing modes, models
    (D29), objectives; metrics: win rate, time, losses, decision latency, skipped requests, cost.
    Needs a headless experiment runner with a safety cut-off per match; the match log format
    (`src/ui/MatchLog.ts`) can be reused.
-5. Known, not fixed: stress-mode berserkers clip mountain corners by ~0.06 tiles (Phase 1
+6. Known, not fixed: stress-mode berserkers clip mountain corners by ~0.06 tiles (Phase 1
    classic behaviour, 6 units in 40 s; never seen in battle mode); one-off 90–220 ms frames in
    stress mode and base mode (Q17); a move order to a point off the map (no source gives one
    today) takes the ring search's first tile, which favours the top of the ring, or the point
    itself beyond 40 tiles; left as is because changing it could change results.
-6. **AI in the online demo through a tunnel (D37):** `AI_PASSWORD=...` in `.env.local`,
+7. **AI in the online demo through a tunnel (D37):** `AI_PASSWORD=...` in `.env.local`,
    `npm run dev`, `cloudflared tunnel --url http://localhost:5173`, then open the demo once with
    `?ai=<tunnel address>&key=<password>`. Vercel with the Claude API comes later (D10).
-7. Later ideas: cross-match learning (D11, research first), threat-aware pathfinding (D27),
+8. Later ideas: cross-match learning (D11, research first), threat-aware pathfinding (D27),
    LLM as tactical layer vs Jev (to be logged as a new Q#; Q17 is taken).

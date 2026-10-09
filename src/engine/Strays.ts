@@ -25,31 +25,55 @@ export function isStray(sm: StateManager, unit: IUnit): boolean {
 }
 
 // Clusters of stray soldiers of one side, largest first.
+// Neighbours are looked up in buckets of the link distance (a neighbour is always in the 3×3
+// buckets around a soldier) instead of scanning every stray, and are taken in index order, so
+// the clusters, their members' order and their centres are exactly those of a plain scan.
+// With ~1,500 strays (2,000 soldiers per side at the start) a plain scan took ~10 ms per call.
 export function strayClusters(sm: StateManager, faction: Faction): StrayCluster[] {
   const strays = sm
     .getBattlefield()
     .units.filter(
       (u) => u.faction === faction && u.unitType !== UnitType.HERO && u.hp > 0 && isStray(sm, u)
     );
-  const seen = new Set<number>();
+  const seen = new Uint8Array(strays.length);
   const clusters: StrayCluster[] = [];
   const link2 = STRAY_LINK_DISTANCE * STRAY_LINK_DISTANCE;
+  const cellOf = (v: number) => Math.floor(v / STRAY_LINK_DISTANCE);
+  const key = (cx: number, cy: number) => cy * 1024 + cx; // cells per row are far below 1024
+  const buckets = new Map<number, number[]>();
+  for (let i = 0; i < strays.length; i++) {
+    const k = key(cellOf(strays[i].position.x), cellOf(strays[i].position.y));
+    const bucket = buckets.get(k);
+    if (bucket) bucket.push(i);
+    else buckets.set(k, [i]);
+  }
+  const found: number[] = [];
 
   for (let i = 0; i < strays.length; i++) {
-    if (seen.has(i)) continue;
+    if (seen[i]) continue;
     const members: IUnit[] = [];
     const queue = [i];
-    seen.add(i);
+    seen[i] = 1;
     while (queue.length > 0) {
       const a = strays[queue.pop()!];
       members.push(a);
-      for (let j = 0; j < strays.length; j++) {
-        if (seen.has(j)) continue;
-        const b = strays[j];
-        if ((a.position.x - b.position.x) ** 2 + (a.position.y - b.position.y) ** 2 <= link2) {
-          seen.add(j);
-          queue.push(j);
+      found.length = 0;
+      const cx = cellOf(a.position.x);
+      const cy = cellOf(a.position.y);
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          for (const j of buckets.get(key(cx + dx, cy + dy)) ?? []) {
+            if (seen[j]) continue;
+            const b = strays[j];
+            if ((a.position.x - b.position.x) ** 2 + (a.position.y - b.position.y) ** 2 <= link2)
+              found.push(j);
+          }
         }
+      }
+      found.sort((p, q) => p - q);
+      for (const j of found) {
+        seen[j] = 1;
+        queue.push(j);
       }
     }
     const n = members.length;
