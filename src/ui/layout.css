@@ -317,6 +317,10 @@
   color: var(--hp-crit);
 }
 
+.ai-warn {
+  color: var(--hp-low);
+}
+
 .ai-busy {
   color: var(--wood-light);
   animation: blink 1s steps(2) infinite;

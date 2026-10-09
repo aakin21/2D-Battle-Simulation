@@ -19,6 +19,53 @@ const DEFAULT_MODEL: Model = (MODELS as readonly string[]).includes(process.env.
   ? (process.env.LLM_MODEL as Model)
   : 'sonnet';
 
+// A session's estimated spend (the SDK's total_cost_usd) above which it stops answering, so a
+// runaway session cannot spend without limit. A match makes ~25 requests per side.
+const MAX_BUDGET_USD = Number(process.env.LLM_MAX_BUDGET_USD) || 5;
+
+// What one answer cost and how long the model took, from the SDK's result message, for the
+// cost and latency metrics of the experiments (Q11). Estimates, not a bill.
+interface AnswerMeta {
+  costUsd: number | null; // this answer only (the SDK reports a running total per session)
+  inputTokens: number | null; // not counting cached input
+  outputTokens: number | null;
+  cacheReadTokens: number | null;
+  cacheWriteTokens: number | null;
+  apiMs: number | null; // time spent in API calls
+  turns: number | null;
+  modelIds: string[]; // the full model ids that answered (the menu gives an alias)
+}
+
+interface Answer {
+  text: string;
+  meta: AnswerMeta;
+}
+
+// retryable: the next request may well work (overloaded, rate limited, connection lost, a session
+// that ended or timed out). Plan or budget limits and login problems stay until someone acts.
+// fromResult: reported by the SDK in a result message; the session itself still works.
+class LlmError extends Error {
+  constructor(
+    message: string,
+    readonly retryable: boolean,
+    readonly fromResult = false
+  ) {
+    super(message);
+  }
+}
+
+const LASTING = [
+  /hit your .*limit/i, // "You've hit your session limit · resets 3:45pm", weekly, Opus, spend
+  /spend limit|credits? required|budget/i,
+  /\b40[13]\b|authenticat|not logged in|login expired|invalid api key|\/login/i,
+];
+
+function lastingError(text: string): boolean {
+  return LASTING.some((re) => re.test(text));
+}
+
+const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+
 // A long-lived Agent SDK session. Messages are pushed into an async queue that the SDK
 // reads from; each reply arrives as a "result" message.
 class Session {
@@ -26,7 +73,8 @@ class Session {
   private wake: (() => void) | null = null;
   private closed = false;
   private ended = false; // the SDK stream finished or failed: no answer will come any more
-  private waiting: Array<{ resolve: (text: string) => void; reject: (err: Error) => void }> = [];
+  private waiting: Array<{ resolve: (answer: Answer) => void; reject: (err: Error) => void }> = [];
+  private costSoFar = 0;
   private q: Query;
 
   constructor(
@@ -42,6 +90,7 @@ class Session {
         tools: [],
         settingSources: [],
         persistSession: false,
+        maxBudgetUsd: MAX_BUDGET_USD,
         env: { ...process.env, CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1' },
       },
     });
@@ -65,9 +114,20 @@ class Session {
       for await (const message of this.q) {
         if (message.type !== 'result') continue;
         const pending = this.waiting.shift();
+        const meta = this.meta(message);
         if (!pending) continue;
-        if (message.subtype === 'success') pending.resolve(message.result);
-        else pending.reject(new Error(`LLM error: ${message.subtype}`));
+        if (message.subtype === 'success' && !message.is_error) {
+          pending.resolve({ text: message.result, meta });
+          continue;
+        }
+        // An API error (after the CLI's own retries) ends the turn as "success" with is_error and
+        // the error text as the result; it must not reach the browser as the model's reply
+        const text =
+          message.subtype === 'success'
+            ? message.result || 'LLM API error'
+            : [`LLM error: ${message.subtype}`, ...(message.errors ?? [])].join('; ');
+        const lasting = message.subtype === 'error_max_budget_usd' || lastingError(text);
+        pending.reject(new LlmError(text, !lasting, true));
       }
     } catch (err) {
       reason = err as Error;
@@ -77,14 +137,38 @@ class Session {
     for (const p of this.waiting.splice(0)) p.reject(reason);
   }
 
+  private meta(message: {
+    total_cost_usd?: unknown;
+    usage?: Record<string, unknown>;
+    duration_api_ms?: unknown;
+    num_turns?: unknown;
+    modelUsage?: Record<string, unknown>;
+  }): AnswerMeta {
+    // A running total; an error result may carry zeroes, which must not reset it
+    const total = num(message.total_cost_usd);
+    const costUsd = total === null || total < this.costSoFar ? null : total - this.costSoFar;
+    if (total !== null && total > this.costSoFar) this.costSoFar = total;
+    const usage = message.usage ?? {};
+    return {
+      costUsd,
+      inputTokens: num(usage.input_tokens),
+      outputTokens: num(usage.output_tokens),
+      cacheReadTokens: num(usage.cache_read_input_tokens),
+      cacheWriteTokens: num(usage.cache_creation_input_tokens),
+      apiMs: num(message.duration_api_ms),
+      turns: num(message.num_turns),
+      modelIds: Object.keys(message.modelUsage ?? {}),
+    };
+  }
+
   // A session that can still answer; otherwise the next request opens a new one
   isAlive(): boolean {
     return !this.closed && !this.ended;
   }
 
-  ask(prompt: string): Promise<string> {
+  ask(prompt: string): Promise<Answer> {
     return new Promise((resolve, reject) => {
-      if (!this.isAlive()) return reject(new Error('the LLM session ended'));
+      if (!this.isAlive()) return reject(new LlmError('the LLM session ended', true));
       this.waiting.push({ resolve, reject });
       this.queue.push({
         type: 'user',
@@ -101,7 +185,8 @@ class Session {
     this.closed = true;
     this.wake?.();
     this.q.close();
-    for (const p of this.waiting.splice(0)) p.reject(new Error('the LLM session was closed'));
+    for (const p of this.waiting.splice(0))
+      p.reject(new LlmError('the LLM session was closed', true));
   }
 }
 
@@ -109,8 +194,9 @@ const sessions = new Map<string, Session>();
 
 // Reached through the tunnel too (D37), so requests are bounded: a report is ~10 KB.
 const MAX_BODY_BYTES = 1_000_000;
-// The browser gives up after 120 s; a session that has not answered by then is stuck.
-const ANSWER_TIMEOUT_MS = 150_000;
+// Below the browser's 120 s, so the browser gets the reason and the stuck session is closed
+// at once instead of after the browser has given up.
+const ANSWER_TIMEOUT_MS = 110_000;
 const SIDES = ['west', 'east'];
 
 class TooLarge extends Error {}
@@ -196,18 +282,31 @@ export function llmPlugin(): Plugin {
           }
 
           const started = Date.now();
-          let text: string;
+          let answer: Answer;
           try {
-            text = await withTimeout(session.ask(prompt), ANSWER_TIMEOUT_MS);
+            answer = await withTimeout(session.ask(prompt), ANSWER_TIMEOUT_MS);
           } catch (err) {
-            // A session that failed or hangs is closed; the next request starts a fresh one
-            session.close();
-            if (sessions.get(side) === session) sessions.delete(side);
+            // A session that hangs or ended is closed; the next request starts a fresh one. An
+            // error reported in a result (overloaded, rate limited) leaves the session working,
+            // and closing it would lose the match's conversation (in-match memory, D11).
+            if (!(err instanceof LlmError && err.fromResult)) {
+              session.close();
+              if (sessions.get(side) === session) sessions.delete(side);
+            }
             throw err;
           }
-          send(res, 200, { text, latencyMs: Date.now() - started, model });
+          send(res, 200, {
+            text: answer.text,
+            latencyMs: Date.now() - started,
+            model,
+            ...answer.meta,
+          });
         } catch (err) {
-          send(res, 500, { error: String(err) });
+          // retryable tells the browser to try again at its next report instead of stopping
+          send(res, 500, {
+            error: err instanceof Error ? err.message : String(err),
+            retryable: err instanceof LlmError ? err.retryable : true,
+          });
         }
       });
 

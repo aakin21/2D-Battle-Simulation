@@ -100,6 +100,7 @@ export class MatchLog {
         ? {
             decisions: side.llm.decisions,
             skippedRequests: side.llm.skippedRequests,
+            failedRequests: side.llm.failedRequests,
             failure: side.llm.failure,
             rulebook: side.llm.system,
             exchanges: side.llm.exchanges,
@@ -109,6 +110,7 @@ export class MatchLog {
         ? {
             decisions: side.jev.decisions,
             skippedRequests: side.jev.skippedRequests,
+            failedRequests: side.jev.failedRequests,
             failure: side.jev.failure,
             ...jevExchanges(side.jev.exchanges),
           }
