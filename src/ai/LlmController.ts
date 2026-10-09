@@ -234,7 +234,7 @@ export class LlmController {
 
     this.pending = true;
     const started = performance.now();
-    const report = this.report(time);
+    const { report, remember } = this.report(time);
     // The rulebook is the same in every request; the log keeps it once, in `system`
     const exchange = startExchange(this.exchanges, time, {
       side: this.side,
@@ -283,6 +283,7 @@ export class LlmController {
       const body = (await res.json()) as Record<string, unknown> | null;
       if (this.disposed) return;
       finishExchange(exchange, latencyMs, body);
+      remember();
       this.failuresInARow = 0;
       this.lastError = null;
       // A reply that is not text is applied as an empty one: "not valid JSON", layer goes on
@@ -444,7 +445,7 @@ export class LlmController {
   }
 
   // The whole battlefield as computed values (R5, D26).
-  private report(time: number): Record<string, unknown> {
+  private report(time: number): { report: Record<string, unknown>; remember: () => void } {
     const sm = this.stateManager;
     const mine = (f: Faction) => f === this.faction;
     const heroes = sm.getHeroes().filter((h) => h.hp > 0);
@@ -573,16 +574,22 @@ export class LlmController {
       terrain_by_sector: this.terrainMap(),
     };
 
-    // Remember for the next report
-    this.lastForceRatio = forceRatio;
-    this.lastSoldiers = { yours: army.yours[0], enemy: army.enemy[0] };
-    this.lastFollowers = new Map(
+    // What the next report compares with, kept only once this report has reached the LLM
+    // (remember() is called when its answer arrives): after a failed request the next report
+    // still carries these events and counts its changes from the last report the LLM saw.
+    const sentEvents = this.events.length;
+    const followers = new Map(
       heroes
         .filter((h) => mine(h.faction))
         .map((h) => [h.heroIndex, myGroups.get(h.id)?.followers ?? 0])
     );
-    this.events = [];
-    return report;
+    const remember = () => {
+      this.lastForceRatio = forceRatio;
+      this.lastSoldiers = { yours: army.yours[0], enemy: army.enemy[0] };
+      this.lastFollowers = followers;
+      this.events.splice(0, sentEvents); // events noted while waiting stay for the next one
+    };
+    return { report, remember };
   }
 
   // D30: control points (holder, units near, scores, time left) or bases (HP, units near).

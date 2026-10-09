@@ -16,7 +16,8 @@ import {
 import { EffectsManager } from './effects/EffectsManager';
 import { TerrainArt, ART_PX } from './TerrainArt';
 import { ObjectiveArt } from './ObjectiveArt';
-import { CONTROL_RADIUS, BASE_RADIUS } from '../engine/Rules';
+// ATTACK_INTERVAL: attackCooldown is reset to it on each hit, which times the attack pose
+import { CONTROL_RADIUS, BASE_RADIUS, ATTACK_INTERVAL } from '../engine/Rules';
 import { UnitSprites, FRAME, COL_LEFT, COL_RIGHT, WALK_FRAMES, ROW_ATTACK } from './UnitSprites';
 
 // The canvas fills the window, so the smallest zoom is the one that fits the whole map
@@ -38,8 +39,6 @@ function reducedMotion(): boolean {
 
 // Sprite animation
 const WALK_FPS = 8;
-// Mirrors ATTACK_INTERVAL in SimulationEngine: attackCooldown is reset to it on each hit
-const ATTACK_INTERVAL = 1.0;
 // The attack frame is shown for this long after each hit
 const ATTACK_POSE_TIME = 0.25;
 const HERO_RING_COLORS = ['#FFD700', ENEMY_HERO_COLOR]; // by Faction

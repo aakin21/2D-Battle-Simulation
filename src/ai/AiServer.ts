@@ -17,15 +17,16 @@ function load(): AiServer {
   let saved: AiServer = { base: '', key: '' };
   try {
     const raw = localStorage.getItem(STORE_KEY);
-    if (raw) saved = { ...saved, ...(JSON.parse(raw) as Partial<AiServer>) };
+    const stored = raw ? (JSON.parse(raw) as Partial<Record<keyof AiServer, unknown>>) : null;
+    if (stored) saved = { base: serverOrigin(stored.base), key: text(stored.key) };
   } catch {
-    // no storage (private window, tests): use this site
+    // no storage (private window, tests) or damaged: use this site
   }
   try {
     const url = new URL(location.href);
     const base = url.searchParams.get('ai');
     if (base !== null) {
-      saved = { base: base.trim().replace(/\/+$/, ''), key: url.searchParams.get('key') ?? '' };
+      saved = { base: serverOrigin(base), key: url.searchParams.get('key') ?? '' };
       try {
         localStorage.setItem(STORE_KEY, JSON.stringify(saved));
       } catch {
@@ -40,6 +41,29 @@ function load(): AiServer {
     // not in a browser (headless tests)
   }
   return saved;
+}
+
+function text(value: unknown): string {
+  return typeof value === 'string' ? value : '';
+}
+
+// The AI server's origin from what the link (or an older saved copy) gives. Without a scheme
+// "abc.trycloudflare.com" would be read as a path on this site, and a path after the host
+// ("…/api") would double the endpoint's; anything that is not an http(s) address means "this
+// site".
+export function serverOrigin(value: unknown): string {
+  const given = text(value).trim();
+  if (!given) return '';
+  const local = /^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?(\/|$)/i.test(given);
+  const withScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(given)
+    ? given
+    : `${local ? 'http' : 'https'}://${given}`;
+  try {
+    const url = new URL(withScheme);
+    return url.protocol === 'http:' || url.protocol === 'https:' ? url.origin : '';
+  } catch {
+    return '';
+  }
 }
 
 export function aiEndpoint(path: string): string {

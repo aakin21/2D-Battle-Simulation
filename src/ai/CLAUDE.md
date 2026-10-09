@@ -6,7 +6,7 @@ AI layers that command the heroes of one side. Each implements `AIController` (`
 | ------------------ | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
 | `JevController.ts` | 2, tactical (D6, D21)   | Every 4 s, one request per side to `/api/jev` (dev proxy → TypeSafe). One Choice question per hero over a fixed option list.         |
 | `LlmController.ts` | 3, strategic (D10, D22) | Every 20 s, a whole-map report to `/api/llm` (dev server → Claude Agent SDK). Reply is JSON orders, validated before use.            |
-| `AiServer.ts`      | –                       | Where `/api/jev` and `/api/llm` are: this site, or the tunnel address and password given once in the demo link (`?ai=…&key=…`, D37). |
+| `AiServer.ts`      | –                       | Where `/api/jev` and `/api/llm` are: this site, or the tunnel address and password given once in the demo link (`?ai=…&key=…`, D37; the address is reduced to its origin, `https://` added when missing, `http://` for localhost). Failure details, retry helpers. |
 | `GameRules.ts`     | –                       | The rulebook for both layers, built from `src/engine/Rules.ts`: the LLM system prompt and Jev's `game_rules` (D26).                  |
 | `Observations.ts`  | –                       | Values computed by code for both layers: group stats, local force ratio, army HP (R5).                                               |
 
