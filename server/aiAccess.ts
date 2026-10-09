@@ -23,9 +23,7 @@ export function aiAccessPlugin(env: Record<string, string>): Plugin {
     configureServer(server) {
       // Added directly (not returned), so it runs before Vite's proxy and the LLM endpoint.
       server.middlewares.use((req: IncomingMessage, res: ServerResponse, next: () => void) => {
-        // Vite's middleware routes match paths ignoring case ("/API/llm" reaches the LLM
-        // endpoint), so this check must too, or that spelling would skip the password
-        if (!req.url?.toLowerCase().startsWith('/api/')) return next();
+        if (!isApiPath(req.url)) return next();
 
         const origin = req.headers.origin;
         if (origin && allowed.has(origin)) {
@@ -57,6 +55,18 @@ export function aiAccessPlugin(env: Record<string, string>): Plugin {
       });
     },
   };
+}
+
+// The path as Vite's middleware routes see it: they match ignoring case ("/API/llm" reaches the
+// LLM endpoint) and read the path out of an absolute request target ("POST http://host/api/llm"),
+// so both must count here, or they would skip the password. Anything unreadable is checked.
+function isApiPath(url: string | undefined): boolean {
+  if (!url) return false;
+  try {
+    return new URL(url, 'http://localhost').pathname.toLowerCase().startsWith('/api/');
+  } catch {
+    return true;
+  }
 }
 
 // Requests made on this computer. A tunnel forwards to localhost too, but keeps the public
