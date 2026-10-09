@@ -23,7 +23,9 @@ export function aiAccessPlugin(env: Record<string, string>): Plugin {
     configureServer(server) {
       // Added directly (not returned), so it runs before Vite's proxy and the LLM endpoint.
       server.middlewares.use((req: IncomingMessage, res: ServerResponse, next: () => void) => {
-        if (!req.url?.startsWith('/api/')) return next();
+        // Vite's middleware routes match paths ignoring case ("/API/llm" reaches the LLM
+        // endpoint), so this check must too, or that spelling would skip the password
+        if (!req.url?.toLowerCase().startsWith('/api/')) return next();
 
         const origin = req.headers.origin;
         if (origin && allowed.has(origin)) {
