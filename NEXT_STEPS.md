@@ -32,6 +32,15 @@ Read `CLAUDE.md` (architecture, rules that must not be broken) and `THESIS_DOCUM
   `gh auth refresh -h github.com -s workflow`, and switches back.
 
 ## Just done (2026-10-07 / 08)
+- P7 logged (effects changed the simulation's random numbers) at the author's request.
+- Third robustness pass (`v2.6.3-robustness-3`, local only). Every case tried in passes 2 and 3
+  and its outcome is in `../tests/smoke/CASES.md`. Fixed: with FX on, effects drew from the
+  simulation's `Math.random`, so the same seed gave a different battle (proved with the real
+  renderer on a fake canvas, `render.ts`); the LLM match id did too. When an AI layer stops, the
+  AI panel now shows the server's error text and what to do (e.g. Cloudflare 530: the tunnel
+  address no longer exists). The author's test on the online demo on 2026-10-08 got such an
+  HTTP 5xx: expected, since no `npm run dev` and tunnel were running and the demo is still the
+  old version (nothing pushed).
 - P5 (late AI answers reaching the next match) and P6 (other websites could use the local AI
   endpoints, a gap in D37) logged at the author's request.
 - Second robustness pass (`v2.6.2-robustness-2`, local only, not pushed). New tests in
@@ -68,7 +77,8 @@ Read `CLAUDE.md` (architecture, rules that must not be broken) and `THESIS_DOCUM
 1. **Push the local work** once the token has the `workflow` scope (see Working agreements):
    `main`, `phase2/symmetry`, `development`, `fix/deploy-version`,
    `docs/next-steps-deploy-version`, `fix/robustness-2`, `docs/next-steps-robustness-2`,
-   `docs/p5-p6` and the tag `v2.6.2-robustness-2` are ahead of `origin` locally. Then check that the deploy run passes and that the demo's
+   `docs/p5-p6`, `fix/robustness-3`, `docs/next-steps-robustness-3`, `docs/p7` and the tags
+   `v2.6.2-robustness-2`, `v2.6.3-robustness-3` are ahead of `origin` locally (`git push origin <branches> --tags`). Then check that the deploy run passes and that the demo's
    `assets/index-*.js` on `gh-pages` has a tag-based `version` without `-dirty`. Optional
    follow-up: the run warns that Node 20 is deprecated (`checkout@v4`, `setup-node@v4`,
    `actions-gh-pages@v3` are forced onto Node 24; the build itself uses Node 20).

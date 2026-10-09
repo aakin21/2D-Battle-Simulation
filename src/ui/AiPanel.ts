@@ -2,6 +2,7 @@ import type { JevController } from '../ai/JevController';
 import type { LlmController } from '../ai/LlmController';
 import { SimConfig } from '../types/types';
 import type { AiSides } from './MatchLog';
+import { AiRequestLog } from './AiRequestLog';
 
 // Side-panel section showing what the AI layers decided, so a live test can be followed
 // without the browser console: the LLM's stance, plan and orders, and Jev's latest choice
@@ -38,10 +39,12 @@ export class AiPanel {
   private elSection = document.getElementById('ai-section')!;
   private elBody = document.getElementById('ai-body')!;
   private last = '';
+  private requestLog = new AiRequestLog();
 
   update(sides: AiSides, config: SimConfig, simTime: number): void {
     const active = (['west', 'east'] as const).filter((s) => sides[s].jev || sides[s].llm);
     this.elSection.hidden = active.length === 0;
+    this.requestLog.update(sides);
     if (active.length === 0) return;
     const html = active
       .map((s) => this.sideHtml(s, sides[s].llm, sides[s].jev, config, simTime))

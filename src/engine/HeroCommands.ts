@@ -45,7 +45,15 @@ export class HeroCommands {
     if (command?.type === 'move') {
       command = { type: 'move', target: nearestReachableTile(this.sm, command.target) };
     }
-    if (command && hero.command && sameCommand(hero.command, command)) return;
+    if (command && hero.command && sameCommand(hero.command, command)) {
+      // The hero already does this (e.g. Jev chose the same move a moment before): nothing
+      // changes, but a commander's order is still remembered so Jev can follow it (D15)
+      if (source === 'llm' && !(hero.lastLlmCommand && sameCommand(hero.lastLlmCommand, command))) {
+        hero.lastLlmCommand = command;
+        hero.lastLlmTime = this.sm.getBattlefield().elapsedTime;
+      }
+      return;
+    }
     if (!command && !hero.command) return;
 
     // D18: a new order from the user, Jev or the LLM ends the survival reflex.

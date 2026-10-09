@@ -32,6 +32,7 @@ import {
   failureDetail,
   unreachableStatus,
 } from './AiServer';
+import { AiExchange, finishExchange, startExchange } from './Exchange';
 
 // Layer 2 (D6, D21, D26): Jev makes tactical decisions for each hero of one side every few
 // seconds. Jev has no memory, so every request carries the relevant rules (game_rules) and
@@ -88,6 +89,7 @@ export class JevController {
   private pending = false;
   private failed = false;
   readonly decisions: JevDecision[] = [];
+  readonly exchanges: AiExchange[] = []; // every request with its answer (request log, match log)
   skippedRequests = 0; // a new request was due while the previous one was still open (Q7)
   failure: string | null = null; // why the layer stopped, for the AI panel and the match log
   private disposed = false;
@@ -200,6 +202,8 @@ export class JevController {
 
     this.pending = true;
     const started = performance.now();
+    const request = { model: 'jev-latest', state, questions };
+    const exchange = startExchange(this.exchanges, time, request);
     // An answer that never comes would block the layer, and in paused mode the whole battle
     const abort = new AbortController();
     this.inFlight = abort;
@@ -209,7 +213,7 @@ export class JevController {
         method: 'POST',
         headers: aiHeaders(),
         signal: abort.signal,
-        body: JSON.stringify({ model: 'jev-latest', state, questions }),
+        body: JSON.stringify(request),
       });
       const latencyMs = performance.now() - started;
       if (this.disposed) return;
@@ -217,6 +221,7 @@ export class JevController {
       if (!res.ok) {
         const detail = await failureDetail(res);
         if (this.disposed) return;
+        finishExchange(exchange, latencyMs, null, `HTTP ${res.status}${detail}`);
         this.fail(
           `HTTP ${res.status}${detail}`,
           deniedByAiServer(res)
@@ -237,6 +242,7 @@ export class JevController {
         >;
       };
       if (this.disposed) return;
+      finishExchange(exchange, latencyMs, body);
       const a = body.answers ?? {};
       for (const hero of heroes) {
         const key = `hero${hero.heroIndex}`;
@@ -269,8 +275,13 @@ export class JevController {
       }
     } catch (err) {
       if (this.disposed) return;
-      if (abort.signal.aborted) this.fail(`no answer within ${this.opts.timeoutMs / 1000} s`, '');
-      else this.fail(String(err), unreachableHint());
+      const reason = abort.signal.aborted
+        ? `no answer within ${this.opts.timeoutMs / 1000} s`
+        : String(err);
+      if (exchange.latencyMs === null)
+        finishExchange(exchange, performance.now() - started, null, reason);
+      if (abort.signal.aborted) this.fail(reason, '');
+      else this.fail(reason, unreachableHint());
     } finally {
       clearTimeout(timer);
       this.inFlight = null;

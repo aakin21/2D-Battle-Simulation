@@ -67,7 +67,7 @@ Each unit cycles through `IDLE → ATTACK → FLEE → REST → IDLE`, driven by
 These became relevant once AI integration was proposed:
 - **Asymmetric sides.** Warriors follow a single hero and use courage; berserkers have no courage (skipped in `updateCourage`), no hero, and simply spawn in waves and attack the nearest opponent.
 - **Small control surface.** The only steerable input is the hero's task point.
-- **Non-deterministic runs.** Map generation and spawning use `Math.random` without a seed, so runs cannot be reproduced exactly.
+- **Non-deterministic runs.** Map generation and spawning use `Math.random` without a seed, so runs cannot be reproduced exactly. Anything else that draws from `Math.random` changes the run too, see P7.
 - **No headless mode or metric export.** Results can only be observed visually.
 
 ---
@@ -529,6 +529,7 @@ Online demo until the final experiments: both layers through a tunnel to the aut
 
 #### D25: Sprite pack for units
 - **Context:** Visual polish work on the renderer (hit flash, death animation, blood, status icons, hero aura, sprites, loading screen), tracked in `UI_PLAN.md`. All of it is rendering-only: the simulation engine is not changed, and every effect can be switched off (FX toggle) so measurements stay comparable with Phase 1.
+- **Note (2026-10-08):** until `v2.6.3` some effects drew from the simulation's random numbers, so FX on changed seeded runs; see P7.
 - **Need:** one sprite each for warriors and berserkers, plus 6 hero sprites (3 per side, see D13).
 - **Options (see R4):**
   - (a) Ninja Adventure (Pixel-boy), CC0
@@ -946,6 +947,13 @@ Problems encountered during the project, how they were found, and how they were 
 - **Impact:** D37's assumption that requests to `localhost` are the author's own did not hold; the password only protected the tunnel. No sign that it was used.
 - **Resolution:** a request that carries an `Origin` other than the app's own (same host) or the demo's (`AI_ALLOWED_ORIGINS`) is refused (403) before the local check; requests without an `Origin` (e.g. `curl` on this computer) still pass. Tested: other website → 403, sandboxed page (`Origin: null`) → 403; the app on `localhost` and `127.0.0.1`, the demo's origin, `curl`, and the app through the tunnel with the password → pass. The same pass made `/api/llm` refuse fields that are not text and fail waiting requests at once when their session ends.
 - **Status:** Resolved (2026-10-08, `v2.6.2-robustness-2`; local, not pushed yet)
+
+### P7: Visual effects changed the simulation's random numbers (2026-10-08)
+- **Context:** third robustness pass; the real renderer was run in Node.js on a fake canvas next to the simulation (`../tests/smoke/render.ts`, outside the repository).
+- **Problem:** the effects (blood drops and pools, corpse tilt, the walk phase of each new unit) drew from `Math.random`, which the simulation also uses (map, spawning, wave timing, patrol targets). With FX on, every hit and every new unit moved the simulation's random sequence, so the same seed gave a different battle. Measured with the same seed: no drawing and FX off gave the same battlefield, FX on a different one in classic mode with waves and in a battle with rule-based heroes (a control match and a short stress run happened to stay equal). The LLM controller's match id also drew one number when an AI side was attached.
+- **Impact:** broke the rule that effects are rendering-only and never change results (D25). Single runs were not affected in a way that matters, since `Math.random` is not seeded (Phase 1 limitation: runs cannot be reproduced) and the shift does not favour a side. The seeded measurements (R7, R8, R10) ran headless without drawing and are not affected. It would have broken any seeded experiment run in the browser, e.g. the proposed seeded simulation for paired experiments, and comparisons of FX on and off.
+- **Resolution:** effects use a random generator of their own (`src/rendering/effects/fxRandom.ts`), as the sound and the terrain art already did; the match id uses `crypto`. Verified with the same seed: no drawing, FX off and FX on give identical battlefields in all four cases, and attaching, ticking and disposing Jev and LLM controllers draws nothing from `Math.random`.
+- **Status:** Resolved (2026-10-08, `v2.6.3-robustness-3`; local, not pushed yet)
 
 ---
 
