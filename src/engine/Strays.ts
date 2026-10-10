@@ -94,9 +94,8 @@ export function strayClusters(sm: StateManager, faction: Faction): StrayCluster[
 }
 
 // The stray cluster a hero should collect: the nearest one, preferring bigger groups
-// (distance divided by the square root of the group size). The hero walks to the cluster's
-// nearest soldier (regroupPoint), not its centre: a cluster spread around the hero can have its
-// centre next to the hero while every soldier is out of its sight.
+// (distance divided by the square root of the group size). Where the hero then walks is
+// regroupPoint, not the centre.
 export function regroupTarget(clusters: StrayCluster[], hero: IHero): StrayCluster | null {
   let best: StrayCluster | null = null;
   let bestScore = Infinity;
@@ -111,19 +110,42 @@ export function regroupTarget(clusters: StrayCluster[], hero: IHero): StrayClust
   return best;
 }
 
-// Where a hero collecting `cluster` walks: its living soldier nearest to the hero. Soldiers join
-// once the hero is within its sight, so the next nearest one becomes the target, and the hero
-// sweeps the cluster. Walking to the centre left heroes standing next to a spread-out cluster
-// for minutes (author's live test, 2026-10-10).
+// Where a hero collecting `cluster` walks: the spot (one of the group's soldiers) from which it
+// would have the most of the group within its sight, weighed by the walk there. Soldiers join as
+// soon as the hero is that close, so the spot is re-chosen as they join. Walking to the group's
+// centre left heroes standing next to a spread-out group for minutes (author's live tests,
+// 2026-10-10: the centre was the hero's own tile while every soldier was out of its sight);
+// walking to the nearest soldier fixed that but was slower with real start positions. Measured
+// (tests/smoke/out/probe-regroup.ts, 572 per side, all three heroes regrouping): every stray
+// collected in 106 s, against 149 s (centre) and 175 s (nearest soldier).
+const SPOT_CANDIDATES = 48; // soldiers tried as spots per group (evenly spread over its members)
+const spotGains = new WeakMap<StrayCluster, Array<{ at: Position; gain: number }>>();
+
 export function regroupPoint(cluster: StrayCluster, hero: IHero): Position {
+  let spots = spotGains.get(cluster);
+  if (!spots) {
+    const alive = cluster.members.filter((u) => u.hp > 0);
+    const r2 = hero.sight * hero.sight;
+    const step = Math.max(1, Math.floor(alive.length / SPOT_CANDIDATES));
+    spots = [];
+    for (let i = 0; i < alive.length; i += step) {
+      const at = alive[i].position;
+      let gain = 0;
+      for (const u of alive)
+        if ((u.position.x - at.x) ** 2 + (u.position.y - at.y) ** 2 <= r2) gain++;
+      spots.push({ at: { x: at.x, y: at.y }, gain });
+    }
+    spotGains.set(cluster, spots);
+  }
   let best = cluster.center;
-  let bestD2 = Infinity;
-  for (const u of cluster.members) {
-    if (u.hp <= 0) continue;
-    const d2 = (u.position.x - hero.position.x) ** 2 + (u.position.y - hero.position.y) ** 2;
-    if (d2 < bestD2) {
-      bestD2 = d2;
-      best = u.position;
+  let bestScore = -1;
+  for (const s of spots) {
+    // soldiers gained per tile walked; the hero only has to come within its sight of the spot
+    const d = Math.hypot(s.at.x - hero.position.x, s.at.y - hero.position.y);
+    const score = s.gain / (Math.max(0, d - hero.sight) + 5);
+    if (score > bestScore) {
+      bestScore = score;
+      best = s.at;
     }
   }
   return best;
