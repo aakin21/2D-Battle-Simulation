@@ -28,6 +28,10 @@ export const HERO_RETREAT_HP_RATIO = 0.5;
 export const HERO_OUTNUMBERED_MIN_ENEMIES = 5;
 export const HERO_OUTNUMBERED_RATIO = 2;
 
+// Retreat order: fall back this far from the enemies within RETREAT_SCAN tiles of the hero
+export const RETREAT_TILES = 12;
+export const RETREAT_SCAN = 20;
+
 // Breaking off a fight (D27): a hero that breaks off ignores enemies until none is this close
 export const DISENGAGE_CLEAR_RADIUS = 6;
 

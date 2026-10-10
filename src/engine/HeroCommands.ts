@@ -6,10 +6,12 @@ import {
   Position,
   BehaviorState,
   Faction,
+  GRID_SIZE,
 } from '../types/types';
 import { findNearestEnemyAnywhere, nearestReachableTile, tileOf } from './UnitHelpers';
 import { strayClusters, regroupTarget, StrayCluster } from './Strays';
 import { enemyBase } from './Objectives';
+import { RETREAT_SCAN, RETREAT_TILES } from './Rules';
 
 const STRAY_CACHE_SEC = 0.5; // stray clusters are recomputed at most this often
 
@@ -43,16 +45,27 @@ export class HeroCommands {
     // one today, but a bad one would leave the hero with a NaN task point)
     if (command && !finitePoint(command)) return;
     if (command?.type === 'move') {
-      command = { type: 'move', target: nearestReachableTile(this.sm, command.target) };
+      command = { ...command, target: nearestReachableTile(this.sm, command.target) };
     }
     if (command && hero.command && sameCommand(hero.command, command)) {
       // The hero already does this (e.g. Jev chose the same move a moment before): nothing
-      // changes, but a commander's order is still remembered so Jev can follow it (D15)
-      if (source === 'llm' && !(hero.lastLlmCommand && sameCommand(hero.lastLlmCommand, command))) {
-        hero.lastLlmCommand = command;
-        hero.lastLlmTime = this.sm.getBattlefield().elapsedTime;
+      // changes, but a commander's order is still remembered so Jev can follow it (D15), and
+      // a restated order keeps its age but takes the commander's latest reason
+      if (source === 'llm') {
+        if (hero.lastLlmCommand && sameCommand(hero.lastLlmCommand, command)) {
+          hero.lastLlmCommand = { ...hero.lastLlmCommand, reason: command.reason };
+        } else {
+          hero.lastLlmCommand = command;
+          hero.lastLlmTime = this.sm.getBattlefield().elapsedTime;
+        }
+        if (hero.commandSource === 'llm')
+          hero.command = { ...hero.command, reason: command.reason };
       }
       return;
+    }
+    // Retreat falls back a short way from the enemies, worked out once when it is given
+    if (command?.type === 'retreat' && !command.to) {
+      command = { ...command, to: this.retreatPoint(hero) };
     }
     if (!command && !hero.command) return;
 
@@ -76,6 +89,36 @@ export class HeroCommands {
       breakOffAllowed &&
       movement &&
       (command?.type === 'retreat' || hero.state === BehaviorState.ATTACK);
+  }
+
+  // Where a retreat order goes: RETREAT_TILES away from the enemies near the hero (from the
+  // nearest enemy anywhere when none is near); the hero's own tile when there is no enemy.
+  // It used to be the start position, often more than 100 tiles away.
+  private retreatPoint(hero: IHero): Position {
+    let ex = 0;
+    let ey = 0;
+    let n = 0;
+    this.sm.forEachInRadius(hero.position.x, hero.position.y, RETREAT_SCAN, (u) => {
+      if (u.hp <= 0 || u.faction === hero.faction) return;
+      ex += u.position.x;
+      ey += u.position.y;
+      n++;
+    });
+    if (n === 0) {
+      const enemy = findNearestEnemyAnywhere(this.sm, hero);
+      if (!enemy) return tileOf(hero.position);
+      ex = enemy.position.x;
+      ey = enemy.position.y;
+      n = 1;
+    }
+    const dx = hero.position.x - ex / n;
+    const dy = hero.position.y - ey / n;
+    const len = Math.hypot(dx, dy) || 1;
+    const to = {
+      x: Math.max(1, Math.min(GRID_SIZE - 2, hero.position.x + (dx / len) * RETREAT_TILES)),
+      y: Math.max(1, Math.min(GRID_SIZE - 2, hero.position.y + (dy / len) * RETREAT_TILES)),
+    };
+    return nearestReachableTile(this.sm, to);
   }
 
   // Re-evaluated every frame because some targets move (nearest enemy, an enemy hero).
@@ -107,7 +150,7 @@ export class HeroCommands {
       case 'hold':
         return command.at;
       case 'retreat':
-        return hero.home;
+        return command.to ?? hero.home;
       case 'attack': {
         const enemy = findNearestEnemyAnywhere(this.sm, hero);
         return enemy ? tileOf(enemy.position) : null;

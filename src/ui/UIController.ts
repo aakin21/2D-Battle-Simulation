@@ -862,23 +862,23 @@ export class UIController {
     ];
     for (const [faction, ai, name, model] of sides) {
       if (ai === 'none') continue;
+      // The LLM commands the side; with Jev it is the LLM's tactical layer (Jev alone was
+      // dropped: it sees only each hero's surroundings)
       const both = ai === 'jev+llm';
       const side = this.aiSides[name];
-      if (ai === 'jev' || both) {
+      if (both) {
         side.jev = new JevController(this.engine, this.stateManager, faction, {
-          fallbackToRules: !both,
-          withCommander: both,
+          fallbackToRules: false,
+          withCommander: true,
         });
         controllers.push(side.jev);
       }
-      if (ai === 'llm' || both) {
-        side.llm = new LlmController(this.engine, this.stateManager, faction, {
-          model,
-          fallbackToRules: !both,
-          jevAssessment: side.jev ? (heroIndex) => side.jev!.assessmentFor(heroIndex) : null,
-        });
-        controllers.push(side.llm);
-      }
+      side.llm = new LlmController(this.engine, this.stateManager, faction, {
+        model,
+        fallbackToRules: !both,
+        jevAssessment: side.jev ? (heroIndex) => side.jev!.assessmentFor(heroIndex) : null,
+      });
+      controllers.push(side.llm);
     }
     this.engine.setControllers(controllers);
   }

@@ -10,6 +10,7 @@ import {
   TerrainType,
   GRID_SIZE,
 } from '../types/types';
+import { RETREAT_TILES } from '../engine/Rules';
 import { jevGameRules, JEV_INTERVAL_SEC, JEV_STEP_TILES } from './GameRules';
 import {
   compass,
@@ -205,7 +206,7 @@ export class JevController {
       if (hero.lastLlmCommand) {
         questions[`${key}_order_fits`] = {
           type: 'noul',
-          instructions: `Does the commander's order for \`${key}\` (${this.describeCommand(hero.lastLlmCommand)}) still make sense in its current situation?`,
+          instructions: `Does the commander's order for \`${key}\` (${this.describeCommand(hero.lastLlmCommand)}${hero.lastLlmCommand.reason ? `, given because: ${hero.lastLlmCommand.reason}` : ''}) still make sense in its current situation?`,
         };
       }
     }
@@ -360,7 +361,7 @@ export class JevController {
     if (hero.lastLlmCommand) {
       opts.push({
         key: 'continue_llm',
-        what: `Keep following the commander's order: ${this.describeCommand(hero.lastLlmCommand)}.`,
+        what: `Keep following the commander's order: ${this.describeCommand(hero.lastLlmCommand)}${hero.lastLlmCommand.reason ? ` (its reason: ${hero.lastLlmCommand.reason})` : ''}.`,
         notFor: 'When the hero is in danger or the order no longer fits the local situation.',
         command: { type: 'continueLlm' },
       });
@@ -375,7 +376,7 @@ export class JevController {
       },
       {
         key: 'retreat',
-        what: 'Fall back to the start position, away from the enemy, to save the hero and its soldiers.',
+        what: `Fall back about ${RETREAT_TILES} tiles away from the enemies near the hero (not to the start position) and stay there, to save the hero and its soldiers.`,
         notFor: 'When winning the local fight or when the enemy is weak.',
         command: { type: 'retreat' },
       },
@@ -438,7 +439,7 @@ export class JevController {
       );
       opts.push({
         key: 'regroup',
-        what: `Collect stray soldiers of our side: this order leads to a group of ${goal.soldiers} soldiers, ${d} tiles to the ${compass(hero.position, goal.center)} (a bigger group is preferred to a nearer small one); they follow the hero again and regain its courage bonus.`,
+        what: `Collect stray soldiers of our side, one group after another until none is left: it starts with a group of ${goal.soldiers} soldiers, ${d} tiles to the ${compass(hero.position, goal.center)} (a bigger group is preferred to a nearer small one); they follow the hero again and regain its courage bonus.`,
         notFor: 'When the hero is in a fight it is winning, or the strays are far away.',
         command: { type: 'regroup' },
       });
@@ -503,6 +504,7 @@ export class JevController {
         ? `${this.describeCommand(hero.command)} (from ${hero.commandSource})`
         : 'none',
       commander_order: hero.lastLlmCommand ? this.describeCommand(hero.lastLlmCommand) : 'none',
+      commander_reason: hero.lastLlmCommand ? (hero.lastLlmCommand.reason ?? 'not given') : 'n/a',
       commander_order_age_seconds: hero.lastLlmCommand
         ? Math.round(time - hero.lastLlmTime)
         : 'n/a',
@@ -660,7 +662,7 @@ export class JevController {
       case 'hold':
         return `hold position in ${positionToSubsector(c.at)}`;
       case 'retreat':
-        return 'retreat to the start position';
+        return 'retreat a short way from the enemies';
       case 'attack':
         return 'attack the nearest enemy';
       case 'attackHero':
