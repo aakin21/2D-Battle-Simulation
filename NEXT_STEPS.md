@@ -34,6 +34,14 @@ Read `CLAUDE.md` (architecture, rules that must not be broken) and `THESIS_DOCUM
   `gh auth refresh -h github.com -s workflow`, and switches back.
 
 ## Just done (2026-10-07 to 09)
+- Sixth robustness pass (`v2.8.2-robustness-6`, local). Three fixes change what the AI layers
+  read, so the author should know: Jev's regroup option now names the group the order really
+  goes to (it named the nearest one, while the order picks by distance and size); Jev's local
+  map shows "M" for every 2×2 cell with a mountain tile (17–19% of such cells showed as
+  passable); the LLM's rulebook now lists all of Jev's actions (it left out regroup, control
+  points and the base). Also: LLM commands are read case-insensitively and "point A" is
+  understood; a sideways trackpad swipe no longer zooms out; a selection off the canvas is
+  cancelled.
 - Fifth robustness pass, function by function (`v2.8.1-robustness-5`, local): an LLM report
   whose request failed lost its events and its "since the last report" baseline; sector names
   with spaces around the dash or a typographic dash were refused and "D4-NE-X" accepted; stray
@@ -103,7 +111,8 @@ Read `CLAUDE.md` (architecture, rules that must not be broken) and `THESIS_DOCUM
    `docs/p5-p6`, `fix/robustness-3`, `docs/next-steps-robustness-3`, `docs/p7`, `feature/ai-exchange-log`, `feature/ai-request-practices`,
    `docs/next-steps-ai-practices`, `fix/robustness-5`, `docs/next-steps-robustness-5` and the
    tags `v2.6.2-robustness-2`, `v2.6.3-robustness-3`, `v2.7-ai-request-log`,
-   `v2.8-ai-request-practices`, `v2.8.1-robustness-5` are ahead of `origin` locally (`git push origin <branches> --tags`). Then check that the deploy run passes and that the demo's
+   `v2.8-ai-request-practices`, `v2.8.1-robustness-5`, plus `fix/robustness-6`,
+   `docs/next-steps-robustness-6` and `v2.8.2-robustness-6` are ahead of `origin` locally (`git push origin <branches> --tags`). Then check that the deploy run passes and that the demo's
    `assets/index-*.js` on `gh-pages` has a tag-based `version` without `-dirty`. Optional
    follow-up: the run warns that Node 20 is deprecated (`checkout@v4`, `setup-node@v4`,
    `actions-gh-pages@v3` are forced onto Node 24; the build itself uses Node 20).
@@ -119,6 +128,12 @@ Read `CLAUDE.md` (architecture, rules that must not be broken) and `THESIS_DOCUM
      to 32 s): an answer minutes late is stale at a 20 s interval; the next report retries anyway.
    - Fix the LLM's reasoning effort (`effort` option) for all experiments and record it.
    Then log the research as R# if the author agrees.
+   Design questions found while testing (they change the rules or the AI inputs):
+   - A fleeing unit cornered at the map edge or by mountains does not fight back (only units
+     in the attack state hit).
+   - The rulebook does not say that wounded units are slower (speed × (0.5 + 0.5 × HP share)).
+   - Jev is offered "step 10 tiles west" even at the west edge (the target is clamped to the
+     hero's own tile) or into mountains (the target moves to another reachable tile).
 3. **Live tests by the author**, one by one (port of `npm run dev`): D33–D36 with Jev and the
    LLM; Jev only, Jev + LLM, each objective; the tunnel (D37) end to end; a re-run of the first
    LLM vs LLM match with the courage fix (P4, D3). The AI panel shows the decisions live, and
