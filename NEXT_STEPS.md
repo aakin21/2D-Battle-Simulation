@@ -119,37 +119,38 @@ and the partial results of the stopped agents. Every case tried is in `../tests/
    and tags are on GitHub; the deploy passed and the demo's version is
    `v2.8.3-robustness-7-24-ga564a76` (no `-dirty`). Optional follow-up: the workflow's Node 20
    actions (see `../tests/smoke/agents/tooling/FINDINGS.md`, T8).
-2. **AI request proposals to decide** (they change the experiment conditions, so not applied):
-   - Pin model versions for the experiments: Jev `jev-1.13.0` instead of `jev-latest` (TypeSafe:
-     an alias moves to each new release, and thresholds such as our `minConfidence` 0.4 should be
-     tuned against a pinned version), and full Claude model ids instead of `haiku`/`sonnet`/
-     `opus` (the ids are now recorded per decision).
-   - Structured output for the LLM (`outputFormat: json_schema` in the Agent SDK): the SDK checks
-     the reply against a schema (stance and command as enums, hero as integer) and re-prompts on
-     a mismatch; the rulebook's reply-format text would shrink. Needs a live test of latency.
-   - Fewer CLI retries for real-time play (`CLAUDE_CODE_MAX_RETRIES`, default 10 with backoff up
-     to 32 s): an answer minutes late is stale at a 20 s interval; the next report retries anyway.
-   - Fix the LLM's reasoning effort (`effort` option) for all experiments and record it.
-   Then log the research as R# if the author agrees.
-   Design questions found while testing (they change the rules or the AI inputs):
-   - A fleeing unit cornered at the map edge or by mountains does not fight back (only units
-     in the attack state hit).
-   - The rulebook does not say that wounded units are slower (speed × (0.5 + 0.5 × HP share)).
-   - Jev is offered "step 10 tiles west" even at the west edge (the target is clamped to the
-     hero's own tile) or into mountains (the target moves to another reachable tile).
+2. **Before the next tunnel test:** close the two open gaps in P6 (dot-segment paths skip the
+   access guard; Vite 5 serves `.git/` through the tunnel) and the small server fixes, see
+   `../tests/smoke/STATUS.md`, "Open".
 3. **Live tests by the author**, one by one (port of `npm run dev`): D33–D36 with Jev and the
    LLM; Jev only, Jev + LLM, each objective; the tunnel (D37) end to end; a re-run of the first
    LLM vs LLM match with the courage fix (P4, D3). The AI panel shows the decisions live, and
    the Log button (or "Download log" on the result card) saves settings, timeline and every AI
    decision as JSON, so nothing has to be copied from the browser console.
-4. **Rulebook per mode** (to discuss): the stance rules are the same in every mode ("defensive:
-   hold good ground and let the enemy come"), which does not fit Control, where waiting loses
-   points. Also proposed and not decided: a seeded simulation (same map and seed, same match)
-   for paired experiments.
-5. **Experiments** (Q11): conditions Rules / Jev / LLM / Jev + LLM, timing modes, models
-   (D29), objectives; metrics: win rate, time, losses, decision latency, skipped requests, cost.
-   Needs a headless experiment runner with a safety cut-off per match; the match log format
-   (`src/ui/MatchLog.ts`) can be reused.
+4. **Battle problems (algorithmic; to go through one by one with the author):**
+   - A fleeing unit cornered at the map edge or by mountains does not fight back (only units in
+     the attack state hit).
+   - An order to a resting hero waits until it is fully healed (~16 s from 40 HP); orders end a
+     flight (D18) but not a rest.
+   - Wounded units are slower (speed × (0.5 + 0.5 × HP share)).
+   - Classic waves never stop: ×10 waves reach ~21,000 units after 20 minutes.
+   - A side with no heroes left: its soldiers search the whole map every frame (150/side: worst
+     frame 59 ms; 2,000/side: 33 ms per step on average).
+   - Rulebook per mode (to discuss): the stance rules are the same in every objective.
+5. **AI requests (to go through with the author; the layers cannot yet say enough of what they
+   want, and they should be able to send complete orders):**
+   - What each layer can express: the LLM's order set (move, hold, retreat, attack, attack_hero,
+     regroup, attack_base) and Jev's fixed option list; what is missing (e.g. a formation or
+     spacing, a target group, conditions, an order for the soldiers, a reason that reaches the
+     other layer).
+   - Jev's options at the map edge or into mountains ("step 10 tiles west" that goes nowhere).
+   - Proposals not applied: pin model versions (`jev-1.13.0`, full Claude ids), structured
+     output for the LLM (`outputFormat: json_schema`), fewer CLI retries for real time, a fixed
+     reasoning effort. Then log the research as R#.
+   - Changes made in the robustness passes that alter what the layers read (author to confirm):
+     Jev's regroup text, Jev's local map, the rulebook sentence on Jev's actions, the LLM
+     command and place spellings now accepted.
+   - Also not decided: a seeded simulation for paired experiments (possible since P7).
 6. Known, not fixed: stress-mode berserkers clip mountain corners by ~0.06 tiles (Phase 1
    classic behaviour, 6 units in 40 s; never seen in battle mode); one-off 90–220 ms frames in
    stress mode and base mode (Q17); a move order to a point off the map (no source gives one
@@ -160,3 +161,8 @@ and the partial results of the stopped agents. Every case tried is in `../tests/
    `?ai=<tunnel address>&key=<password>`. Vercel with the Claude API comes later (D10).
 8. Later ideas: cross-match learning (D11, research first), threat-aware pathfinding (D27),
    LLM as tactical layer vs Jev (to be logged as a new Q#; Q17 is taken).
+9. **Experiments** (Q11, later, after items 4 and 5): conditions Rules / Jev / LLM / Jev + LLM,
+   timing modes, models (D29), objectives; metrics: win rate, time, losses, decision latency,
+   skipped and failed requests, cost (now recorded per LLM answer). Needs a headless experiment
+   runner with a safety cut-off per match; the match log format (`src/ui/MatchLog.ts`) can be
+   reused.
