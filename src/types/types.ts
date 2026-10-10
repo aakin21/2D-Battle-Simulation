@@ -50,10 +50,10 @@ export interface IUnit {
 // 'ai' heroes get orders from the AI layers attached to the match (Jev and/or the LLM).
 export type HeroController = 'user' | 'rule' | 'ai';
 
-// Which AI layers command a side in battle mode. Every combination is offered so the
-// layers can be compared on their own and together. 'none': the user (west) or the rule
-// layer (east) commands the heroes.
-export type SideAI = 'none' | 'jev' | 'llm' | 'jev+llm';
+// Which AI layers command a side in battle mode: the LLM alone, or the LLM with Jev as its
+// tactical layer. Jev alone was dropped: it sees only each hero's surroundings, so it cannot
+// command a side by itself. 'none': the user (west) or the rule layer (east).
+export type SideAI = 'none' | 'llm' | 'jev+llm';
 
 // D4: 'realtime' keeps the battle running and applies AI answers when they arrive;
 // 'paused' freezes the battle until every pending AI answer has arrived.
@@ -63,15 +63,20 @@ export type AITiming = 'realtime' | 'paused';
 export type LlmModel = 'haiku' | 'sonnet' | 'opus';
 
 // Orders a hero can receive (D20). Every source (user, rule, Jev, LLM) uses the same set.
-export type HeroCommand =
+export type HeroCommand = (
   | { type: 'move'; target: Position } // AI gives a sector, the user an exact point
   | { type: 'hold'; at: Position }
-  | { type: 'retreat' }
+  | { type: 'retreat'; to?: Position } // fall back a short way from the enemies (set on issue)
   | { type: 'attack' }
   | { type: 'attackHero'; heroIndex: number }
-  | { type: 'regroup' } // walk to the nearest group of stray soldiers of the hero's side (D28)
+  | { type: 'regroup' } // collect stray soldiers of the hero's side, group after group (D28)
   | { type: 'attackBase' } // walk to the enemy base and attack it (base mode, D30)
-  | { type: 'continueLlm' }; // Jev only: keep following the LLM's latest command
+  | { type: 'continueLlm' } // Jev only: keep following the LLM's latest command
+) & {
+  // Why the order was given (the LLM writes one per order); Jev reads it to judge whether the
+  // order still fits. The engine ignores it.
+  reason?: string;
+};
 
 export type CommandSource = 'user' | 'rule' | 'jev' | 'llm';
 

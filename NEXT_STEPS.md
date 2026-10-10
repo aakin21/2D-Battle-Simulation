@@ -147,6 +147,10 @@ and the partial results of the stopped agents. Every case tried is in `../tests/
    - Proposals not applied: pin model versions (`jev-1.13.0`, full Claude ids), structured
      output for the LLM (`outputFormat: json_schema`), fewer CLI retries for real time, a fixed
      reasoning effort. Then log the research as R#.
+   - Done 2026-10-10 (D38–D41, `v2.9-ai-intent`): Jev alone dropped; retreat falls back ~12
+     tiles from the enemies; regroup described as group after group; every LLM order carries a
+     reason that Jev reads (and the panel, the hero card and the log show). Next to discuss:
+     Jev's map (one shared overview map with the heroes marked, plus the local maps?).
    - Changes made in the robustness passes that alter what the layers read (author to confirm):
      Jev's regroup text, Jev's local map, the rulebook sentence on Jev's actions, the LLM
      command and place spellings now accepted.
@@ -161,7 +165,7 @@ and the partial results of the stopped agents. Every case tried is in `../tests/
    `?ai=<tunnel address>&key=<password>`. Vercel with the Claude API comes later (D10).
 8. Later ideas: cross-match learning (D11, research first), threat-aware pathfinding (D27),
    LLM as tactical layer vs Jev (to be logged as a new Q#; Q17 is taken).
-9. **Experiments** (Q11, later, after items 4 and 5): conditions Rules / Jev / LLM / Jev + LLM,
+9. **Experiments** (Q11, later, after items 4 and 5): conditions Rules / LLM / LLM + Jev (D38),
    timing modes, models (D29), objectives; metrics: win rate, time, losses, decision latency,
    skipped and failed requests, cost (now recorded per LLM answer). Needs a headless experiment
    runner with a safety cut-off per match; the match log format (`src/ui/MatchLog.ts`) can be
