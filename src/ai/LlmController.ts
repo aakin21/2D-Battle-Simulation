@@ -42,6 +42,7 @@ import {
 import { AiExchange, finishExchange, startExchange } from './Exchange';
 
 const MAX_STRAY_CLUSTERS = 5;
+const MAX_REASON = 300; // characters of an order's reason that are kept
 
 // Layer 3 (D1, D10): the LLM plans the overall strategy every 20 s from a computed summary
 // of the whole map (D16, R5). It runs in the dev server through the Claude Agent SDK.
@@ -122,6 +123,7 @@ const DEFAULTS: LlmOptions = {
 };
 
 interface RawOrder {
+  reason?: unknown;
   hero?: unknown;
   command?: unknown;
   place?: unknown;
@@ -364,14 +366,19 @@ export class LlmController {
         d.rejected.push(`unknown or dead hero ${String(raw.hero)}`);
         continue;
       }
-      const command = this.toCommand(hero, raw);
-      if (typeof command === 'string') {
-        d.rejected.push(`hero ${hero.heroIndex}: ${command}`);
+      const parsed = this.toCommand(hero, raw);
+      if (typeof parsed === 'string') {
+        d.rejected.push(`hero ${hero.heroIndex}: ${parsed}`);
         continue;
       }
+      // The order's reason travels with it: Jev reads it, the panel and the log show it
+      const reason = typeof raw.reason === 'string' ? raw.reason.trim().slice(0, MAX_REASON) : '';
+      const command: HeroCommand = reason ? { ...parsed, reason } : parsed;
       // Always issued, even if unchanged: the LLM's latest order wins when it arrives (D15).
       this.engine.issueCommand(hero, command, 'llm');
-      d.orders.push(`hero ${hero.heroIndex}: ${this.describe(command)}`);
+      d.orders.push(
+        `hero ${hero.heroIndex}: ${this.describe(command)}${reason ? ` (${reason})` : ''}`
+      );
     }
   }
 
@@ -509,7 +516,7 @@ export class LlmController {
             hero_hp_percent: this.pct(h),
             hero_status: this.status(h),
             current_order: h.command
-              ? `${this.describe(h.command)} (from ${h.commandSource})`
+              ? `${this.describe(h.command)} (from ${h.commandSource}${h.command.reason ? `: ${h.command.reason}` : ''})`
               : 'none',
             soldiers_following: g?.followers ?? 0,
             soldiers_change_since_last_report:
@@ -716,7 +723,7 @@ export class LlmController {
       case 'hold':
         return `hold in ${positionToSubsector(c.at)}`;
       case 'retreat':
-        return 'retreat';
+        return 'retreat a short way from the enemies';
       case 'attack':
         return 'attack nearest enemy';
       case 'attackHero':

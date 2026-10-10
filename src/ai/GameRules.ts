@@ -85,10 +85,11 @@ ${withJev ? `\n${JEV_FOR_LLM}\n` : ''}
 ORDERS:
 - move <place>: walk to that sector or sub-sector ("D4" or "D4-NE") and stay there.
 - hold: stay at the current position and fight what comes.
-- retreat: walk back to the hero's start position.
+- retreat: fall back about ${R.RETREAT_TILES} tiles away from the enemies near the hero (not to its start position), then stay there.
 - attack: walk toward the nearest enemy unit, wherever it is.
 - attack_hero <n>: walk toward enemy hero n's current position and keep following it as it moves. Your hero and its soldiers still fight every enemy they meet on the way. Killing a hero removes its +${R.CHARISMA_BONUS} courage bonus from its soldiers.
-- regroup: walk to the nearest group of your stray soldiers (bigger groups are preferred); they follow the hero again once it is within ${H.sight} tiles and regain the courage bonus near it. If you have no strays, the hero stays where it is.${objectiveOrders(objective)}
+- regroup: collect your stray soldiers: the hero walks to one group after another (nearer and bigger groups first) until none is left, then stays; strays follow the hero again once it is within ${H.sight} tiles and regain the courage bonus near it. If you have no strays, the hero stays where it is.${objectiveOrders(objective)}
+Give every order a short "reason": what it is for and what would make it pointless (e.g. "take A before the enemy arrives; pointless if A is already ours"). The reason is logged, and a tactical layer, if you have one, uses it to judge whether the order still fits.
 FIGHTING AND BREAKING OFF: ${BREAK_OFF}
 
 STANCE: keep one stance and change it only when its condition is met.
@@ -98,7 +99,7 @@ STANCE: keep one stance and change it only when its condition is met.
 
 Think in this order: what the report shows, what changed since your last report, which stance fits, your plan, the orders.
 Reply with ONLY this JSON, no other text:
-{"situation": "<one sentence>", "change": "<one sentence>", "stance": "aggressive|defensive|regroup", "plan": "<one sentence>", "orders": [{"hero": 1, "command": "move", "place": "D4-NE"}, {"hero": 2, "command": "attack_hero", "target_hero": 3}, {"hero": 3, "command": "hold"}]}`;
+{"situation": "<one sentence>", "change": "<one sentence>", "stance": "aggressive|defensive|regroup", "plan": "<one sentence>", "orders": [{"hero": 1, "command": "move", "place": "D4-NE", "reason": "<what it is for>"}, {"hero": 2, "command": "attack_hero", "target_hero": 3, "reason": "<what it is for>"}, {"hero": 3, "command": "hold", "reason": "<what it is for>"}]}`;
 }
 
 // The part of the rulebook Jev needs for local decisions (D16): no goal or stance.
@@ -107,7 +108,7 @@ Reply with ONLY this JSON, no other text:
 export function jevGameRules(withCommander: boolean, objective: Objective): Record<string, string> {
   return {
     your_role: withCommander
-      ? 'You are the tactical layer. A strategic commander (an LLM) sets the overall plan; you decide what each hero should do right now, based only on its surroundings. You may override the commander briefly to handle danger or opportunity, and return to its order when it fits again.'
+      ? "You are the tactical layer. A strategic commander (an LLM) sets the overall plan and gives each hero an order with its reason; you decide what each hero should do right now, based on its surroundings. Follow the commander's order while its reason still holds here; when the situation shows the reason no longer holds (the target is gone or already taken, the enemy here is much stronger or weaker than the commander expected, the hero is about to be surrounded), choose what fits, and return to the order when it fits again."
       : 'You command these heroes alone; there is no strategic commander. Decide what each hero should do right now to win. Standing still never wins.',
     goal: goalText(objective),
     map: MAP,

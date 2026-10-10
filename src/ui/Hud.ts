@@ -32,7 +32,6 @@ interface Baseline {
 export function sideLabel(ai: SideAI | undefined, faction: Faction, model?: string): string {
   if (!ai || ai === 'none') return faction === Faction.FRIENDLY ? 'You' : 'Rules';
   const m = model ? ` ${model[0].toUpperCase()}${model.slice(1)}` : '';
-  if (ai === 'jev') return 'Jev';
   if (ai === 'llm') return `LLM${m}`;
   return `Jev + LLM${m}`;
 }
@@ -58,7 +57,7 @@ export function describeCommand(c: HeroCommand): string {
     case 'hold':
       return `hold in ${positionToSubsector(c.at)}`;
     case 'retreat':
-      return 'retreat';
+      return 'retreat a short way';
     case 'attack':
       return 'attack nearest enemy';
     case 'attackHero':
@@ -287,6 +286,8 @@ export class Hud {
 
   // --- Selected unit ---
 
+  private lastOrderHtml = '';
+
   showUnit(unit: IUnit | null): void {
     if (!unit) {
       this.elCard.hidden = true;
@@ -318,9 +319,25 @@ export class Hud {
     const hero = unit.unitType === UnitType.HERO ? (unit as IHero) : null;
     this.elOrderRow.hidden = !hero;
     if (hero) {
-      this.elOrder.textContent = hero.command
+      // The current order, and the LLM's latest order with its reason (Jev may have overridden
+      // it for the moment)
+      const now = hero.command
         ? `${describeCommand(hero.command)} · ${hero.commandSource ?? '?'}`
         : 'none';
+      const llm = hero.lastLlmCommand;
+      const llmLine =
+        llm && hero.commandSource !== 'llm'
+          ? `<br><span class="faint">LLM: ${escapeHtml(describeCommand(llm))}</span>`
+          : '';
+      const reason = llm?.reason
+        ? `<br><span class="faint">why: ${escapeHtml(llm.reason)}</span>`
+        : '';
+      const html = `${escapeHtml(now)}${llmLine}${reason}`;
+      // The browser rewrites innerHTML, so compare with what was last set
+      if (this.lastOrderHtml !== html) {
+        this.lastOrderHtml = html;
+        this.elOrder.innerHTML = html;
+      }
     }
   }
 
