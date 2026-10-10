@@ -286,8 +286,6 @@ export class Hud {
 
   // --- Selected unit ---
 
-  private lastOrderHtml = '';
-
   showUnit(unit: IUnit | null): void {
     if (!unit) {
       this.elCard.hidden = true;
@@ -319,25 +317,9 @@ export class Hud {
     const hero = unit.unitType === UnitType.HERO ? (unit as IHero) : null;
     this.elOrderRow.hidden = !hero;
     if (hero) {
-      // The current order, and the LLM's latest order with its reason (Jev may have overridden
-      // it for the moment)
-      const now = hero.command
+      this.elOrder.textContent = hero.command
         ? `${describeCommand(hero.command)} · ${hero.commandSource ?? '?'}`
         : 'none';
-      const llm = hero.lastLlmCommand;
-      const llmLine =
-        llm && hero.commandSource !== 'llm'
-          ? `<br><span class="faint">LLM: ${escapeHtml(describeCommand(llm))}</span>`
-          : '';
-      const reason = llm?.reason
-        ? `<br><span class="faint">why: ${escapeHtml(llm.reason)}</span>`
-        : '';
-      const html = `${escapeHtml(now)}${llmLine}${reason}`;
-      // The browser rewrites innerHTML, so compare with what was last set
-      if (this.lastOrderHtml !== html) {
-        this.lastOrderHtml = html;
-        this.elOrder.innerHTML = html;
-      }
     }
   }
 

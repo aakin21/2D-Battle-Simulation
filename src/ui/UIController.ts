@@ -915,7 +915,8 @@ export class UIController {
       this.aiPanel.update(
         this.aiSides,
         this.lastConfig,
-        this.stateManager.getBattlefield().elapsedTime
+        this.stateManager.getBattlefield().elapsedTime,
+        this.stateManager.getHeroes()
       );
       this.updatePauseButton();
       if (this.selectedUnitId) {
