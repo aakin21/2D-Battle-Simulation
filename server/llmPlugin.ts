@@ -75,12 +75,22 @@ class Session {
   private ended = false; // the SDK stream finished or failed: no answer will come any more
   private waiting: Array<{ resolve: (answer: Answer) => void; reject: (err: Error) => void }> = [];
   private costSoFar = 0;
+  private apiMsSoFar = 0;
+
+  // duration_api_ms is the session's running total; one answer's share is the difference
+  private apiDelta(total: number | null): number | null {
+    if (total === null || total < this.apiMsSoFar) return null;
+    const delta = total - this.apiMsSoFar;
+    this.apiMsSoFar = total;
+    return delta;
+  }
   private q: Query;
 
   constructor(
     readonly matchId: string,
     readonly model: Model,
-    systemPrompt: string
+    systemPrompt: string,
+    private readonly side = ''
   ) {
     this.q = query({
       prompt: this.input(),
@@ -112,6 +122,15 @@ class Session {
     let reason = new Error('the LLM session ended');
     try {
       for await (const message of this.q) {
+        // Diagnostics in the dev server's output: the model that actually runs (the menu gives an
+        // alias) and every retry the Claude CLI makes on its own, which otherwise only shows as
+        // a slow answer (it waits and retries up to 10 times on overload or rate limits)
+        if (message.type === 'system' && message.subtype === 'init')
+          console.warn(`[llm] ${this.side} session started: ${this.model} → ${message.model}`);
+        if (message.type === 'system' && message.subtype === 'api_retry')
+          console.warn(
+            `[llm] ${this.side} (${this.model}) retry ${message.attempt}/${message.max_retries} in ${Math.round(message.retry_delay_ms / 1000)} s: status ${message.error_status ?? 'none'}, ${String(message.error)}${message.no_response ? `, no response after ${Math.round(message.no_response.waited_ms / 1000)} s` : ''}`
+          );
         if (message.type !== 'result') continue;
         const pending = this.waiting.shift();
         const meta = this.meta(message);
@@ -155,7 +174,7 @@ class Session {
       outputTokens: num(usage.output_tokens),
       cacheReadTokens: num(usage.cache_read_input_tokens),
       cacheWriteTokens: num(usage.cache_creation_input_tokens),
-      apiMs: num(message.duration_api_ms),
+      apiMs: this.apiDelta(num(message.duration_api_ms)),
       turns: num(message.num_turns),
       modelIds: Object.keys(message.modelUsage ?? {}),
     };
@@ -279,7 +298,7 @@ export function llmPlugin(): Plugin {
             session.model !== model
           ) {
             session?.close();
-            session = new Session(matchId, model, system);
+            session = new Session(matchId, model, system, side);
             sessions.set(side, session);
           }
 
@@ -297,6 +316,9 @@ export function llmPlugin(): Plugin {
             }
             throw err;
           }
+          console.warn(
+            `[llm] ${side} (${model}): answered in ${((Date.now() - started) / 1000).toFixed(1)} s (API ${answer.meta.apiMs === null ? '?' : (answer.meta.apiMs / 1000).toFixed(1)} s)`
+          );
           send(res, 200, {
             text: answer.text,
             latencyMs: Date.now() - started,
