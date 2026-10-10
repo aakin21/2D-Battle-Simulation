@@ -115,19 +115,10 @@ and the partial results of the stopped agents. Every case tried is in `../tests/
 - 2026-10-06: `HANDOFF.md` removed; P4 logged and D18/D23 re-measured (R10).
 
 ## Open items, in order
-1. **Push the local work** once the token has the `workflow` scope (see Working agreements):
-   `main`, `phase2/symmetry`, `development`, `fix/deploy-version`,
-   `docs/next-steps-deploy-version`, `fix/robustness-2`, `docs/next-steps-robustness-2`,
-   `docs/p5-p6`, `fix/robustness-3`, `docs/next-steps-robustness-3`, `docs/p7`, `feature/ai-exchange-log`, `feature/ai-request-practices`,
-   `docs/next-steps-ai-practices`, `fix/robustness-5`, `docs/next-steps-robustness-5` and the
-   tags `v2.6.2-robustness-2`, `v2.6.3-robustness-3`, `v2.7-ai-request-log`,
-   `v2.8-ai-request-practices`, `v2.8.1-robustness-5`, plus `fix/robustness-6`,
-   `docs/next-steps-robustness-6`, `v2.8.2-robustness-6`, `fix/robustness-7`,
-   `docs/handoff-2026-10-10` and `v2.8.3-robustness-7` (simplest: push `main`, `development`,
-   `phase2/symmetry` and `--tags`) are ahead of `origin` locally (`git push origin <branches> --tags`). Then check that the deploy run passes and that the demo's
-   `assets/index-*.js` on `gh-pages` has a tag-based `version` without `-dirty`. Optional
-   follow-up: the run warns that Node 20 is deprecated (`checkout@v4`, `setup-node@v4`,
-   `actions-gh-pages@v3` are forced onto Node 24; the build itself uses Node 20).
+1. **Pushed on 2026-10-10** (the `aakin21` token now has the `workflow` scope): all branches
+   and tags are on GitHub; the deploy passed and the demo's version is
+   `v2.8.3-robustness-7-24-ga564a76` (no `-dirty`). Optional follow-up: the workflow's Node 20
+   actions (see `../tests/smoke/agents/tooling/FINDINGS.md`, T8).
 2. **AI request proposals to decide** (they change the experiment conditions, so not applied):
    - Pin model versions for the experiments: Jev `jev-1.13.0` instead of `jev-latest` (TypeSafe:
      an alias moves to each new release, and thresholds such as our `minConfidence` 0.4 should be
