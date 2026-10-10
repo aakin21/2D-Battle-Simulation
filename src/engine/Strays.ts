@@ -13,6 +13,7 @@ export interface StrayCluster {
   avgHpPercent: number;
   avgCourage: number;
   fleeing: number;
+  members: IUnit[]; // the stray soldiers of the cluster
 }
 
 export function isStray(sm: StateManager, unit: IUnit): boolean {
@@ -86,13 +87,16 @@ export function strayClusters(sm: StateManager, faction: Faction): StrayCluster[
       avgHpPercent: Math.round((100 * members.reduce((s, u) => s + u.hp / u.maxHp, 0)) / n),
       avgCourage: Math.round(members.reduce((s, u) => s + u.courage, 0) / n),
       fleeing: members.filter((u) => u.state === BehaviorState.FLEE).length,
+      members,
     });
   }
   return clusters.sort((a, b) => b.soldiers - a.soldiers);
 }
 
 // The stray cluster a hero should collect: the nearest one, preferring bigger groups
-// (distance divided by the square root of the group size).
+// (distance divided by the square root of the group size). The hero walks to the cluster's
+// nearest soldier (regroupPoint), not its centre: a cluster spread around the hero can have its
+// centre next to the hero while every soldier is out of its sight.
 export function regroupTarget(clusters: StrayCluster[], hero: IHero): StrayCluster | null {
   let best: StrayCluster | null = null;
   let bestScore = Infinity;
@@ -102,6 +106,24 @@ export function regroupTarget(clusters: StrayCluster[], hero: IHero): StrayClust
     if (score < bestScore) {
       bestScore = score;
       best = c;
+    }
+  }
+  return best;
+}
+
+// Where a hero collecting `cluster` walks: its living soldier nearest to the hero. Soldiers join
+// once the hero is within its sight, so the next nearest one becomes the target, and the hero
+// sweeps the cluster. Walking to the centre left heroes standing next to a spread-out cluster
+// for minutes (author's live test, 2026-10-10).
+export function regroupPoint(cluster: StrayCluster, hero: IHero): Position {
+  let best = cluster.center;
+  let bestD2 = Infinity;
+  for (const u of cluster.members) {
+    if (u.hp <= 0) continue;
+    const d2 = (u.position.x - hero.position.x) ** 2 + (u.position.y - hero.position.y) ** 2;
+    if (d2 < bestD2) {
+      bestD2 = d2;
+      best = u.position;
     }
   }
   return best;

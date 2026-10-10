@@ -9,7 +9,7 @@ import {
   GRID_SIZE,
 } from '../types/types';
 import { findNearestEnemyAnywhere, nearestReachableTile, tileOf } from './UnitHelpers';
-import { strayClusters, regroupTarget, StrayCluster } from './Strays';
+import { strayClusters, regroupTarget, regroupPoint, StrayCluster } from './Strays';
 import { enemyBase } from './Objectives';
 import { RETREAT_SCAN, RETREAT_SECONDS } from './Rules';
 
@@ -166,7 +166,7 @@ export class HeroCommands {
       }
       case 'regroup': {
         const cluster = regroupTarget(this.straysOf(hero.faction), hero);
-        return cluster ? tileOf(cluster.center) : null; // no strays: stay
+        return cluster ? tileOf(regroupPoint(cluster, hero)) : null; // no strays: stay
       }
       case 'attackBase': {
         const base = enemyBase(this.sm, hero.faction);
