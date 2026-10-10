@@ -1,4 +1,4 @@
-# Next steps (updated 2026-10-09)
+# Next steps (updated 2026-10-10)
 
 Phase 2 and the UI work are both in `main` (2026-10-04). Each change gets its own branch from
 `main`; `phase2/symmetry` (worktree `.claude/worktrees/phase2-symmetry/`) is kept equal to `main`.
@@ -33,7 +33,17 @@ Read `CLAUDE.md` (architecture, rules that must not be broken) and `THESIS_DOCUM
   acts on the active account, so the author switches to `aakin21`, runs
   `gh auth refresh -h github.com -s workflow`, and switches back.
 
-## Just done (2026-10-07 to 09)
+## Start here (2026-10-10)
+The robustness work stopped mid-pass. **Read `../tests/smoke/STATUS.md` first**: where we are,
+every test file, the releases made, the verified open fixes (two high-severity gaps in the
+tunnel access, D37: dot-segment paths skip the guard; `/.git/` is served through the tunnel)
+and the partial results of the stopped agents. Every case tried is in `../tests/smoke/CASES.md`.
+
+## Just done (2026-10-07 to 10)
+- Seventh robustness pass (`v2.8.3-robustness-7`, local): `/API/llm` in capitals and absolute
+  request targets skipped the access check (fixed); orders to a resting hero wait until it is
+  healed (design question); a side without heroes is slow per frame (measured, not changed).
+  Subagents reviewed server security and tooling; their findings are in `../tests/smoke/agents/`.
 - Sixth robustness pass (`v2.8.2-robustness-6`, local). Three fixes change what the AI layers
   read, so the author should know: Jev's regroup option now names the group the order really
   goes to (it named the nearest one, while the order picks by distance and size); Jev's local
@@ -112,7 +122,9 @@ Read `CLAUDE.md` (architecture, rules that must not be broken) and `THESIS_DOCUM
    `docs/next-steps-ai-practices`, `fix/robustness-5`, `docs/next-steps-robustness-5` and the
    tags `v2.6.2-robustness-2`, `v2.6.3-robustness-3`, `v2.7-ai-request-log`,
    `v2.8-ai-request-practices`, `v2.8.1-robustness-5`, plus `fix/robustness-6`,
-   `docs/next-steps-robustness-6` and `v2.8.2-robustness-6` are ahead of `origin` locally (`git push origin <branches> --tags`). Then check that the deploy run passes and that the demo's
+   `docs/next-steps-robustness-6`, `v2.8.2-robustness-6`, `fix/robustness-7`,
+   `docs/handoff-2026-10-10` and `v2.8.3-robustness-7` (simplest: push `main`, `development`,
+   `phase2/symmetry` and `--tags`) are ahead of `origin` locally (`git push origin <branches> --tags`). Then check that the deploy run passes and that the demo's
    `assets/index-*.js` on `gh-pages` has a tag-based `version` without `-dirty`. Optional
    follow-up: the run warns that Node 20 is deprecated (`checkout@v4`, `setup-node@v4`,
    `actions-gh-pages@v3` are forced onto Node 24; the build itself uses Node 20).
