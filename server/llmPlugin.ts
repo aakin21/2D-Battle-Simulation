@@ -304,6 +304,10 @@ export function llmPlugin(): Plugin {
             ...answer.meta,
           });
         } catch (err) {
+          // Also logged in the dev server's terminal, so a failure can be read where it happened
+          console.warn(
+            `[llm] ${side} (${String(requested ?? DEFAULT_MODEL)}): ${err instanceof Error ? err.message : String(err)}`
+          );
           // retryable tells the browser to try again at its next report instead of stopping
           send(res, 500, {
             error: err instanceof Error ? err.message : String(err),
