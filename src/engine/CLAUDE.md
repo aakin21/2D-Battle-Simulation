@@ -23,7 +23,7 @@ The simulation itself. `SimulationEngine` owns the loop; the other files are par
 - `issueCommand` ignores a move or hold whose point is not a finite number.
 - A retreat order falls back from the enemies within `RETREAT_SCAN` (20) tiles as far as the hero walks in `RETREAT_SECONDS` (4, one Jev interval: about 8 tiles), worked out once when given (D39); a regroup order collects stray groups one after another, since its target is re-evaluated as groups join (D40).
 - Unit states: `IDLE → ATTACK → FLEE → REST`. Soldiers flee on low courage; heroes "flee" only through the reflex (D18), which a user, Jev or LLM order can end.
-- In battle mode berserkers are soldiers (`isSoldier`) and follow the nearest hero of their side within its sight (`findLeader`).
+- In battle mode berserkers are soldiers (`isSoldier`) and follow the nearest hero of their side within its sight (`findLeader`). A soldier with no such hero stays where it is, also when its side has no heroes left (D35, D42).
 - Rule numbers live in `Rules.ts`. The AI rulebook (`src/ai/GameRules.ts`) is built from them, so change a rule there and the prompts follow. Other tuning constants are named at the top of the file that uses them.
 - Pure helpers take the `StateManager` as their first argument instead of reaching into the engine.
 - Classic-mode code paths (waves, berserker chase/patrol) must not change behavior; battle-only logic is guarded by `battleMode`.
