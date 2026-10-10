@@ -16,6 +16,8 @@ const perSecond = (damage: number) => Math.round((10 * damage) / R.ATTACK_INTERV
 // layer uses these values
 export const JEV_INTERVAL_SEC = 4;
 export const JEV_STEP_TILES = 10;
+// How far a retreat order goes: what a battle-mode hero walks in R.RETREAT_SECONDS (D39)
+export const RETREAT_ABOUT_TILES = Math.round(R.RETREAT_SECONDS * W.speed);
 
 // Battle-mode heroes move at their soldiers' speed (D18).
 const UNITS = `Both sides are identical. Soldier: ${W.hp} HP, ${perSecond(W.damage)} damage per second, moves ${W.speed} tiles/s, sees ${W.sight} tiles. Hero: ${H.hp} HP, ${perSecond(H.damage)} damage per second, moves ${W.speed} tiles/s (same as its soldiers), sees ${H.sight} tiles. Units fight any enemy within ${R.COMBAT_RANGE} tiles automatically; damage is the same from every direction.`;
@@ -85,7 +87,7 @@ ${withJev ? `\n${JEV_FOR_LLM}\n` : ''}
 ORDERS:
 - move <place>: walk to that sector or sub-sector ("D4" or "D4-NE") and stay there.
 - hold: stay at the current position and fight what comes.
-- retreat: fall back about ${R.RETREAT_TILES} tiles away from the enemies near the hero (not to its start position), then stay there.
+- retreat: fall back from the enemies near the hero as far as it walks in ${R.RETREAT_SECONDS} seconds (about ${RETREAT_ABOUT_TILES} tiles; not to its start position), then stay there. Enemies that follow catch up and the fight goes on there; give retreat again to fall back further.
 - attack: walk toward the nearest enemy unit, wherever it is.
 - attack_hero <n>: walk toward enemy hero n's current position and keep following it as it moves. Your hero and its soldiers still fight every enemy they meet on the way. Killing a hero removes its +${R.CHARISMA_BONUS} courage bonus from its soldiers.
 - regroup: collect your stray soldiers: the hero walks to one group after another (nearer and bigger groups first) until none is left, then stays; strays follow the hero again once it is within ${H.sight} tiles and regain the courage bonus near it. If you have no strays, the hero stays where it is.${objectiveOrders(objective)}

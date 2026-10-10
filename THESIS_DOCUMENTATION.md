@@ -144,9 +144,9 @@ D1–D4 are the professor's proposals from the 2026-09-30 meeting; D5 onwards ca
 | D36 | 2026-10-03 | Battle mode: soldiers spawn at random tiles in their side's area (within 20 columns of the heroes' column, full map height) instead of around the heroes | Collecting soldiers becomes part of the game for the heroes and the AI (D35). See record below | Accepted (2026-10-03) |
 | D37 | 2026-10-04 | For now, the online demo reaches both AI layers through a tunnel (ngrok or Cloudflare Tunnel) to the author's computer running `npm run dev`: Jev through the local proxy, the LLM through the Agent SDK on the author's subscription. Claude API on Vercel stays the plan for final experiments | No API key or extra hosting needed yet; the static demo (GitHub Pages) cannot run server code. See record below | Accepted (2026-10-04) |
 | D38 | 2026-10-10 | Battle sides are commanded by the user/rules, the LLM alone, or the LLM with Jev as its tactical layer; Jev alone is no longer offered | Jev sees only each hero's surroundings (D16), so it cannot plan for a side by itself; the experiment conditions become Rules / LLM / LLM + Jev | Accepted (2026-10-10) |
-| D39 | 2026-10-10 | A retreat order falls back about 12 tiles away from the enemies near the hero (`RETREAT_TILES`, scan 20 tiles), worked out when the order is given, instead of walking to the start position | The start position is often more than 100 tiles away, so a retreat took the hero out of the battle for a long time when a short step back was enough. Rule heroes do not use retreat, so rule-only battles are unchanged | Accepted (2026-10-10) |
+| D39 | 2026-10-10 | A retreat order falls back away from the enemies near the hero (scan 20 tiles) as far as the hero walks in one Jev interval (`RETREAT_SECONDS` = 4 s, about 8 tiles), worked out when the order is given, instead of walking to the start position. First accepted as 12 tiles; amended the same day | The start position is often more than 100 tiles away, so a retreat took the hero out of the battle for a long time when a short step back was enough. 12 tiles took about 6 s: the enemies followed and the fight resumed before Jev's next decision (author's observation), so the retreat now ends within one decision interval; the rulebook tells the LLM to give retreat again to fall back further. Rule heroes do not use retreat, so rule-only battles are unchanged | Accepted (2026-10-10), amended (2026-10-10) |
 | D40 | 2026-10-10 | The regroup order is described to both layers as collecting stray groups one after another until none is left | It already did so (the target is re-evaluated as groups join, checked: 15 → 10 → 5 → 0 strays with one order); the texts said "the nearest group" | Accepted (2026-10-10) |
-| D41 | 2026-10-10 | Every LLM order carries a short reason (what it is for, what would make it pointless). The reason travels with the order to Jev (state, "continue the commander's order" option, "does the order still fit" question), whose role is now to follow an order while its reason holds and to choose otherwise when it does not; it is logged with the decision and shown in the AI panel and on the hero card | Jev saw only the order, not its purpose, so it could break a plan (e.g. stop to fight on a run to the base). Extends D15 | Accepted (2026-10-10) |
+| D41 | 2026-10-10 | Every LLM order carries a short reason (what it is for, what would make it pointless). The reason travels with the order to Jev (state, "continue the commander's order" option, "does the order still fit" question), whose role is now to follow an order while its reason holds and to choose otherwise when it does not; it is logged with the decision and shown per hero in the side AI panel with the hero's current order and its source (first on the hero card, moved the same day: too narrow) | Jev saw only the order, not its purpose, so it could break a plan (e.g. stop to fight on a run to the base). Extends D15 | Accepted (2026-10-10) |
 
 ### Decision records
 
@@ -895,6 +895,40 @@ Only this scenario was run at first: the full test was stopped at the author's r
 - ⚠️ Small samples (20 and 8 matches). Seeding makes the bug/fix comparison paired, but other seeds give other numbers.
 
 **Conclusion:** the D18 decision is confirmed with corrected numbers, and the D23 test result is corrected. No decision changes. The first LLM vs LLM match (D3) also ran with the bug and needs a live re-run (author).
+
+### R11: How to give Jev the map (2026-10-10)
+
+**Question:** Should Jev get one shared map of the whole battlefield with the heroes marked, instead of one local map per hero (D16)? Which does Jev understand better, and which costs more tokens?
+
+**Setup:** TypeSafe's documentation on state design and jev-1.13's known weaknesses; papers on how language models read spatial layouts; sizes measured on a real Jev request of our code (3 heroes, fixed map, battle mode), counted in characters.
+
+| Part of one Jev request | Characters |
+|---|---|
+| Whole request | ~18,700 |
+| Option texts (all heroes) | ~10,800 |
+| Game rules (`game_rules`) | ~3,800 |
+| State per hero | ~900 |
+| Local map per hero (15×15 cells of 2×2 tiles) | ~225 + legend |
+| A shared 30×30 overview map (estimate) | ~1,000 |
+
+**Findings:**
+- ✅ TypeSafe (vendor guidance): accuracy falls as the state grows with content unrelated to the decision; counting and computing should be done in code and given as named values; questions should be narrow. The docs give no guidance on grids or maps: Jev reads text.
+- ⚠️ TypeSafe (vendor, jev-1.13 known weaknesses): the model leans toward the option listed first. Our first option is "continue the commander's order" (or "hold" without a commander), so part of Jev's choices may be this bias, not a judgement.
+- ✅ Papers: language models read ASCII grids poorly; coordinate-based and relational descriptions ("enemy group 9 tiles north-east, 14 soldiers") work clearly better (2502.16690, GROKE 2601.07375, Text2Space 2604.14641, GRASP 2407.01892).
+- ✅ Token cost is driven by the option texts and the rules, not the maps: the three local maps are under 4% of a request, and a shared map would be about 5%.
+- ⚠️ A shared map would add mostly content unrelated to each hero's decision (the other heroes' surroundings), against D16 and the vendor guidance.
+
+**Conclusion:** no full shared map. Keep the local maps small and add code-computed relational facts per hero (nearby enemy and allied groups with distance, direction and force; base defenders), optionally a very coarse overview. Measure the local map's value with and without it in the live tests (Jev's `input_tokens` is recorded), and consider changing the option order between requests to cancel the first-option bias. Nothing changed yet.
+
+**Sources:**
+- [TypeSafe: State](https://docs.typesafe.ai/concepts/state.md)
+- [TypeSafe: How to build with System One](https://docs.typesafe.ai/concepts/how-to-build-with-system-one.md)
+- [TypeSafe: jev-1.13 jaggedness](https://docs.typesafe.ai/model-jaggedness/jev-1.13.md)
+- [TypeSafe: Patterns](https://docs.typesafe.ai/patterns.md)
+- [arXiv 2502.16690](https://arxiv.org/abs/2502.16690)
+- [arXiv 2601.07375 (GROKE)](https://arxiv.org/pdf/2601.07375)
+- [arXiv 2604.14641 (Text2Space)](https://arxiv.org/abs/2604.14641)
+- [arXiv 2407.01892 (GRASP)](https://arxiv.org/pdf/2407.01892)
 
 ---
 

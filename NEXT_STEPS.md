@@ -151,6 +151,11 @@ and the partial results of the stopped agents. Every case tried is in `../tests/
      tiles from the enemies; regroup described as group after group; every LLM order carries a
      reason that Jev reads (and the panel, the hero card and the log show). Next to discuss:
      Jev's map (one shared overview map with the heroes marked, plus the local maps?).
+   - Done 2026-10-10 (`feature/ai-intent-2`): retreat now goes what the hero walks in 4 s (one Jev
+     interval, ~8 tiles) instead of 12 tiles; each AI hero's order and the LLM's reason shown in the
+     side AI panel (the hero card is one line again); D39 amended. Jev's map research: R11. Keep local maps small, add
+     code-computed relational facts (groups with distance, direction, force), not a full map; A/B in
+     the live tests with Jev's `input_tokens`; consider rotating the option order (first-option bias).
    - Changes made in the robustness passes that alter what the layers read (author to confirm):
      Jev's regroup text, Jev's local map, the rulebook sentence on Jev's actions, the LLM
      command and place spellings now accepted.

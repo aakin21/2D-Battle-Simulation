@@ -227,12 +227,6 @@
   text-overflow: ellipsis;
 }
 
-/* The order line wraps: it carries the LLM's order and its reason */
-#unit-order-row {
-  white-space: normal;
-  overflow: visible;
-}
-
 /* ---------- Side panel ---------- */
 
 #side-panel {
@@ -321,6 +315,22 @@
 
 .ai-fail {
   color: var(--hp-crit);
+}
+
+/* Per-hero orders and the LLM's reasons (D41) */
+.ai-orders-block {
+  margin-top: 6px;
+  padding-top: 4px;
+  border-top: 2px solid var(--well);
+}
+
+.ai-order {
+  margin-top: 3px;
+}
+
+.ai-why {
+  color: var(--text-dim);
+  padding-left: 8px;
 }
 
 .ai-warn {
