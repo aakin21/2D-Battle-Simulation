@@ -13,7 +13,7 @@ AI layers that command the heroes of one side. Each implements `AIController` (`
 ## Conventions
 
 - A side is commanded by the LLM alone or by the LLM with Jev as its tactical layer (D38); Jev alone is not offered.
-- Every LLM order carries a reason (D41), kept on the command (`HeroCommand.reason`): Jev gets it as `commander_reason`, in its "continue" option and in its "does the order still fit" question, and follows an order while its reason holds. The reason is logged with the decision and shown in the AI panel and on the hero card.
+- Every LLM order carries a reason (D41), kept on the command (`HeroCommand.reason`): Jev gets it as `commander_reason`, in its "continue" option and in its "does the order still fit" question, and follows an order while its reason holds. The reason is logged with the decision and shown per hero in the AI panel (with the hero's current order and its source).
 - Only command heroes with `controller === 'ai'` of the controller's own faction.
 - Apply decisions only through `engine.issueCommand(hero, command, 'jev' | 'llm')`.
 - Jev may only return options we define; the LLM's free-form reply must be validated (hero exists, sector valid, target alive). Invalid orders are logged and skipped, never guessed.

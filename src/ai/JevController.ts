@@ -10,8 +10,7 @@ import {
   TerrainType,
   GRID_SIZE,
 } from '../types/types';
-import { RETREAT_TILES } from '../engine/Rules';
-import { jevGameRules, JEV_INTERVAL_SEC, JEV_STEP_TILES } from './GameRules';
+import { jevGameRules, JEV_INTERVAL_SEC, JEV_STEP_TILES, RETREAT_ABOUT_TILES } from './GameRules';
 import {
   compass,
   COMPASS,
@@ -376,7 +375,7 @@ export class JevController {
       },
       {
         key: 'retreat',
-        what: `Fall back about ${RETREAT_TILES} tiles away from the enemies near the hero (not to the start position) and stay there, to save the hero and its soldiers.`,
+        what: `Fall back about ${RETREAT_ABOUT_TILES} tiles from the enemies near the hero (what it walks before the next decision; not to the start position) and stay there, to save the hero and its soldiers.`,
         notFor: 'When winning the local fight or when the enemy is weak.',
         command: { type: 'retreat' },
       },

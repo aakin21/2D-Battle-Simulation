@@ -28,8 +28,10 @@ export const HERO_RETREAT_HP_RATIO = 0.5;
 export const HERO_OUTNUMBERED_MIN_ENEMIES = 5;
 export const HERO_OUTNUMBERED_RATIO = 2;
 
-// Retreat order: fall back this far from the enemies within RETREAT_SCAN tiles of the hero
-export const RETREAT_TILES = 12;
+// Retreat order: fall back from the enemies within RETREAT_SCAN tiles of the hero as far as the
+// hero walks in RETREAT_SECONDS (one Jev decision interval, about 8 tiles): a longer retreat is
+// followed by the enemies and ends in a fight before the next decision arrives
+export const RETREAT_SECONDS = 4;
 export const RETREAT_SCAN = 20;
 
 // Breaking off a fight (D27): a hero that breaks off ignores enemies until none is this close

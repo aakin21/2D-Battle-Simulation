@@ -1,8 +1,9 @@
 import type { JevController } from '../ai/JevController';
 import type { LlmController } from '../ai/LlmController';
-import { SimConfig } from '../types/types';
+import { Faction, IHero, SimConfig } from '../types/types';
 import type { AiSides } from './MatchLog';
 import { AiRequestLog } from './AiRequestLog';
+import { describeCommand } from './Hud';
 
 // Side-panel section showing what the AI layers decided, so a live test can be followed
 // without the browser console: the LLM's stance, plan and orders, and Jev's latest choice
@@ -45,13 +46,13 @@ export class AiPanel {
   private last = '';
   private requestLog = new AiRequestLog();
 
-  update(sides: AiSides, config: SimConfig, simTime: number): void {
+  update(sides: AiSides, config: SimConfig, simTime: number, heroes: IHero[] = []): void {
     const active = (['west', 'east'] as const).filter((s) => sides[s].jev || sides[s].llm);
     this.elSection.hidden = active.length === 0;
     this.requestLog.update(sides);
     if (active.length === 0) return;
     const html = active
-      .map((s) => this.sideHtml(s, sides[s].llm, sides[s].jev, config, simTime))
+      .map((s) => this.sideHtml(s, sides[s].llm, sides[s].jev, config, simTime, heroes))
       .join('');
     if (html === this.last) return;
     this.last = html;
@@ -63,7 +64,8 @@ export class AiPanel {
     llm: LlmController | undefined,
     jev: JevController | undefined,
     config: SimConfig,
-    now: number
+    now: number,
+    heroes: IHero[]
   ): string {
     const model = side === 'west' ? config.friendlyModel : config.enemyModel;
     const name = model ? ` ${model[0].toUpperCase()}${model.slice(1)}` : '';
@@ -71,7 +73,30 @@ export class AiPanel {
     let html = `<div class="ai-side"><div class="army-head"><span class="${side}-text">${SIDE_NAME[side]}</span><span class="army-who">${who}</span></div>`;
     if (llm) html += this.llmHtml(llm, now);
     if (jev) html += this.jevHtml(jev, now);
+    html += this.ordersHtml(side === 'west' ? Faction.FRIENDLY : Faction.ENEMY, heroes);
     return html + '</div>';
+  }
+
+  // Per hero: what it does now and who ordered it, and the LLM's latest order with its reason
+  // (D41), so a plan can be followed during the battle even when Jev has overridden it
+  private ordersHtml(faction: Faction, heroes: IHero[]): string {
+    const mine = heroes
+      .filter((h) => h.faction === faction && h.controller === 'ai' && h.hp > 0)
+      .sort((a, b) => a.heroIndex - b.heroIndex);
+    if (mine.length === 0) return '';
+    const rows = mine.map((h) => {
+      const now = h.command
+        ? `${describeCommand(h.command)} <span class="faint">· ${h.commandSource ?? '?'}</span>`
+        : '<span class="faint">no order</span>';
+      const llm = h.lastLlmCommand;
+      const llmLine =
+        llm && h.commandSource !== 'llm'
+          ? `<div class="faint">LLM: ${escapeHtml(describeCommand(llm))}</div>`
+          : '';
+      const why = llm?.reason ? `<div class="ai-why">why: ${escapeHtml(llm.reason)}</div>` : '';
+      return `<div class="ai-order"><span class="ai-name">Hero ${h.heroIndex}</span> ${now}${llmLine}${why}</div>`;
+    });
+    return `<div class="ai-orders-block">${rows.join('')}</div>`;
   }
 
   private llmHtml(llm: LlmController, now: number): string {

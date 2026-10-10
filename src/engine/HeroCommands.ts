@@ -11,7 +11,7 @@ import {
 import { findNearestEnemyAnywhere, nearestReachableTile, tileOf } from './UnitHelpers';
 import { strayClusters, regroupTarget, StrayCluster } from './Strays';
 import { enemyBase } from './Objectives';
-import { RETREAT_SCAN, RETREAT_TILES } from './Rules';
+import { RETREAT_SCAN, RETREAT_SECONDS } from './Rules';
 
 const STRAY_CACHE_SEC = 0.5; // stray clusters are recomputed at most this often
 
@@ -91,8 +91,9 @@ export class HeroCommands {
       (command?.type === 'retreat' || hero.state === BehaviorState.ATTACK);
   }
 
-  // Where a retreat order goes: RETREAT_TILES away from the enemies near the hero (from the
-  // nearest enemy anywhere when none is near); the hero's own tile when there is no enemy.
+  // Where a retreat order goes: as far as the hero walks in RETREAT_SECONDS, away from the
+  // enemies near the hero (from the nearest enemy anywhere when none is near); the hero's own
+  // tile when there is no enemy.
   // It used to be the start position, often more than 100 tiles away.
   private retreatPoint(hero: IHero): Position {
     let ex = 0;
@@ -114,9 +115,10 @@ export class HeroCommands {
     const dx = hero.position.x - ex / n;
     const dy = hero.position.y - ey / n;
     const len = Math.hypot(dx, dy) || 1;
+    const step = hero.baseSpeed * RETREAT_SECONDS;
     const to = {
-      x: Math.max(1, Math.min(GRID_SIZE - 2, hero.position.x + (dx / len) * RETREAT_TILES)),
-      y: Math.max(1, Math.min(GRID_SIZE - 2, hero.position.y + (dy / len) * RETREAT_TILES)),
+      x: Math.max(1, Math.min(GRID_SIZE - 2, hero.position.x + (dx / len) * step)),
+      y: Math.max(1, Math.min(GRID_SIZE - 2, hero.position.y + (dy / len) * step)),
     };
     return nearestReachableTile(this.sm, to);
   }
