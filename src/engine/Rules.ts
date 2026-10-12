@@ -22,6 +22,9 @@ export const CHARISMA_BONUS = 20; // courage, not damage
 // Rest
 export const REST_TRIGGER_HP = 50; // below this HP, with no enemy in sight, a unit rests
 export const REST_HEAL_PER_SEC = 10;
+// Battle-mode heroes (D45): below this HP a hero rests whenever it stands still with no enemy in
+// sight (half of its 200 HP; at 50 HP a hero at 40% never healed and stayed in its reflex)
+export const HERO_REST_TRIGGER_HP = 100;
 
 // Hero survival reflex (D18)
 export const HERO_RETREAT_HP_RATIO = 0.5;
@@ -29,9 +32,10 @@ export const HERO_OUTNUMBERED_MIN_ENEMIES = 5;
 export const HERO_OUTNUMBERED_RATIO = 2;
 
 // Retreat order: fall back from the enemies within RETREAT_SCAN tiles of the hero as far as the
-// hero walks in RETREAT_SECONDS (one Jev decision interval, about 8 tiles): a longer retreat is
-// followed by the enemies and ends in a fight before the next decision arrives
-export const RETREAT_SECONDS = 4;
+// hero walks in RETREAT_SECONDS (about 10 tiles): until Jev's next decision is in effect, one
+// interval (4 s) plus its answer time (about 1 s). A longer retreat is followed by the enemies
+// and ends in a fight before the next decision arrives
+export const RETREAT_SECONDS = 5;
 export const RETREAT_SCAN = 20;
 
 // Breaking off a fight (D27): a hero that breaks off ignores enemies until none is this close

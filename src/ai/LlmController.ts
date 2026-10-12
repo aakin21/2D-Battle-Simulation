@@ -134,6 +134,11 @@ interface RawOrder {
 export class LlmController {
   private opts: LlmOptions;
   private nextAt = 0;
+
+  // Simulation time of the next report (for the AI panel)
+  get nextDecisionAt(): number {
+    return this.nextAt;
+  }
   private pending = false;
   private failed = false;
   // Not from Math.random: the simulation draws from it, and creating a controller must not
