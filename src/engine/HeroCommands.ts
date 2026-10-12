@@ -176,7 +176,10 @@ export class HeroCommands {
     );
   }
 
-  // null means "no destination": the hero stays where it is.
+  // null means "no destination": the hero stays where it is. Units can stand on a tile A* treats
+  // as blocked (next to a mountain, after cutting a path's corner); a target on one would leave
+  // the hero without a path, so targets that follow units are snapped to the nearest reachable
+  // tile, like move orders.
   private target(hero: IHero, command: HeroCommand | null): Position | null {
     if (!command) return null;
     switch (command.type) {
@@ -188,18 +191,18 @@ export class HeroCommands {
         return command.to ?? hero.home;
       case 'attack': {
         const enemy = findNearestEnemyAnywhere(this.sm, hero);
-        return enemy ? tileOf(enemy.position) : null;
+        return enemy ? nearestReachableTile(this.sm, enemy.position) : null;
       }
       case 'attackHero': {
         const target = this.sm
           .getHeroes()
           .find((h) => h.faction !== hero.faction && h.heroIndex === command.heroIndex && h.hp > 0);
         const enemy = target ?? findNearestEnemyAnywhere(this.sm, hero); // target dead: nearest enemy
-        return enemy ? tileOf(enemy.position) : null;
+        return enemy ? nearestReachableTile(this.sm, enemy.position) : null;
       }
       case 'regroup': {
         const cluster = regroupTarget(this.straysOf(hero.faction), hero);
-        return cluster ? tileOf(regroupPoint(cluster, hero)) : null; // no strays: stay
+        return cluster ? nearestReachableTile(this.sm, regroupPoint(cluster, hero)) : null; // no strays: stay
       }
       case 'attackBase': {
         const base = enemyBase(this.sm, hero.faction);

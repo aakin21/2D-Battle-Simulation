@@ -456,6 +456,9 @@ export class SimulationEngine {
       // D27: a hero breaking off a fight walks on without engaging until it is clear of
       // enemies, then behaves normally again (so it does not march into the next group).
       const hero = unit as IHero;
+      // Breaking off means walking on without fighting; a hero that has reached its point has
+      // nowhere to walk on to, so it fights there (a retreat: "the fight goes on there")
+      if (hero.disengaging && !this.onTheWay(hero)) hero.disengaging = false;
       if (hero.disengaging) {
         if (this.enemyWithin(hero, DISENGAGE_CLEAR_RADIUS)) {
           hero.state = BehaviorState.IDLE;
