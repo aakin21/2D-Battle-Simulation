@@ -4,8 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>2D Battle Simulation</title>
-  <script type="module" crossorigin src="./assets/index-BnfOkgP6.js"></script>
-  <link rel="stylesheet" crossorigin href="./assets/index-CasdobpU.css">
+  <script type="module" crossorigin src="./assets/index-CLDOjH6u.js"></script>
+  <link rel="stylesheet" crossorigin href="./assets/index-D9vwBSFJ.css">
 </head>
 <body>
 
@@ -55,25 +55,32 @@
       </div>
 
       <aside id="side-panel">
-        <section class="side-section panel">
+        <section class="side-section panel sp-map">
           <h3>Map</h3>
           <canvas id="minimapCanvas" width="300" height="300"></canvas>
         </section>
-        <section class="side-section panel">
+        <section class="side-section panel sp-armies">
           <h3><span id="armies-title">Armies</span><button id="btn-log" class="btn btn-small" hidden title="Download the match log: settings, timeline and every AI decision">Log</button></h3>
           <div id="armies-body"></div>
         </section>
-        <section id="ai-section" class="side-section panel" hidden>
-          <h3>AI</h3>
-          <div id="ai-body"></div>
-          <details id="ai-log" class="ai-log" open>
-            <summary>Requests and answers <span id="ai-log-count" class="faint">0</span></summary>
-            <div id="ai-log-list" class="ai-log-list"></div>
-          </details>
-        </section>
-        <section class="side-section panel">
+        <section class="side-section panel sp-area">
           <h3>Area</h3>
           <div id="stat-content" class="faint">Drag on the map to count the units in an area</div>
+        </section>
+        <!-- What each side's AI layers decided, West and East side by side below -->
+        <section id="ai-col-west" class="side-section panel ai-col" hidden>
+          <div class="ai-col-main"></div>
+          <details class="ai-log">
+            <summary>Requests and answers <span class="ai-log-count faint">0</span></summary>
+            <div class="ai-log-list"></div>
+          </details>
+        </section>
+        <section id="ai-col-east" class="side-section panel ai-col" hidden>
+          <div class="ai-col-main"></div>
+          <details class="ai-log">
+            <summary>Requests and answers <span class="ai-log-count faint">0</span></summary>
+            <div class="ai-log-list"></div>
+          </details>
         </section>
       </aside>
     </main>
