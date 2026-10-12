@@ -15,6 +15,15 @@ import { query, type Query, type SDKUserMessage } from '@anthropic-ai/claude-age
 // Model chosen per side in the menu (D29). Only these aliases are accepted.
 const MODELS = ['haiku', 'sonnet', 'opus'] as const;
 type Model = (typeof MODELS)[number];
+
+// Each alias runs a pinned model of one generation (D44). The CLI's own aliases are not used:
+// its "haiku" ran Haiku 4.5, an older generation than Sonnet and Opus 5.5, and much slower here
+// (35–70 s per answer against 4–12 s for Opus), and an alias can change without notice.
+export const MODEL_IDS: Record<Model, string> = {
+  haiku: 'claude-haiku-5-5',
+  sonnet: 'claude-sonnet-5-5',
+  opus: 'claude-opus-5-5',
+};
 const DEFAULT_MODEL: Model = (MODELS as readonly string[]).includes(process.env.LLM_MODEL ?? '')
   ? (process.env.LLM_MODEL as Model)
   : 'sonnet';
@@ -95,7 +104,7 @@ class Session {
     this.q = query({
       prompt: this.input(),
       options: {
-        model,
+        model: MODEL_IDS[model],
         systemPrompt,
         tools: [],
         settingSources: [],
@@ -126,7 +135,9 @@ class Session {
         // alias) and every retry the Claude CLI makes on its own, which otherwise only shows as
         // a slow answer (it waits and retries up to 10 times on overload or rate limits)
         if (message.type === 'system' && message.subtype === 'init')
-          console.warn(`[llm] ${this.side} session started: ${this.model} → ${message.model}`);
+          console.warn(
+            `[llm] ${this.side} session started: ${this.model} (${MODEL_IDS[this.model]}) → ${message.model}`
+          );
         if (message.type === 'system' && message.subtype === 'api_retry')
           console.warn(
             `[llm] ${this.side} (${this.model}) retry ${message.attempt}/${message.max_retries} in ${Math.round(message.retry_delay_ms / 1000)} s: status ${message.error_status ?? 'none'}, ${String(message.error)}${message.no_response ? `, no response after ${Math.round(message.no_response.waited_ms / 1000)} s` : ''}`
