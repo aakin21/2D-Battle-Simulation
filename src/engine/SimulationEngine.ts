@@ -17,6 +17,7 @@ import {
   ALLY_SHARE_VERY_LOW_PENALTY,
   REST_TRIGGER_HP,
   REST_HEAL_PER_SEC,
+  HERO_REST_TRIGGER_HP,
   DISENGAGE_CLEAR_RADIUS,
 } from './Rules';
 import { GroupPatrol } from './GroupPatrol';
@@ -255,6 +256,28 @@ export class SimulationEngine {
     this.updateWaveSpawner(this.stateManager.getBattlefield());
   }
 
+  // Rest (D45): in battle mode a hero rests below HERO_REST_TRIGGER_HP whenever it stands still
+  // with no enemy in sight; other units, and heroes in classic mode, below REST_TRIGGER_HP.
+  private restBelow(unit: IUnit): number {
+    return this.battleMode && unit.unitType === UnitType.HERO
+      ? HERO_REST_TRIGGER_HP
+      : REST_TRIGGER_HP;
+  }
+
+  // A battle-mode hero with somewhere to go: a task point more than a tile and a half away
+  private onTheWay(unit: IUnit): boolean {
+    if (!this.battleMode || unit.unitType !== UnitType.HERO) return false;
+    const p = (unit as IHero).taskPoint;
+    if (!p) return false;
+    return Math.hypot(unit.position.x - (p.x + 0.5), unit.position.y - (p.y + 0.5)) > 1.5;
+  }
+
+  // A resting hero of the user, Jev or the LLM stops as soon as an order sends it somewhere, so
+  // orders never wait for a rest (D45). Rule heroes keep resting until healed after a flight (D18).
+  private calledAway(unit: IUnit): boolean {
+    return (unit as IHero).controller !== 'rule' && this.onTheWay(unit);
+  }
+
   // Soldiers follow heroes and use courage. In battle mode berserkers are soldiers too.
   private isSoldier(unit: IUnit): boolean {
     return (
@@ -403,7 +426,7 @@ export class SimulationEngine {
     }
 
     if (unit.state === BehaviorState.REST) {
-      if (enemy || unit.hp >= unit.maxHp) {
+      if (enemy || unit.hp >= unit.maxHp || this.calledAway(unit)) {
         unit.state = BehaviorState.IDLE;
         unit.target = null;
       }
@@ -419,8 +442,9 @@ export class SimulationEngine {
 
     if (
       (this.isSoldier(unit) || unit.unitType === UnitType.HERO) &&
-      unit.hp < REST_TRIGGER_HP &&
-      !enemy
+      unit.hp < this.restBelow(unit) &&
+      !enemy &&
+      !this.onTheWay(unit)
     ) {
       unit.state = BehaviorState.REST;
       unit.target = null;

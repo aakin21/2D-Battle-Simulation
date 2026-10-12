@@ -47,25 +47,47 @@ export class HeroCommands {
     if (command?.type === 'move') {
       command = { ...command, target: nearestReachableTile(this.sm, command.target) };
     }
-    if (command && hero.command && sameCommand(hero.command, command)) {
-      // The hero already does this (e.g. Jev chose the same move a moment before): nothing
-      // changes, but a commander's order is still remembered so Jev can follow it (D15), and
-      // a restated order keeps its age but takes the commander's latest reason
+    // Orders are compared by what they make the hero do: Jev's "follow the LLM" runs the LLM's
+    // latest order, so the LLM restating that order, or Jev following the order the hero already
+    // runs, is a repeat like any other
+    const running = this.running(hero, hero.command);
+    const next = this.running(hero, command);
+    // A retreat repeated once the hero has reached its point falls back further, from the enemies
+    // near it now (D39); repeated on the way, while the survival reflex is moving the hero away,
+    // or where it cannot fall back any further (no enemy, the map edge), it changes nothing like
+    // any repeated order
+    let further: Position | null = null;
+    if (
+      command?.type === 'retreat' &&
+      running?.type === 'retreat' &&
+      hero.state !== BehaviorState.FLEE &&
+      this.atRetreatPoint(hero, running)
+    ) {
+      const to = this.retreatPoint(hero);
+      if (!running.to || to.x !== running.to.x || to.y !== running.to.y) further = to;
+    }
+    if (command && next && running && sameCommand(running, next) && !further) {
+      // The hero already does this (e.g. Jev chose the same move a moment before, or the LLM
+      // restates the order Jev follows): nothing changes, but a commander's order is still
+      // remembered so Jev can follow it (D15), and a restated order keeps its age but takes the
+      // commander's latest reason
       if (source === 'llm') {
         if (hero.lastLlmCommand && sameCommand(hero.lastLlmCommand, command)) {
           hero.lastLlmCommand = { ...hero.lastLlmCommand, reason: command.reason };
         } else {
-          hero.lastLlmCommand = command;
+          // The LLM orders what the hero already does on Jev's order: it takes over that order
+          // with its point (a retreat's), so following it later sends the hero to the same place
+          hero.lastLlmCommand = { ...running, reason: command.reason };
           hero.lastLlmTime = this.sm.getBattlefield().elapsedTime;
         }
-        if (hero.commandSource === 'llm')
+        if (hero.command && hero.commandSource === 'llm')
           hero.command = { ...hero.command, reason: command.reason };
       }
       return;
     }
     // Retreat falls back a short way from the enemies, worked out once when it is given
     if (command?.type === 'retreat' && !command.to) {
-      command = { ...command, to: this.retreatPoint(hero) };
+      command = { ...command, to: further ?? this.retreatPoint(hero) };
     }
     if (!command && !hero.command) return;
 
@@ -89,6 +111,18 @@ export class HeroCommands {
       breakOffAllowed &&
       movement &&
       (command?.type === 'retreat' || hero.state === BehaviorState.ATTACK);
+  }
+
+  // The order a command runs: Jev's "follow the LLM" runs the LLM's latest order
+  private running(hero: IHero, command: HeroCommand | null): HeroCommand | null {
+    return command?.type === 'continueLlm' ? hero.lastLlmCommand : command;
+  }
+
+  // The hero stands at (or next to) the point of the retreat order it runs
+  private atRetreatPoint(hero: IHero, retreat: HeroCommand): boolean {
+    const to = retreat.type === 'retreat' ? retreat.to : undefined;
+    if (!to) return false;
+    return Math.hypot(hero.position.x - (to.x + 0.5), hero.position.y - (to.y + 0.5)) <= 1.5;
   }
 
   // Where a retreat order goes: as far as the hero walks in RETREAT_SECONDS, away from the
@@ -127,14 +161,13 @@ export class HeroCommands {
   applyAll(): void {
     for (const hero of this.sm.getHeroes()) {
       if (hero.hp <= 0) continue;
-      const command = hero.command?.type === 'continueLlm' ? hero.lastLlmCommand : hero.command;
-      hero.taskPoint = this.target(hero, command);
+      hero.taskPoint = this.target(hero, this.running(hero, hero.command));
     }
   }
 
   // Orders that send the hero somewhere: move, retreat, or resuming an LLM move/retreat.
   private isMovement(hero: IHero, command: HeroCommand): boolean {
-    const c = command.type === 'continueLlm' ? hero.lastLlmCommand : command;
+    const c = this.running(hero, command);
     return (
       c?.type === 'move' ||
       c?.type === 'retreat' ||
