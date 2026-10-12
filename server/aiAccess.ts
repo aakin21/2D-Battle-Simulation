@@ -58,10 +58,14 @@ export function aiAccessPlugin(env: Record<string, string>): Plugin {
 }
 
 // The path as Vite's middleware routes see it: they match ignoring case ("/API/llm" reaches the
-// LLM endpoint) and read the path out of an absolute request target ("POST http://host/api/llm"),
-// so both must count here, or they would skip the password. Anything unreadable is checked.
+// LLM endpoint), read the path out of an absolute request target ("POST http://host/api/llm") and
+// match the raw path, before dot segments are resolved ("/api/llm/../../x" and
+// "/api/llm/%2e%2e/x" still reach the LLM endpoint). So a request counts as an API request if
+// its raw or its resolved path has an /api/ segment; anything unreadable is checked too.
 function isApiPath(url: string | undefined): boolean {
   if (!url) return false;
+  const raw = url.toLowerCase();
+  if (/\/api(\/|\\|%2f|%5c|$)/.test(raw)) return true;
   try {
     return new URL(url, 'http://localhost').pathname.toLowerCase().startsWith('/api/');
   } catch {
