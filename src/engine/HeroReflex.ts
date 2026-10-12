@@ -7,8 +7,9 @@ import {
   HERO_OUTNUMBERED_RATIO as OUTNUMBERED_RATIO,
 } from './Rules';
 
-// D18 hero survival reflex (battle mode). A hero that is badly hurt or heavily outnumbered
-// with enemies in sight moves away from them until none is in sight. A different order from
+// D18 hero survival reflex (battle mode). A hero that is hurt and outnumbered, or heavily
+// outnumbered, with enemies in sight moves away from them until none is in sight. Hurt alone is
+// not enough (D45): a hurt hero with 6 allies around it no longer ran from 1 enemy. A different order from
 // the user, Jev or the LLM ends the flight; the reflex then stays off until the hero's sight
 // is clear once (see HeroCommands.issue).
 
@@ -38,7 +39,8 @@ export function updateHeroReflex(sm: StateManager, hero: IHero): boolean {
   }
 
   const outnumbered = enemies >= OUTNUMBERED_MIN_ENEMIES && enemies >= OUTNUMBERED_RATIO * allies;
-  if (enemies > 0 && (hero.hp / hero.maxHp < RETREAT_HP_RATIO || outnumbered)) {
+  const hurtAndOutnumbered = hero.hp / hero.maxHp < RETREAT_HP_RATIO && enemies > allies;
+  if (enemies > 0 && (hurtAndOutnumbered || outnumbered)) {
     hero.state = BehaviorState.FLEE;
     hero.target = null;
     hero.path = [];

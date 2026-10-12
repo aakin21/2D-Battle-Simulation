@@ -93,6 +93,11 @@ interface Option {
 export class JevController {
   private opts: JevOptions;
   private nextAt = 0;
+
+  // Simulation time of the next decision (for the AI panel)
+  get nextDecisionAt(): number {
+    return this.nextAt;
+  }
   private pending = false;
   private failed = false;
   readonly decisions: JevDecision[] = [];
@@ -375,7 +380,7 @@ export class JevController {
       },
       {
         key: 'retreat',
-        what: `Fall back about ${RETREAT_ABOUT_TILES} tiles from the enemies near the hero (what it walks before the next decision; not to the start position) and stay there, to save the hero and its soldiers.`,
+        what: `Fall back about ${RETREAT_ABOUT_TILES} tiles from the enemies near the hero (what it walks before the next decision; not to the start position) and stay there, to save the hero and its soldiers. Chosen again once the hero has arrived, it falls back further.`,
         notFor: 'When winning the local fight or when the enemy is weak.',
         command: { type: 'retreat' },
       },

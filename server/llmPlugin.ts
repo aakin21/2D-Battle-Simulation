@@ -15,6 +15,15 @@ import { query, type Query, type SDKUserMessage } from '@anthropic-ai/claude-age
 // Model chosen per side in the menu (D29). Only these aliases are accepted.
 const MODELS = ['haiku', 'sonnet', 'opus'] as const;
 type Model = (typeof MODELS)[number];
+
+// Each alias runs a pinned model of one generation (D44). The CLI's own aliases are not used:
+// its "haiku" ran Haiku 4.5, an older generation than Sonnet and Opus 5.5, and much slower here
+// (35–70 s per answer against 4–12 s for Opus), and an alias can change without notice.
+export const MODEL_IDS: Record<Model, string> = {
+  haiku: 'claude-haiku-5-5',
+  sonnet: 'claude-sonnet-5-5',
+  opus: 'claude-opus-5-5',
+};
 const DEFAULT_MODEL: Model = (MODELS as readonly string[]).includes(process.env.LLM_MODEL ?? '')
   ? (process.env.LLM_MODEL as Model)
   : 'sonnet';
@@ -75,17 +84,27 @@ class Session {
   private ended = false; // the SDK stream finished or failed: no answer will come any more
   private waiting: Array<{ resolve: (answer: Answer) => void; reject: (err: Error) => void }> = [];
   private costSoFar = 0;
+  private apiMsSoFar = 0;
+
+  // duration_api_ms is the session's running total; one answer's share is the difference
+  private apiDelta(total: number | null): number | null {
+    if (total === null || total < this.apiMsSoFar) return null;
+    const delta = total - this.apiMsSoFar;
+    this.apiMsSoFar = total;
+    return delta;
+  }
   private q: Query;
 
   constructor(
     readonly matchId: string,
     readonly model: Model,
-    systemPrompt: string
+    systemPrompt: string,
+    private readonly side = ''
   ) {
     this.q = query({
       prompt: this.input(),
       options: {
-        model,
+        model: MODEL_IDS[model],
         systemPrompt,
         tools: [],
         settingSources: [],
@@ -112,6 +131,17 @@ class Session {
     let reason = new Error('the LLM session ended');
     try {
       for await (const message of this.q) {
+        // Diagnostics in the dev server's output: the model that actually runs (the menu gives an
+        // alias) and every retry the Claude CLI makes on its own, which otherwise only shows as
+        // a slow answer (it waits and retries up to 10 times on overload or rate limits)
+        if (message.type === 'system' && message.subtype === 'init')
+          console.warn(
+            `[llm] ${this.side} session started: ${this.model} (${MODEL_IDS[this.model]}) → ${message.model}`
+          );
+        if (message.type === 'system' && message.subtype === 'api_retry')
+          console.warn(
+            `[llm] ${this.side} (${this.model}) retry ${message.attempt}/${message.max_retries} in ${Math.round(message.retry_delay_ms / 1000)} s: status ${message.error_status ?? 'none'}, ${String(message.error)}${message.no_response ? `, no response after ${Math.round(message.no_response.waited_ms / 1000)} s` : ''}`
+          );
         if (message.type !== 'result') continue;
         const pending = this.waiting.shift();
         const meta = this.meta(message);
@@ -155,7 +185,7 @@ class Session {
       outputTokens: num(usage.output_tokens),
       cacheReadTokens: num(usage.cache_read_input_tokens),
       cacheWriteTokens: num(usage.cache_creation_input_tokens),
-      apiMs: num(message.duration_api_ms),
+      apiMs: this.apiDelta(num(message.duration_api_ms)),
       turns: num(message.num_turns),
       modelIds: Object.keys(message.modelUsage ?? {}),
     };
@@ -279,7 +309,7 @@ export function llmPlugin(): Plugin {
             session.model !== model
           ) {
             session?.close();
-            session = new Session(matchId, model, system);
+            session = new Session(matchId, model, system, side);
             sessions.set(side, session);
           }
 
@@ -297,6 +327,9 @@ export function llmPlugin(): Plugin {
             }
             throw err;
           }
+          console.warn(
+            `[llm] ${side} (${model}): answered in ${((Date.now() - started) / 1000).toFixed(1)} s (API ${answer.meta.apiMs === null ? '?' : (answer.meta.apiMs / 1000).toFixed(1)} s)`
+          );
           send(res, 200, {
             text: answer.text,
             latencyMs: Date.now() - started,
@@ -304,6 +337,10 @@ export function llmPlugin(): Plugin {
             ...answer.meta,
           });
         } catch (err) {
+          // Also logged in the dev server's terminal, so a failure can be read where it happened
+          console.warn(
+            `[llm] ${side} (${String(requested ?? DEFAULT_MODEL)}): ${err instanceof Error ? err.message : String(err)}`
+          );
           // retryable tells the browser to try again at its next report instead of stopping
           send(res, 500, {
             error: err instanceof Error ? err.message : String(err),

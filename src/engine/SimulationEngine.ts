@@ -17,19 +17,14 @@ import {
   ALLY_SHARE_VERY_LOW_PENALTY,
   REST_TRIGGER_HP,
   REST_HEAL_PER_SEC,
+  HERO_REST_TRIGGER_HP,
   DISENGAGE_CLEAR_RADIUS,
 } from './Rules';
 import { GroupPatrol } from './GroupPatrol';
 import { updateRuleHeroes } from './RuleHeroes';
 import { updateControl, damageBases, objectiveEnd, EndReason } from './Objectives';
 import { updateHeroReflex, moveHeroRetreat } from './HeroReflex';
-import {
-  effectiveSight,
-  findNearestEnemy,
-  findNearestEnemyAnywhere,
-  stepToward,
-  terrainSpeed,
-} from './UnitHelpers';
+import { effectiveSight, findNearestEnemy, stepToward, terrainSpeed } from './UnitHelpers';
 import {
   IUnit,
   IHero,
@@ -261,6 +256,28 @@ export class SimulationEngine {
     this.updateWaveSpawner(this.stateManager.getBattlefield());
   }
 
+  // Rest (D45): in battle mode a hero rests below HERO_REST_TRIGGER_HP whenever it stands still
+  // with no enemy in sight; other units, and heroes in classic mode, below REST_TRIGGER_HP.
+  private restBelow(unit: IUnit): number {
+    return this.battleMode && unit.unitType === UnitType.HERO
+      ? HERO_REST_TRIGGER_HP
+      : REST_TRIGGER_HP;
+  }
+
+  // A battle-mode hero with somewhere to go: a task point more than a tile and a half away
+  private onTheWay(unit: IUnit): boolean {
+    if (!this.battleMode || unit.unitType !== UnitType.HERO) return false;
+    const p = (unit as IHero).taskPoint;
+    if (!p) return false;
+    return Math.hypot(unit.position.x - (p.x + 0.5), unit.position.y - (p.y + 0.5)) > 1.5;
+  }
+
+  // A resting hero of the user, Jev or the LLM stops as soon as an order sends it somewhere, so
+  // orders never wait for a rest (D45). Rule heroes keep resting until healed after a flight (D18).
+  private calledAway(unit: IUnit): boolean {
+    return (unit as IHero).controller !== 'rule' && this.onTheWay(unit);
+  }
+
   // Soldiers follow heroes and use courage. In battle mode berserkers are soldiers too.
   private isSoldier(unit: IUnit): boolean {
     return (
@@ -409,7 +426,7 @@ export class SimulationEngine {
     }
 
     if (unit.state === BehaviorState.REST) {
-      if (enemy || unit.hp >= unit.maxHp) {
+      if (enemy || unit.hp >= unit.maxHp || this.calledAway(unit)) {
         unit.state = BehaviorState.IDLE;
         unit.target = null;
       }
@@ -425,8 +442,9 @@ export class SimulationEngine {
 
     if (
       (this.isSoldier(unit) || unit.unitType === UnitType.HERO) &&
-      unit.hp < REST_TRIGGER_HP &&
-      !enemy
+      unit.hp < this.restBelow(unit) &&
+      !enemy &&
+      !this.onTheWay(unit)
     ) {
       unit.state = BehaviorState.REST;
       unit.target = null;
@@ -769,23 +787,11 @@ export class SimulationEngine {
     if (unit.unitType === UnitType.HERO) {
       return (unit as IHero).taskPoint ?? null;
     }
-    if (this.isSoldier(unit)) {
-      if (leader) return leader.taskPoint ?? null;
-      if (this.battleMode) return this.strayDestination(unit);
-    }
+    // A soldier with no hero of its side within sight is a stray: it stays where it is (and
+    // fights what comes close) until a hero comes to collect it (regroup order, D35). It also
+    // stays when its side has no heroes left; the time limit ends the match (D33, D42).
+    if (this.isSoldier(unit) && leader) return leader.taskPoint ?? null;
     return null;
-  }
-
-  // A soldier with no hero of its side within sight is a stray: it stays where it is (and
-  // fights what comes close) until a hero comes to collect it (regroup order). Only when its
-  // side has no heroes left does it attack the nearest enemy, so a battle can still end (D28).
-  private strayDestination(unit: IUnit): Position | null {
-    const heroLeft = this.stateManager
-      .getHeroes()
-      .some((h) => h.faction === unit.faction && h.hp > 0);
-    if (heroLeft) return null;
-    const enemy = findNearestEnemyAnywhere(this.stateManager, unit);
-    return enemy ? enemy.position : null;
   }
 
   private computeSpeed(unit: IUnit, grid: TerrainType[][]): number {

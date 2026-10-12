@@ -11,7 +11,6 @@ import { escapeHtml } from './AiPanel';
 // only built when it is opened, so a long match does not slow the page.
 
 const MAX_SHOWN = 80; // older entries stay in the match log
-const SIDE_NAME = { west: 'West', east: 'East' } as const;
 
 type Side = 'west' | 'east';
 type Source =
@@ -80,9 +79,19 @@ function lazyBlock(title: string, text: () => string): HTMLDetailsElement {
 }
 
 export class AiRequestLog {
-  private elList = document.getElementById('ai-log-list')!;
-  private elCount = document.getElementById('ai-log-count')!;
+  private elList: HTMLElement;
+  private elCount: HTMLElement;
   private sides: AiSides | null = null;
+
+  // One log per side, in that side's column
+  constructor(
+    private side: Side,
+    column: HTMLElement
+  ) {
+    this.elList = column.querySelector('.ai-log-list')!;
+    this.elCount = column.querySelector('.ai-log-count')!;
+  }
+
   private shown = new Map<number, Shown>(); // by exchange seq
 
   update(sides: AiSides): void {
@@ -112,11 +121,10 @@ export class AiRequestLog {
 
   private sources(sides: AiSides): Source[] {
     const out: Source[] = [];
-    for (const side of ['west', 'east'] as const) {
-      const { jev, llm } = sides[side];
-      if (jev) out.push({ side, layer: 'jev', controller: jev });
-      if (llm) out.push({ side, layer: 'llm', controller: llm });
-    }
+    const side = this.side;
+    const { jev, llm } = sides[side];
+    if (jev) out.push({ side, layer: 'jev', controller: jev });
+    if (llm) out.push({ side, layer: 'llm', controller: llm });
     return out;
   }
 
@@ -161,8 +169,7 @@ export class AiRequestLog {
         : `<span class="faint">${(x.latencyMs / 1000).toFixed(1)} s${tries}</span>`;
     const head =
       `<span class="faint">${clock(x.time)}</span> ` +
-      `<span class="${source.side}-text">${SIDE_NAME[source.side]}</span> ` +
-      `${source.layer === 'jev' ? 'Jev' : 'LLM'} ${timing}`;
+      `<span class="ai-x-layer ai-x-${source.layer}">${source.layer === 'jev' ? 'Jev' : 'LLM'}</span> ${timing}`;
     let what = '';
     if (x.error) what = `<span class="ai-fail">${escapeHtml(x.error)}</span>`;
     else if (x.latencyMs !== null)

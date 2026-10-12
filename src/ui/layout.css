@@ -259,13 +259,99 @@
   text-shadow: none;
 }
 
-/* AI panel */
-.ai-side {
-  margin-bottom: 10px;
+/* AI panels in the side panel, below Map, Armies and Area. With two AI sides the side panel
+   gets two columns: Map and Armies side by side, Area across, then West and East side by side. */
+#side-panel.ai-two {
+  width: 662px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  align-content: start;
 }
 
-.ai-side:last-child {
-  margin-bottom: 0;
+#side-panel.ai-two .sp-area {
+  grid-column: 1 / -1;
+}
+
+.ai-col[hidden] {
+  display: none;
+}
+
+.ai-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 4px;
+}
+
+.ai-side-name {
+  font-size: 18px;
+  text-shadow: 2px 2px 0 var(--ink);
+}
+
+/* "LLM answered 4 s ago in 3.2 s · next in 16 s" */
+.ai-status {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  column-gap: 6px;
+  color: var(--text-dim);
+}
+
+.ai-status .ai-k {
+  color: var(--wood-light);
+}
+
+.ai-strategy {
+  margin: 6px 0;
+  padding-top: 4px;
+  border-top: 2px solid var(--well);
+}
+
+.ai-situation {
+  color: var(--text-dim);
+  margin-top: 2px;
+}
+
+/* One block per hero, a labelled line for each layer */
+.ai-hero {
+  margin-top: 6px;
+  padding: 4px 6px;
+  background: var(--well);
+  border: 2px solid var(--ink);
+}
+
+.ai-hero.override {
+  border-color: #8fd18a;
+}
+
+.ai-hero.dead {
+  opacity: 0.5;
+}
+
+.ai-hero-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 2px;
+}
+
+.ai-hero-name {
+  color: var(--wood-light);
+}
+
+.ai-kv {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr);
+  column-gap: 6px;
+  margin-top: 1px;
+  overflow-wrap: anywhere;
+}
+
+.ai-k {
+  color: var(--text-faint);
+}
+
+.ai-override {
+  color: #8fd18a;
 }
 
 .ai-layer {
@@ -302,10 +388,6 @@
 
 .ai-plan {
   margin: 2px 0;
-  display: -webkit-box;
-  -webkit-line-clamp: 4;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
 }
 
 .ai-orders,
@@ -317,20 +399,27 @@
   color: var(--hp-crit);
 }
 
-/* Per-hero orders and the LLM's reasons (D41) */
-.ai-orders-block {
-  margin-top: 6px;
-  padding-top: 4px;
-  border-top: 2px solid var(--well);
+.ai-src {
+  padding: 0 3px 1px;
+  border: 2px solid var(--ink);
+  color: var(--ink);
 }
 
-.ai-order {
-  margin-top: 3px;
+.ai-src-llm {
+  background: #e7c46a;
+}
+
+.ai-src-jev {
+  background: #8fd18a;
+}
+
+.ai-src-rule,
+.ai-src-user {
+  background: #b9b2a3;
 }
 
 .ai-why {
   color: var(--text-dim);
-  padding-left: 8px;
 }
 
 .ai-warn {
@@ -359,9 +448,20 @@
 }
 
 .ai-log-list {
-  max-height: 300px;
-  overflow-y: auto;
   margin-top: 4px;
+}
+
+.ai-x-layer {
+  padding: 0 3px;
+  color: var(--ink);
+}
+
+.ai-x-llm {
+  background: #e7c46a;
+}
+
+.ai-x-jev {
+  background: #8fd18a;
 }
 
 .ai-x {
@@ -836,6 +936,14 @@
   display: flex;
   justify-content: center;
   gap: 8px;
+}
+
+@media (max-width: 1300px) {
+  /* Narrow screens: one column, West above East, so the map keeps its room */
+  #side-panel.ai-two {
+    width: 300px;
+    display: flex;
+  }
 }
 
 @media (max-width: 1100px) {
