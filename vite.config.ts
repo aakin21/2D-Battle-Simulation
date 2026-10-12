@@ -28,6 +28,9 @@ export default defineConfig(({ mode }) => {
       // D37: the online demo reaches /api/* through a tunnel; these are the tunnel host names.
       // Requests through them need the AI password (server/aiAccess.ts).
       allowedHosts: ['.trycloudflare.com', '.ngrok-free.app', '.ngrok.app', '.ngrok.io'],
+      // Vite 5's default deny list plus the repository's .git (Vite 6 adds it; setting the
+      // option replaces the default, so the default entries are repeated here)
+      fs: { deny: ['.env', '.env.*', '*.{crt,pem}', '**/.git/**'] },
       proxy: {
         '/api/jev': {
           target: 'https://api.typesafe.ai',
