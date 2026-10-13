@@ -93,7 +93,8 @@ export interface IHero extends IUnit {
   lastLlmCommand: HeroCommand | null; // kept so Jev can see and resume the LLM's plan (D15)
   lastLlmTime: number; // simulation time of the LLM's latest command
   disengaging: boolean; // breaking off a fight: ignores enemies until clear of them (D27)
-  reflexOverridden: boolean; // an order ended the survival reflex; off until sight is clear (D18)
+  reflexOverridden: boolean; // an order ended the survival reflex; off for a while (D18, D47)
+  reflexOverriddenAt: number; // simulation time of that order
 }
 
 // D30: battle objectives. 'elimination': destroy every enemy unit. 'control': hold points
