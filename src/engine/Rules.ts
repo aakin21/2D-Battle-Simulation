@@ -30,6 +30,11 @@ export const HERO_REST_TRIGGER_HP = 100;
 export const HERO_RETREAT_HP_RATIO = 0.5;
 export const HERO_OUTNUMBERED_MIN_ENEMIES = 5;
 export const HERO_OUTNUMBERED_RATIO = 2;
+// D47: below this share of its HP a hero flees from any enemy in sight, and no order ends it
+export const HERO_CRITICAL_HP_RATIO = 0.25;
+// D47: an order that ends a flight keeps the reflex off this long at most (one Jev interval plus
+// its answer time), not until the sight is clear, which never happens in a fight
+export const HERO_REFLEX_OFF_SECONDS = 5;
 
 // Retreat order: fall back from the enemies within RETREAT_SCAN tiles of the hero as far as the
 // hero walks in RETREAT_SECONDS (about 10 tiles): until Jev's next decision is in effect, one

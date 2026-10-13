@@ -11,7 +11,7 @@ import {
 import { findNearestEnemyAnywhere, nearestReachableTile, tileOf } from './UnitHelpers';
 import { strayClusters, regroupTarget, regroupPoint, StrayCluster } from './Strays';
 import { enemyBase } from './Objectives';
-import { RETREAT_SCAN, RETREAT_SECONDS } from './Rules';
+import { HERO_CRITICAL_HP_RATIO, RETREAT_SCAN, RETREAT_SECONDS } from './Rules';
 
 const STRAY_CACHE_SEC = 0.5; // stray clusters are recomputed at most this often
 
@@ -91,11 +91,18 @@ export class HeroCommands {
     }
     if (!command && !hero.command) return;
 
-    // D18: a new order from the user, Jev or the LLM ends the survival reflex.
-    if (command && source !== 'rule' && hero.state === BehaviorState.FLEE) {
+    // D18: a new order from the user, Jev or the LLM ends the survival reflex, except below
+    // HERO_CRITICAL_HP_RATIO (D47); the order still runs once the flight is over.
+    if (
+      command &&
+      source !== 'rule' &&
+      hero.state === BehaviorState.FLEE &&
+      hero.hp / hero.maxHp >= HERO_CRITICAL_HP_RATIO
+    ) {
       hero.state = BehaviorState.IDLE;
       hero.path = [];
       hero.reflexOverridden = true;
+      hero.reflexOverriddenAt = this.sm.getBattlefield().elapsedTime;
     }
 
     hero.command = command;

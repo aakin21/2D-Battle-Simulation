@@ -222,6 +222,7 @@ export class StateManager {
       lastLlmTime: 0,
       disengaging: false,
       reflexOverridden: false,
+      reflexOverriddenAt: 0,
     };
   }
 
