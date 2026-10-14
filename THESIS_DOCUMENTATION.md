@@ -156,6 +156,8 @@ D1–D4 are the professor's proposals from the 2026-09-30 meeting; D5 onwards ca
 | D48 | 2026-10-13 | Heroes stay a few tiles behind their soldiers when enemies are near, so the soldiers go in front: carried out by the rule layer on every movement order, the AI layers only choose the order (open: on every order, or as an order of its own) | Soldiers leave their hero's way to fight (D46) while the hero walks on into the enemy. RTS bots and game squad AI leave unit control to scripts and planners, and LLMs controlling units directly are inconsistent and slow (R13). The author also proposed teaching the LLM this as a strategy (approach beside the target with the soldiers in front, anticipate the enemy hero's movement): written into the rulebook it would be strategy advice, which D43 rules out; it fits as a rule-layer behaviour, as lessons the LLM draws itself (D49), or as mechanics-level input (enemy heroes' heading and speed, R5) | Proposed |
 | D49 | 2026-10-13 | Cross-match memory for the LLM (builds D11): after each match the LLM gets a short summary of the match and rewrites its own lessons file, one per model (and per objective), at most ~10 items; the file is added to its next match's prompt, its version is written to the match log, and memory can be switched off, giving the experiment conditions "LLM with memory" and "LLM without memory" | Cheapest form of learning: no training, one extra LLM call per match; lessons come from the LLM, not from us, so D43 holds; same idea as Reflexion, Voyager's skill library and SEMA's cross-episode analysis (R13). Risks: lessons tied to one map or opponent (Q15), prompt growth. Needs the headless experiment runner (Q11) to measure | Proposed |
 | D50 | 2026-10-13 | LLM report interval 15 s instead of 20 s | Fresher strategic orders. Measured answer times in the author's logs of 2026-10-10 (real time): Sonnet mean 3.3–3.9 s, Opus 8.9–10.3 s (longest 22.8 s; 4 skipped requests in one match at 20 s); Haiku 5.5 not measured yet (author: about 12 s). Cost: about 33% more LLM requests, and more skipped requests when an answer takes over 15 s (Q7). Changes the interval of D1/D26 | Proposed |
+| D51 | 2026-10-14 | Race two decision models as the tactical layer: Jev (TypeSafe) and SubQ Snap (Subquadratic) become two experiment conditions, "LLM + Jev" and "LLM + Snap". First a shadow comparison: the Jev requests saved in match logs are sent unchanged to Snap and the two models' choices, agreement, probabilities and latency are compared (no effect on any match); then a menu choice of the tactical model. Both get the same option names and descriptions | Snap claims to beat Jev on its own benchmarks, while Jev leads an independent comparison of 23 decision models; only our own task can settle it, and comparing decision models in a real-time game is a thesis contribution (R14). Snap's API has Jev's request format (same `/v1/systemone` path, `state`, `questions`, `noul`/`choice`/`score`), so the work is small: options' what/not_for become one text, at most 16 questions per request. Not replacing Jev (no evidence for our task, it would change a condition mid-thesis); not asking both on every decision (latency of the slower one, unclear who decided) | Accepted (2026-10-14) |
+| D52 | 2026-10-14 | The thesis will also compare LLMs of different companies (e.g. Gemini, Claude, GPT) as the strategic layer, through OpenRouter: one key and one API for every model, and in that experiment every compared model, Claude included, goes through the same OpenRouter path. The main experiments stay on Claude through the Agent SDK and the author's subscription (D44); Jev and SubQ Snap keep their own accounts (D51) | One harness for all models keeps the comparison fair (prompts and harness change results strongly, R13); one key instead of an account per company. Cost: OpenRouter bills per token (author's logs at API prices: Sonnet about $0.75–0.80 and Opus $1.0–2.5 per side per match of 10–21 answers; a full 500 s match is about 25 answers), so the experiment needs a budget (models, number of matches) before it runs. The API is stateless, unlike the persistent Agent SDK session: the history must be resent or summarised (Q16). See R15 | Accepted (2026-10-14) |
 
 ### Decision records
 
@@ -986,6 +988,76 @@ Only this scenario was run at first: the full test was stopped at the author's r
 - [AI Diplomacy (Every, 2025)](https://every.to/p/to-improve-llms-coach-them-like-athletes-in-an-arena), [Diplomacy harness paper](https://arxiv.org/pdf/2508.07485)
 - [Game Reasoning Arena](https://arxiv.org/html/2508.03368v2)
 
+### R14: Decision models besides Jev: SubQ Snap and others (2026-10-14)
+
+**Question:** Is SubQ, announced in 2026, better than Jev for the tactical layer, should the two be combined, and which other decision models exist?
+
+**Findings:**
+- ⚠️ "SubQ" names two products of the startup Subquadratic: SubQ, a long-context LLM (12M tokens, May 2026, private beta, efficiency claims largely unverified, reportedly built on an open-source base model), and **SubQ Snap**, a decision model released on 2026-10-12 (Public Preview). Only Snap is comparable to Jev.
+- ⚠️ Vendor claims for Snap: 384K tokens of text and images per call (Jev: about 32K, text), about 1 s per decision up to 100K tokens, $0.05 per million input tokens with output free (Jev: reported $0.042); Decision Index 61.7 against Jev's 57.9 and 67.6 against 61.6 on 16 enterprise tasks, but behind Jev on When2Call (−7.6), API-Bank (−1.6) and ACOS (−0.6). First-party benchmarks; no calibration data.
+- ✅ Measured on our side (author's 4 Jev + LLM logs of 2026-10-10, 250 requests): Jev median 545 ms, 90th percentile 712 ms, longest 1,028 ms; our requests are about 6,400 input tokens, so Snap's long context brings nothing here.
+- ✅ Snap's API takes Jev's request format: `POST /v1/systemone` with `model`, `state`, `questions` of types `noul`, `choice`, `score`; choice criteria map option names to plain descriptions; 1–16 questions per request (checked in Subquadratic's API reference).
+- ✅ An independent comparison of 23 decision models over 137 benchmarks (S1MB, 2026-09-30, before Snap existed) ranks Jev 1.13 first (Borda score 86.5; second 76.2).
+- ✅ Other decision models: hosted Perplexity Decisions API, OpenAI decisions-api (limited preview since 2026-09-29), Cloudflare Clef, Upstage Solar Decide via OpenRouter; open-weight Jev-like models (Open-Jev, kev, bekko, Laya, JEV-27B-VL).
+- ⚠️ Decision models, Jev included, follow an option's name more than its definition: with yes/no-style names, swapping names and definitions flipped up to 70.4 percentage points more decisions (Sun et al., arXiv 2609.26758). Both models in a comparison must get the same names and descriptions, and names must not contradict descriptions; part of Jev's lean to "continue_llm" may come from the name.
+
+**Conclusion:** Snap is the only direct competitor worth testing; neither public evidence settles which is better for our task, so the two are raced as experiment conditions (D51), starting with a shadow comparison on logged requests.
+
+**Sources:**
+- [Subquadratic: Introducing SubQ Snap](https://subq.ai/introducing-subq-snap)
+- [SubQ Decisions API reference](https://docs.subq.ai/endpoints/decisions-api/)
+- [Business Wire announcement (Morningstar)](https://www.morningstar.com/news/business-wire/20261012083831/subquadratic-launches-subq-snap-the-first-long-context-decision-model-purpose-built-for-enterprise)
+- [DataCamp: SubQ explained](https://www.datacamp.com/blog/subq-ai-explained)
+- [VentureBeat: researchers demand independent proof](https://venturebeat.com/technology/miami-startup-subquadratic-claims-1-000x-ai-efficiency-gain-with-subq-model-researchers-demand-independent-proof)
+- [S1MB: System One decision models across 100+ benchmarks](https://huggingface.co/blog/hotchpotch/system-one-mosaic-benchmark)
+- [Sun et al.: Type-Safe Is Not Error-Free (arXiv 2609.26758)](https://arxiv.org/pdf/2609.26758)
+- [Perplexity Decisions API](https://docs.perplexity.ai/docs/decisions/quickstart)
+- [Digital Applied: decision models](https://www.digitalapplied.com/blog/decision-models-probabilities-not-text-api)
+
+### R15: OpenRouter as one access point for LLMs and decision models (2026-10-14)
+
+**Question:** Can OpenRouter replace separate accounts for the LLMs (and decision models) the thesis wants to compare, and at what cost?
+
+**Findings:**
+- ✅ OpenRouter gives one API key and one API for 400+ models (Claude, GPT, Gemini, open models). Model prices are passed through without markup; buying credits carries a fee (5.5% according to third-party guides; OpenRouter's support page only says "a small fee").
+- ✅ Jev is on OpenRouter (`typesafe/jev-1.13`, $0.042 per million input tokens, output free, 32K context) through `/api/v1/systemone` (TypeSafe's SDK works with a changed base URL) and `/api/alpha/decisions`. Other decision models there: Mercury Decide (Inception, with a free variant), GPT-6 Luna Decisions (OpenAI), Solar Decide (Upstage). SubQ Snap was not listed.
+- ⚠️ Added latency for Claude: about 0.1–0.2 s to the first token (measured by TrueFoundry, a competing gateway, on one model; vendor with an interest).
+- ✅ Privacy: prompts are not stored unless prompt logging is switched on; routing to providers that train on data can be switched off; zero data retention can be enforced per account or per request.
+- ✅ Our own cost data (author's logs of 2026-10-10, the SDK's cost estimate at API prices): Sonnet $0.74–0.80 per side per match (10–15 answers, $0.05–0.07 per answer), Opus $1.00–2.55 (12–21 answers, $0.08–0.12 per answer).
+
+**Conclusion:** OpenRouter suits the cross-company LLM comparison (D52) and could host a permanent demo without the tunnel; the main experiments stay on the free Claude subscription, and Jev and Snap keep their own accounts.
+
+**Sources:**
+- [OpenRouter: Jev documentation](https://openrouter.ai/docs/guides/community/jev)
+- [Jev 1.13 on OpenRouter](https://openrouter.ai/typesafe/jev-1.13)
+- [GPT-6 Luna Decisions on OpenRouter](https://openrouter.ai/openai/gpt-6-luna-decisions)
+- [Digital Applied: decision models](https://www.digitalapplied.com/blog/decision-models-probabilities-not-text-api)
+- [OpenRouter support (fees)](https://openrouter.ai/support)
+- [TrueFoundry: OpenRouter latency on Anthropic](https://www.truefoundry.com/blog/openrouter-latency-on-anthropic-why-bringing-your-own-key-is-faster)
+- [OpenRouter: Zero Data Retention](https://openrouter.ai/docs/features/zdr)
+- [OpenRouter: privacy and logging](https://openrouter.ai/docs/features/privacy-and-logging)
+
+### R16: Crowding and overkill in large battles (2026-10-10)
+
+**Question:** In large battle-mode fights, how many units pile onto one tile and one target, and how much damage is spent on units that are already dead?
+
+**Setup:** Headless probes `tests/smoke/out/probe-crowd.ts` and `out/probe-strays.ts` (outside the repository): battle mode, real start positions, 572 and 2,000 soldiers per side, heroes ordered to attack; counted per frame without drawing (`tests/smoke/CASES.md` 9.3–9.6).
+
+| Soldiers per side | Most units on one tile | Units sharing a tile | Most attackers on one target | Damage spent on units already killed that round | Engine step (avg / worst) |
+|---|---|---|---|---|---|
+| 572 | 118 | about 50% | 88 | 31% | 1.0 ms / 60 ms |
+| 2,000 | 363 | — | 353 | 56% | 6.4 ms / 141 ms |
+
+**Findings:**
+- ⚠️ Units have no spacing: whole groups stand on one tile, which looks unlike a battle and makes targeting pile up.
+- ⚠️ Every unit picks the nearest enemy, so many attackers hit the same target and up to 56% of the damage is wasted (overkill). Combat applies damage in one batch per frame, so the information to avoid this is already there.
+- ✅ Known remedies: target choice that skips units already dealt lethal damage that round (NOK-AV, Churchill, Saffidine, Buro 2012; see R12) and a soft limit of units per tile or a separation force (boids).
+
+**Conclusion:** Crowding and overkill are measurable mechanics problems of battle mode; both remedies change simulation results, so they wait for the author's decision and must stay out of classic mode (D19).
+
+**Sources:**
+- [Churchill, Saffidine, Buro: Fast Heuristic Search for RTS Game Combat Scenarios (AIIDE 2012)](https://ojs.aaai.org/index.php/AIIDE/article/view/12527)
+
 ---
 
 ## Problems log
@@ -1073,7 +1145,7 @@ Problems encountered during the project, how they were found, and how they were 
 | Q8 | Does the latency mode apply to both AI layers? | Answered by D4: yes, both Jev and the LLM |
 | Q9 | Agent vs Agent: same model on both sides, or different models? | Suggestion: both. A mirror match is the control experiment. |
 | Q10 | Does wave spawning stay in the symmetric setup? | If D12 is adopted: waves become symmetric reinforcements from each side's base |
-| Q11 | Which metrics will the thesis report? | Win rate, casualties, survival time, decision latency, skipped decisions, cost. Requires headless mode and export.. AI-vs-AI benchmarks use many seeded matches, side swaps, several maps and a baseline (R13) |
+| Q11 | Which metrics will the thesis report? | Win rate, casualties, survival time, decision latency, skipped decisions, cost. Requires headless mode and export.. AI-vs-AI benchmarks use many seeded matches, side swaps, several maps and a baseline (R13). Conditions now also include the tactical model (Jev or SubQ Snap, D51) and, in a separate experiment, LLMs of different companies through OpenRouter (D52) |
 | Q12 | How should the layer 2 decision frequency relate to Jev latency (~0.3–0.7 s)? | Proposed in D21: every 4 s, one request per side for all its heroes. Still to measure with a real key (Q13) |
 | Q13 | What are Jev's real end-to-end latency and token cost per call? | Needs an API key; measure inside the simulation (R1, R3) |
 | Q14 | How large is the Vercel cold start in practice? | Measure after deployment (D8) |
