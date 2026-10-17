@@ -169,7 +169,7 @@ export class AiRequestLog {
         : `<span class="faint">${(x.latencyMs / 1000).toFixed(1)} s${tries}</span>`;
     const head =
       `<span class="faint">${clock(x.time)}</span> ` +
-      `<span class="ai-x-layer ai-x-${source.layer}">${source.layer === 'jev' ? 'Jev' : 'LLM'}</span> ${timing}`;
+      `<span class="ai-x-layer ai-x-${source.layer}">${source.layer === 'jev' ? source.controller.name : 'LLM'}</span> ${timing}`;
     let what = '';
     if (x.error) what = `<span class="ai-fail">${escapeHtml(x.error)}</span>`;
     else if (x.latencyMs !== null)

@@ -38,7 +38,8 @@ const TERRAIN = `Terrain: forest slows movement to ${pct(TERRAIN_SPEED.FOREST)} 
 
 const MAP = `The map is ${GRID_SIZE}x${GRID_SIZE} tiles, split into ${SECTORS_PER_SIDE}x${SECTORS_PER_SIDE} sectors of ${SECTOR_SIZE}x${SECTOR_SIZE} tiles. Columns A-J run west to east, rows 1-10 north to south. Each sector is split 3x3 into sub-sectors of 5x5 tiles named NW, N, NE, W, C, E, SW, S, SE, e.g. "D4-NE" is the north-east corner of D4; "D4" alone means its centre. Exact places are also given as tiles (x, y): x counts from 0 at the west edge to ${GRID_SIZE - 1} at the east edge, y from 0 at the north edge to ${GRID_SIZE - 1} at the south edge.`;
 
-const JEV_FOR_LLM = `A fast tactical system (Jev) watches each of your heroes and decides every ${JEV_INTERVAL_SEC} seconds, using only what is around that hero. It can briefly override your order to handle the local situation (hold, retreat, attack, attack a nearby enemy hero, collect nearby strays, go to a control point or attack the enemy base when the mode has them, or step about ${JEV_STEP_TILES} tiles in some direction), and returns to your order when the situation allows. The report shows Jev's recent decisions and its assessment of each hero (surrounded, threat level, whether your order still fits). You set the plan; Jev handles the moment.`;
+const jevForLlm = (name: string) =>
+  `A fast tactical system (${name}) watches each of your heroes and decides every ${JEV_INTERVAL_SEC} seconds, using only what is around that hero. It can briefly override your order to handle the local situation (hold, retreat, attack, attack a nearby enemy hero, collect nearby strays, go to a control point or attack the enemy base when the mode has them, or step about ${JEV_STEP_TILES} tiles in some direction), and returns to your order when the situation allows. The report shows ${name}'s recent decisions and its assessment of each hero (surrounded, threat level, whether your order still fits). You set the plan; ${name} handles the moment.`;
 
 // D30: what wins the match, per objective.
 export function goalText(objective: Objective): string {
@@ -64,7 +65,8 @@ export function llmSystemPrompt(
   side: 'west' | 'east',
   withJev: boolean,
   intervalSec: number,
-  objective: Objective = 'elimination'
+  objective: Objective = 'elimination',
+  tacticalName = 'Jev'
 ): string {
   return `You are the strategic commander of the ${side} side in a 2D battle simulation. Every ${intervalSec} seconds you receive a report of the whole battlefield and give one order to each of your living heroes.
 
@@ -83,7 +85,7 @@ REST: ${REST}
 ${REFLEX}
 
 ${TERRAIN}
-${withJev ? `\n${JEV_FOR_LLM}\n` : ''}
+${withJev ? `\n${jevForLlm(tacticalName)}\n` : ''}
 ORDERS:
 - move <place>: walk to that sector or sub-sector ("D4" or "D4-NE") and stay there.
 - hold: stay at the current position and fight what comes.

@@ -1,20 +1,24 @@
 import type { Plugin } from 'vite';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { query, type Query, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
+import { CLAUDE_MODELS, openRouterId, type ClaudeModel } from '../src/ai/Models';
 
 // Layer 3 (D10): the strategic LLM runs in the dev server through the Claude Agent SDK,
 // using the developer's own Claude login. One persistent session per side, so a decision
 // takes ~1–2 s instead of ~8 s (R2), and the LLM remembers earlier decisions within a match
 // (in-match memory, D11). A new match id starts a fresh session.
 //
-// POST /api/llm  { side, matchId, system, prompt }  →  { text, latencyMs, model }
+// POST /api/llm  { side, matchId, system, prompt, model }  →  { text, latencyMs, model }
+//
+// D52: a model "openrouter:<id>" runs that OpenRouter model instead (OPENROUTER_API_KEY), for
+// the comparison of LLMs of different companies. Its session keeps the match's conversation
+// here and sends it with every request, as OpenRouter's API keeps none.
 
 // The system prompt (rulebook) is built in the browser from the engine's own constants
 // (src/ai/GameRules.ts) and sent with each request; it is used when a session starts.
 
-// Model chosen per side in the menu (D29). Only these aliases are accepted.
-const MODELS = ['haiku', 'sonnet', 'opus'] as const;
-type Model = (typeof MODELS)[number];
+// Claude model chosen per side in the menu (D29). Only these aliases are accepted.
+type Model = ClaudeModel;
 
 // Each alias runs a pinned model of one generation (D44). The CLI's own aliases are not used:
 // its "haiku" ran Haiku 4.5, an older generation than Sonnet and Opus 5.5, and much slower here
@@ -24,7 +28,9 @@ export const MODEL_IDS: Record<Model, string> = {
   sonnet: 'claude-sonnet-5-5',
   opus: 'claude-opus-5-5',
 };
-const DEFAULT_MODEL: Model = (MODELS as readonly string[]).includes(process.env.LLM_MODEL ?? '')
+const DEFAULT_MODEL: Model = (CLAUDE_MODELS as readonly string[]).includes(
+  process.env.LLM_MODEL ?? ''
+)
   ? (process.env.LLM_MODEL as Model)
   : 'sonnet';
 
@@ -75,9 +81,18 @@ function lastingError(text: string): boolean {
 
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 
+// What the endpoint needs from a session, whichever service answers
+interface LlmSession {
+  readonly matchId: string;
+  readonly model: string;
+  isAlive(): boolean;
+  ask(prompt: string): Promise<Answer>;
+  close(): void;
+}
+
 // A long-lived Agent SDK session. Messages are pushed into an async queue that the SDK
 // reads from; each reply arrives as a "result" message.
-class Session {
+class Session implements LlmSession {
   private queue: SDKUserMessage[] = [];
   private wake: (() => void) | null = null;
   private closed = false;
@@ -220,7 +235,126 @@ class Session {
   }
 }
 
-const sessions = new Map<string, Session>();
+const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
+
+// An OpenRouter model (D52). The API keeps no conversation, so the session keeps the match's
+// messages and sends all of them with every request (the Agent SDK session keeps them on its
+// side); one request at a time, like the SDK session.
+class OpenRouterSession implements LlmSession {
+  private messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>;
+  private closed = false;
+  private queue: Promise<unknown> = Promise.resolve();
+  private costSoFar = 0;
+  private abort = new AbortController();
+
+  constructor(
+    readonly matchId: string,
+    readonly model: string, // "openrouter:<id>"
+    private readonly id: string,
+    systemPrompt: string,
+    private readonly key: string,
+    private readonly side = ''
+  ) {
+    this.messages = [{ role: 'system', content: systemPrompt }];
+    console.warn(`[llm] ${side} session started: ${id} (OpenRouter)`);
+  }
+
+  isAlive(): boolean {
+    return !this.closed;
+  }
+
+  ask(prompt: string): Promise<Answer> {
+    const answer = this.queue.then(() => this.send(prompt));
+    this.queue = answer.catch(() => undefined);
+    return answer;
+  }
+
+  private async send(prompt: string): Promise<Answer> {
+    if (this.closed) throw new LlmError('the LLM session was closed', true);
+    if (this.costSoFar >= MAX_BUDGET_USD)
+      throw new LlmError(
+        `this session spent its budget of $${MAX_BUDGET_USD} (LLM_MAX_BUDGET_USD)`,
+        false,
+        true
+      );
+    const messages = [...this.messages, { role: 'user' as const, content: prompt }];
+    const started = Date.now();
+    let res: Response;
+    try {
+      res = await fetch(OPENROUTER_URL, {
+        method: 'POST',
+        signal: this.abort.signal,
+        headers: {
+          Authorization: `Bearer ${this.key}`,
+          'Content-Type': 'application/json',
+          'HTTP-Referer': 'https://aakin21.github.io/2D-Battle-Simulation/',
+          'X-Title': '2D Battle Simulation',
+        },
+        body: JSON.stringify({ model: this.id, messages, usage: { include: true } }),
+      });
+    } catch (err) {
+      // A lost connection keeps the conversation: the next report tries again
+      throw new LlmError(
+        this.closed
+          ? 'the LLM session was closed'
+          : `OpenRouter could not be reached: ${err instanceof Error ? err.message : String(err)}`,
+        true,
+        true
+      );
+    }
+    const body = (await res.json().catch(() => null)) as {
+      error?: { message?: unknown };
+      model?: unknown;
+      choices?: Array<{ message?: { content?: unknown } }>;
+      usage?: Record<string, unknown> & { prompt_tokens_details?: Record<string, unknown> };
+    } | null;
+    const detail = typeof body?.error?.message === 'string' ? body.error.message : '';
+    if (!res.ok) {
+      // A wrong key, no credits, a model that does not exist: nothing changes until someone acts
+      const lasting = [400, 401, 402, 403, 404].includes(res.status);
+      const hint =
+        res.status === 401
+          ? ' Set OPENROUTER_API_KEY in .env.local and restart the dev server.'
+          : '';
+      throw new LlmError(
+        `OpenRouter: ${detail || `HTTP ${res.status}`} (HTTP ${res.status}).${hint}`,
+        !lasting,
+        true
+      );
+    }
+    const text = body?.choices?.[0]?.message?.content;
+    if (typeof text !== 'string')
+      throw new LlmError(
+        `OpenRouter: the answer had no text${detail ? ` (${detail})` : ''}`,
+        true,
+        true
+      );
+    this.messages = [...messages, { role: 'assistant', content: text }];
+    const usage = body?.usage ?? {};
+    const costUsd = num(usage.cost);
+    if (costUsd !== null) this.costSoFar += costUsd;
+    return {
+      text,
+      meta: {
+        costUsd,
+        inputTokens: num(usage.prompt_tokens), // cached input included, unlike the SDK's count
+        outputTokens: num(usage.completion_tokens),
+        cacheReadTokens: num(usage.prompt_tokens_details?.cached_tokens),
+        cacheWriteTokens: null,
+        apiMs: Date.now() - started,
+        turns: 1,
+        modelIds: [typeof body?.model === 'string' ? body.model : this.id],
+      },
+    };
+  }
+
+  close(): void {
+    this.closed = true;
+    this.abort.abort();
+  }
+}
+
+const sessions = new Map<string, LlmSession>();
 
 // Reached through the tunnel too (D37), so requests are bounded: a report is ~10 KB.
 const MAX_BODY_BYTES = 1_000_000;
@@ -274,7 +408,8 @@ function send(res: ServerResponse, status: number, body: unknown): void {
   res.end(JSON.stringify(body));
 }
 
-export function llmPlugin(): Plugin {
+export function llmPlugin(env: Record<string, string> = {}): Plugin {
+  const openRouterKey = env.OPENROUTER_API_KEY ?? process.env.OPENROUTER_API_KEY ?? '';
   return {
     name: 'battle-llm',
     configureServer(server) {
@@ -301,7 +436,17 @@ export function llmPlugin(): Plugin {
         if (!SIDES.includes(side)) return send(res, 400, { error: 'side must be west or east' });
         try {
           let session = sessions.get(side);
-          const model: Model = MODELS.find((m) => m === requested) ?? DEFAULT_MODEL;
+          // A Claude alias or "openrouter:<id>" (D52); a request without a model gets the
+          // default, and an unknown one is refused so a typo never runs another model
+          const model: string = requested === undefined ? DEFAULT_MODEL : String(requested);
+          const routerId = openRouterId(model);
+          if (routerId === null && !(CLAUDE_MODELS as string[]).includes(model))
+            return send(res, 400, { error: `unknown model ${model.slice(0, 80)}` });
+          if (routerId !== null && !openRouterKey)
+            return send(res, 500, {
+              error: 'Set OPENROUTER_API_KEY in .env.local and restart the dev server.',
+              retryable: false,
+            });
           if (
             !session ||
             !session.isAlive() ||
@@ -309,7 +454,10 @@ export function llmPlugin(): Plugin {
             session.model !== model
           ) {
             session?.close();
-            session = new Session(matchId, model, system, side);
+            session =
+              routerId !== null
+                ? new OpenRouterSession(matchId, model, routerId, system, openRouterKey, side)
+                : new Session(matchId, model as Model, system, side);
             sessions.set(side, session);
           }
 

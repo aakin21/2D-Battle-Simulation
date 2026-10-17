@@ -1,3 +1,5 @@
+import type { LlmModel, TacticalModel } from '../ai/Models';
+
 export enum TerrainType {
   OPEN,
   FOREST,
@@ -59,8 +61,8 @@ export type SideAI = 'none' | 'llm' | 'jev+llm';
 // 'paused' freezes the battle until every pending AI answer has arrived.
 export type AITiming = 'realtime' | 'paused';
 
-// D29: which Claude model plays the LLM layer of a side (aliases understood by the Agent SDK).
-export type LlmModel = 'haiku' | 'sonnet' | 'opus';
+// D29, D52: the LLM of a side, and D51: its tactical decision model (src/ai/Models.ts)
+export type { LlmModel, TacticalModel };
 
 // Orders a hero can receive (D20). Every source (user, rule, Jev, LLM) uses the same set.
 export type HeroCommand = (
@@ -195,8 +197,10 @@ export interface SimConfig {
   enemyAI?: SideAI; // battle only: AI layers for the east side (default 'none' = rule-based)
   aiTiming?: AITiming; // battle only: does the simulation wait for AI answers (D4)
   objective?: Objective; // battle only (D30), default 'elimination'
-  friendlyModel?: LlmModel; // battle only: LLM model for each side (D29)
+  friendlyModel?: LlmModel; // battle only: LLM model for each side (D29, D52)
   enemyModel?: LlmModel;
+  friendlyTactical?: TacticalModel; // battle only, with 'jev+llm': the tactical model (D51)
+  enemyTactical?: TacticalModel;
 }
 
 export const DEFAULT_CONFIG: SimConfig = {

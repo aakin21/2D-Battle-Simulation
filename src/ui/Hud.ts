@@ -1,3 +1,4 @@
+import { modelLabel, TACTICAL_NAME, type TacticalModel } from '../ai/Models';
 import { SimulationEngine, MatchResult } from '../engine/SimulationEngine';
 import { StateManager } from '../state/StateManager';
 import type { Renderer } from '../rendering/Renderer';
@@ -29,11 +30,16 @@ interface Baseline {
   hp: [number, number];
 }
 
-export function sideLabel(ai: SideAI | undefined, faction: Faction, model?: string): string {
+export function sideLabel(
+  ai: SideAI | undefined,
+  faction: Faction,
+  model?: string,
+  tactical?: TacticalModel
+): string {
   if (!ai || ai === 'none') return faction === Faction.FRIENDLY ? 'You' : 'Rules';
-  const m = model ? ` ${model[0].toUpperCase()}${model.slice(1)}` : '';
+  const m = model ? ` ${modelLabel(model)}` : '';
   if (ai === 'llm') return `LLM${m}`;
-  return `Jev + LLM${m}`;
+  return `${TACTICAL_NAME[tactical ?? 'jev']} + LLM${m}`;
 }
 
 function clock(seconds: number): string {
@@ -255,10 +261,16 @@ export class Hud {
 
     this.elArmiesTitle.textContent = 'Armies';
     const models = [config.friendlyModel, config.enemyModel];
+    const tacticals = [config.friendlyTactical, config.enemyTactical];
     const ais = [config.friendlyAI, config.enemyAI];
     const heroes = this.stateManager.getHeroes();
     return SIDES.map((f) => {
-      const who = sideLabel(ais[f], f, ais[f]?.includes('llm') ? models[f] : undefined);
+      const who = sideLabel(
+        ais[f],
+        f,
+        ais[f]?.includes('llm') ? models[f] : undefined,
+        tacticals[f]
+      );
       const total = base.soldiers[f] || 1;
       const heroRows = heroes
         .filter((h) => h.faction === f)
@@ -403,8 +415,8 @@ export class Hud {
       title +
       `<div class="how">${how} · ${clock(r.time)}</div>` +
       `<table>` +
-      `<tr><th></th><th class="west-text">West · ${sideLabel(config.friendlyAI, Faction.FRIENDLY, config.friendlyAI?.includes('llm') ? config.friendlyModel : undefined)}</th>` +
-      `<th class="east-text">East · ${sideLabel(config.enemyAI, Faction.ENEMY, config.enemyAI?.includes('llm') ? config.enemyModel : undefined)}</th></tr>` +
+      `<tr><th></th><th class="west-text">West · ${sideLabel(config.friendlyAI, Faction.FRIENDLY, config.friendlyAI?.includes('llm') ? config.friendlyModel : undefined, config.friendlyTactical)}</th>` +
+      `<th class="east-text">East · ${sideLabel(config.enemyAI, Faction.ENEMY, config.enemyAI?.includes('llm') ? config.enemyModel : undefined, config.enemyTactical)}</th></tr>` +
       row('Units left', units[0], units[1]) +
       row('Heroes alive', heroes[0], heroes[1]) +
       row(

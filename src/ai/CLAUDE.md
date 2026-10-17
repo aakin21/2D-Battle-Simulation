@@ -5,14 +5,16 @@ AI layers that command the heroes of one side. Each implements `AIController` (`
 | File               | Layer                   | How                                                                                                                                  |
 | ------------------ | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
 | `JevController.ts` | 2, tactical (D6, D21)   | Every 4 s, one request per side to `/api/jev` (dev proxy → TypeSafe). One Choice question per hero over a fixed option list.         |
-| `LlmController.ts` | 3, strategic (D10, D22) | Every 20 s, a whole-map report to `/api/llm` (dev server → Claude Agent SDK). Reply is JSON orders, validated before use.            |
+| `LlmController.ts` | 3, strategic (D10, D22) | Every 15 s (D50), a whole-map report to `/api/llm` (dev server → Claude Agent SDK). Reply is JSON orders, validated before use.            |
 | `AiServer.ts`      | –                       | Where `/api/jev` and `/api/llm` are: this site, or the tunnel address and password given once in the demo link (`?ai=…&key=…`, D37; the address is reduced to its origin, `https://` added when missing, `http://` for localhost). Failure details, retry helpers. |
+| `Models.ts`        | –                       | The models a side can use, one id and label everywhere: Claude aliases (Agent SDK, D44), `openrouter:<id>` for other companies' LLMs (D52, list `OPENROUTER_MODELS`), the tactical model Jev or Snap (D51). |
+| `Snap.ts`          | –                       | SubQ Snap as the tactical layer (D51): Jev's request turned into Snap's format with the same options (one text per option, instructions as text, at most 16 questions). |
 | `GameRules.ts`     | –                       | The rulebook for both layers, built from `src/engine/Rules.ts`: the LLM system prompt and Jev's `game_rules` (D26).                  |
 | `Observations.ts`  | –                       | Values computed by code for both layers: group stats, local force ratio, army HP (R5).                                               |
 
 ## Conventions
 
-- A side is commanded by the LLM alone or by the LLM with Jev as its tactical layer (D38); Jev alone is not offered.
+- A side is commanded by the LLM alone or by the LLM with a tactical layer, Jev or SubQ Snap (D38, D51; `JevController` with `model: 'snap'` posts to `/api/snap`); a tactical layer alone is not offered. The LLM asks every 15 s (D50).
 - Every LLM order carries a reason (D41), kept on the command (`HeroCommand.reason`): Jev gets it as `commander_reason`, in its "continue" option and in its "does the order still fit" question, and follows an order while its reason holds. The reason is logged with the decision and shown per hero in the AI panel (with the hero's current order and its source).
 - Only command heroes with `controller === 'ai'` of the controller's own faction.
 - Apply decisions only through `engine.issueCommand(hero, command, 'jev' | 'llm')`.
