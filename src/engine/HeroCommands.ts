@@ -172,7 +172,8 @@ export class HeroCommands {
     }
   }
 
-  // Orders that send the hero somewhere: move, retreat, or resuming an LLM move/retreat.
+  // Orders that send the hero somewhere: move, retreat, regroup, attack base, or resuming one of
+  // the LLM's.
   private isMovement(hero: IHero, command: HeroCommand): boolean {
     const c = this.running(hero, command);
     return (

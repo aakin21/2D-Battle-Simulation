@@ -53,7 +53,8 @@ export interface AIController {
   dispose(): void;
 }
 
-// Battle mode result: the side whose units (heroes and soldiers) all die first loses.
+// Battle mode result: the side whose units (heroes and soldiers) all die first loses, or the
+// match ends on its objective or time limit (D30).
 export interface MatchResult {
   winner: Faction | null; // null: draw
   time: number; // simulation seconds

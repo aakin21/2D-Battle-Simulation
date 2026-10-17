@@ -12,7 +12,7 @@ export interface AiExchange {
   attempts?: number; // Jev: more than 1 when the request was retried
 }
 
-// A 500 s match makes ~125 Jev and ~25 LLM requests per side; this only bounds memory
+// A 500 s match makes ~125 Jev and ~33 LLM requests per side; this only bounds memory
 const MAX_EXCHANGES = 1000;
 let nextSeq = 1;
 

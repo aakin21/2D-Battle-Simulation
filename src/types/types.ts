@@ -42,7 +42,7 @@ export interface IUnit {
   sight: number;
   baseSpeed: number;
   damage: number;
-  path: Position[]; // A* path to follow — empty when idle or in combat
+  path: Position[]; // A* path to follow — empty when there is nowhere to go or in combat
   target: string | null; // ID of the unit being attacked (null = no target)
   attackCooldown: number; // seconds until next attack (0 = ready)
   groupId: string; // spawn group identifier — used for coordinated berserker patrol
@@ -52,8 +52,8 @@ export interface IUnit {
 // 'ai' heroes get orders from the AI layers attached to the match (Jev and/or the LLM).
 export type HeroController = 'user' | 'rule' | 'ai';
 
-// Which AI layers command a side in battle mode: the LLM alone, or the LLM with Jev as its
-// tactical layer. Jev alone was dropped: it sees only each hero's surroundings, so it cannot
+// Which AI layers command a side in battle mode: the LLM alone, or the LLM with a tactical layer
+// (Jev or SubQ Snap, D51; the model is chosen separately). Jev alone was dropped: it sees only each hero's surroundings, so it cannot
 // command a side by itself. 'none': the user (west) or the rule layer (east).
 export type SideAI = 'none' | 'llm' | 'jev+llm';
 
@@ -88,7 +88,7 @@ export interface IHero extends IUnit {
   charismaBonus: number;
   controller: HeroController;
   heroIndex: number; // 1-based number within its side, used by "attack hero N"
-  home: Position; // start position; "retreat" falls back toward it
+  home: Position; // start position; a retreat's fallback when it has no point of its own (D39)
   command: HeroCommand | null;
   commandSource: CommandSource | null;
   commandTime: number; // simulation time of the last command

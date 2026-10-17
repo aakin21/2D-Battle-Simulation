@@ -167,12 +167,12 @@ export class Renderer {
     return this.effects.isEnabled();
   }
 
-  // 'smart': with FX on, bars only over units that are hurt, fighting, fleeing, resting,
-  // selected, or heroes; 'all': over every unit (FX off always shows all)
   setBattleSound(fn: ((hits: number, deaths: number, loudness: number) => void) | null): void {
     this.battleSound = fn;
   }
 
+  // 'smart': with FX on, bars only over units that are hurt, fighting, fleeing, resting,
+  // selected, or heroes; 'all': over every unit (FX off always shows all)
   setBarsMode(mode: 'smart' | 'all'): void {
     this.barsMode = mode;
   }
@@ -625,7 +625,6 @@ export class Renderer {
     this.ctx.stroke();
   }
 
-  // Draws an X marker at each hero's current task point (enemy heroes in their own colour).
   // D30: control points (circle in the colour of the side holding it) and bases (square with
   // an HP bar), drawn on the ground under the units.
   private drawObjectives(battlefield: IBattlefield): void {

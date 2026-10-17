@@ -4,7 +4,7 @@ Canvas drawing only; no simulation logic here.
 
 | File | Role |
 |---|---|
-| `Renderer.ts` | Main canvas: terrain (cached offscreen), units, HP and courage bars, task points, charisma radius, camera, debug overlay, unit-card portrait |
+| `Renderer.ts` | Main canvas: terrain (cached offscreen), units, HP and courage bars, task points, the selected hero's sight circle, camera, debug overlay, unit-card portrait |
 | `MinimapRenderer.ts` | Minimap: one pixel per tile scaled up by whole pixels, control points, bases, heroes and the main view's rectangle |
 | `TerrainArt.ts` | Battlefield art from the pack's tilesets, built once per map at 8 px per tile (the unit sprites' pixel size): textured ground, edges that follow the tiles, trees, rocks, reeds and flowers placed only on matching tiles |
 | `ObjectiveArt.ts` | Waving flags on control points (holder's colour) and towers for bases (intact, damaged, ruined) |

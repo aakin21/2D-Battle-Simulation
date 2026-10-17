@@ -35,7 +35,7 @@ const DEFAULT_MODEL: Model = (CLAUDE_MODELS as readonly string[]).includes(
   : 'sonnet';
 
 // A session's estimated spend (the SDK's total_cost_usd) above which it stops answering, so a
-// runaway session cannot spend without limit. A match makes ~25 requests per side.
+// runaway session cannot spend without limit. A match makes ~33 requests per side (every 15 s, D50).
 const MAX_BUDGET_USD = Number(process.env.LLM_MAX_BUDGET_USD) || 5;
 
 // What one answer cost and how long the model took, from the SDK's result message, for the

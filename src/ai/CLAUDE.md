@@ -6,9 +6,10 @@ AI layers that command the heroes of one side. Each implements `AIController` (`
 | ------------------ | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
 | `JevController.ts` | 2, tactical (D6, D21)   | Every 4 s, one request per side to `/api/jev` (dev proxy → TypeSafe). One Choice question per hero over a fixed option list.         |
 | `LlmController.ts` | 3, strategic (D10, D22) | Every 15 s (D50), a whole-map report to `/api/llm` (dev server → Claude Agent SDK). Reply is JSON orders, validated before use.            |
-| `AiServer.ts`      | –                       | Where `/api/jev` and `/api/llm` are: this site, or the tunnel address and password given once in the demo link (`?ai=…&key=…`, D37; the address is reduced to its origin, `https://` added when missing, `http://` for localhost). Failure details, retry helpers. |
+| `AiServer.ts`      | –                       | Where `/api/jev`, `/api/snap` and `/api/llm` are: this site, or the tunnel address and password given once in the demo link (`?ai=…&key=…`, D37; the address is reduced to its origin, `https://` added when missing, `http://` for localhost). Failure details, retry helpers. |
 | `Models.ts`        | –                       | The models a side can use, one id and label everywhere: Claude aliases (Agent SDK, D44), `openrouter:<id>` for other companies' LLMs (D52, list `OPENROUTER_MODELS`), the tactical model Jev or Snap (D51). |
 | `Snap.ts`          | –                       | SubQ Snap as the tactical layer (D51): Jev's request turned into Snap's format with the same options (one text per option, instructions as text, at most 16 questions). |
+| `Exchange.ts`      | –                       | One request with its answer or error, kept for the AI panel's request log and the match log.                                       |
 | `GameRules.ts`     | –                       | The rulebook for both layers, built from `src/engine/Rules.ts`: the LLM system prompt and Jev's `game_rules` (D26).                  |
 | `Observations.ts`  | –                       | Values computed by code for both layers: group stats, local force ratio, army HP (R5).                                               |
 

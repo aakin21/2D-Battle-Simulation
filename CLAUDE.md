@@ -4,22 +4,22 @@ This is a thesis project. Phase 1 (baseline simulation, commit `5a96495`) is a f
 
 ## Architecture
 
-Browser app (TypeScript + Vite + Canvas). Each folder has its own `CLAUDE.md` with details.
+Browser app (TypeScript + Vite + Canvas). The main folders have their own `CLAUDE.md` with details.
 
 | Folder | Role |
 |---|---|
 | `src/engine/` | Simulation: rules, courage, movement, combat, hero commands, match end |
-| `src/ai/` | AI layers that command heroes: Jev (tactical, layer 2) and the LLM (strategic, layer 3) |
+| `src/ai/` | AI layers that command heroes: Jev or SubQ Snap (tactical, layer 2, D51) and the LLM (strategic, layer 3) |
 | `src/state/` | Battlefield data, spawning, unit lookup, saved maps |
 | `src/rendering/` | Canvas drawing, minimap, visual effects |
 | `src/ui/` | Menu, controls, mouse and keyboard input |
 | `src/types/` | Shared types and constants |
 | `src/maps/` | The fixed map (D5) |
 | `src/assets/` | Unit sprite sheets (CC0, D25) |
-| `server/` | Dev-server only: the LLM endpoint (`/api/llm`) |
+| `server/` | Dev-server only: the LLM endpoint (`/api/llm`) and the access guard for `/api/*` (D37) |
 | `api/` | Vercel functions for the deployed site: the Jev proxy (`/api/jev`, D8) |
 
-The three decision layers (D1): rules every frame (`src/engine`), Jev every ~4 s, LLM every ~20 s (`src/ai`).
+The three decision layers (D1): rules every frame (`src/engine`), Jev every ~4 s, LLM every ~15 s (D50, `src/ai`).
 
 ## Rules that must not be broken
 
@@ -37,6 +37,7 @@ The three decision layers (D1): rules every frame (`src/engine`), Jev every ~4 s
 - AI in the online demo (D37): set `AI_PASSWORD=...` in `.env.local`, run `npm run dev` and a tunnel (`cloudflared tunnel --url http://localhost:5173` or `ngrok http 5173`), then open the demo once with `?ai=<tunnel address>&key=<AI_PASSWORD>`. Requests from localhost need no password; `AI_ALLOWED_ORIGINS` overrides the allowed demo origin (default `https://aakin21.github.io`).
 - Jev needs `TYPESAFE_API_KEY=...` in `.env.local`. The LLM uses the developer's Claude login through the Agent SDK; the model is chosen per side in the Battle menu (Haiku / Sonnet / Opus, pinned to the 5.5 generation, D44; `LLM_MODEL` only sets the server default).
 - Formatting: Prettier (`.prettierrc`); lint: `npm run lint`. Run both on files you change.
+- Smoke tests (D24) live outside the repo in `../tests/smoke/` (`./run-all.sh`, `README.md`): headless, fake AIs only. `same.ts` hashes the battlefield, so diffing its output before and after a change shows the simulation is unchanged.
 
 ## Thesis documentation rule
 

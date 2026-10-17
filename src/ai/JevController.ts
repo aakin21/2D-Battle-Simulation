@@ -62,7 +62,7 @@ export interface JevDecision {
 export interface JevOptions {
   intervalSec: number; // how often to ask (3–5 s, D1)
   minConfidence: number; // below this the hero keeps its current command
-  fallbackToRules: boolean; // on failure, hand heroes to the rule layer (when Jev is the only AI layer)
+  fallbackToRules: boolean; // on failure, hand heroes to the rule layer (the UI passes false: Jev always runs under an LLM, D38)
   withCommander: boolean; // an LLM commands the same side (changes Jev's role and goal)
   model: TacticalModel; // Jev or SubQ Snap (D51): same options, same questions
   endpoint: string;
