@@ -14,6 +14,7 @@ The simulation itself. `SimulationEngine` owns the loop; the other files are par
 | `SpatialGrid.ts`      | Spatial hash for neighbour queries; a finer grid with per-cell faction counts makes courage counts and nearest-enemy search fast in crowds with identical results (D31) |
 | `BerserkerPool.ts`    | Object pool for classic wave berserkers                                                                          |
 | `Sectors.ts`          | 10×10 sector grid (A1–J10) and 3×3 sub-sectors (e.g. `D4-NE`) used to describe locations to the AI (D17, D26)    |
+| `Separation.ts`       | Battle mode: units take up room, pushing each other apart (D53), never into a mountain buffer or another walkable region; a hero is not pushed by its own side |
 | `Rules.ts`            | The numbers that define behavior (combat range, courage formula, charisma, rest, hero reflex)                    |
 
 ## Conventions

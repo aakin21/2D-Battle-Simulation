@@ -104,7 +104,7 @@ export class Pathfinder {
 
   // True if A* from the start tile can reach the (unblocked) end tile. The start tile
   // itself may be blocked (see findPath); A* then continues from its unblocked neighbours.
-  private static sameRegion(
+  static sameRegion(
     grid: TerrainType[][],
     sx: number,
     sy: number,
@@ -260,7 +260,7 @@ export class Pathfinder {
 
   // Blocked if the tile itself is mountain or any cardinal neighbor is.
   // 1-tile buffer keeps units from clipping into mountain edges.
-  private static isBlocked(grid: TerrainType[][], x: number, y: number): boolean {
+  static isBlocked(grid: TerrainType[][], x: number, y: number): boolean {
     if (grid[y]?.[x] === TerrainType.MOUNTAIN) return true;
     return (
       grid[y]?.[x + 1] === TerrainType.MOUNTAIN ||

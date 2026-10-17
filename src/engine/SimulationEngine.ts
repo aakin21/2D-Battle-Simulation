@@ -19,12 +19,20 @@ import {
   REST_HEAL_PER_SEC,
   HERO_REST_TRIGGER_HP,
   DISENGAGE_CLEAR_RADIUS,
+  SEPARATION_RADIUS,
 } from './Rules';
 import { GroupPatrol } from './GroupPatrol';
+import { separateUnits } from './Separation';
 import { updateRuleHeroes } from './RuleHeroes';
 import { updateControl, damageBases, objectiveEnd, EndReason } from './Objectives';
 import { updateHeroReflex, moveHeroRetreat } from './HeroReflex';
-import { effectiveSight, findNearestEnemy, stepToward, terrainSpeed } from './UnitHelpers';
+import {
+  effectiveSight,
+  findNearestEnemy,
+  nearestReachableTile,
+  stepToward,
+  terrainSpeed,
+} from './UnitHelpers';
 import {
   IUnit,
   IHero,
@@ -236,6 +244,8 @@ export class SimulationEngine {
       this.updateBehavior(unit);
     }
 
+    if (this.battleMode) this.countFollowers(units);
+
     // Save position before move so spatial grid can be synced after.
     for (const unit of units) {
       const oldX = unit.position.x;
@@ -243,6 +253,8 @@ export class SimulationEngine {
       this.moveUnit(unit, deltaTime, grid);
       this.stateManager.syncPosition(unit, oldX, oldY);
     }
+    // Battle mode: units take up room and push each other apart (classic keeps Phase 1, D19)
+    if (this.battleMode) separateUnits(this.stateManager, units, deltaTime, grid);
 
     this.processRest(units, deltaTime);
     this.processCombat(units, deltaTime);
@@ -276,6 +288,29 @@ export class SimulationEngine {
   // orders never wait for a rest (D45). Rule heroes keep resting until healed after a flight (D18).
   private calledAway(unit: IUnit): boolean {
     return (unit as IHero).controller !== 'rule' && this.onTheWay(unit);
+  }
+
+  // Soldiers following each hero, counted once per frame (battle mode)
+  private followers = new Map<string, number>();
+
+  private countFollowers(units: IUnit[]): void {
+    this.followers.clear();
+    for (const unit of units) {
+      if (!this.isSoldier(unit) || unit.hp <= 0) continue;
+      const leader = this.findLeader(unit);
+      if (leader) this.followers.set(leader.id, (this.followers.get(leader.id) ?? 0) + 1);
+    }
+  }
+
+  // How close to its standing hero a soldier stops. Units take up room in battle mode, so a big
+  // group cannot all reach the hero: the radius grows with the ground the group covers, or the
+  // outer soldiers keep walking in while the push of their neighbours sends them back, and the
+  // whole group shakes (CASES 14.x). Classic keeps Phase 1 (D19).
+  private arriveRadius(leader: IHero): number {
+    if (!this.battleMode) return WARRIOR_ARRIVE_RADIUS;
+    const n = this.followers.get(leader.id) ?? 0;
+    const spread = SEPARATION_RADIUS * Math.sqrt((0.87 * n) / Math.PI) * 1.15 + 1;
+    return Math.max(WARRIOR_ARRIVE_RADIUS, spread);
   }
 
   // Soldiers follow heroes and use courage. In battle mode berserkers are soldiers too.
@@ -511,7 +546,7 @@ export class SimulationEngine {
     const dist = Math.sqrt(dx * dx + dy * dy);
     if (dist === 0) return;
 
-    stepToward(this.stateManager, unit, Math.atan2(dy, dx), deltaTime, grid);
+    stepToward(this.stateManager, unit, Math.atan2(dy, dx), deltaTime, grid, this.battleMode);
   }
 
   private updateWaveSpawner(bf: IBattlefield): void {
@@ -738,7 +773,8 @@ export class SimulationEngine {
     if (this.isSoldier(unit) && unit.target === null && leader && leader.path.length === 0) {
       const dx = leader.position.x - unit.position.x;
       const dy = leader.position.y - unit.position.y;
-      if (dx * dx + dy * dy <= WARRIOR_ARRIVE_RADIUS * WARRIOR_ARRIVE_RADIUS) {
+      const arrive = this.arriveRadius(leader);
+      if (dx * dx + dy * dy <= arrive * arrive) {
         unit.path = [];
         return;
       }
@@ -784,7 +820,18 @@ export class SimulationEngine {
   private getDestination(unit: IUnit, leader: IHero | undefined): Position | null {
     if (unit.target !== null) {
       const target = this.stateManager.getUnitById(unit.target);
-      if (target && target.hp > 0) return target.position;
+      if (target && target.hp > 0) {
+        // Battle mode: a target standing on a tile the pathfinder treats as blocked (next to a
+        // mountain) is approached on the nearest reachable tile, within reach of a blow; walking
+        // to its own tile found no path, and the attacker stood still (CASES 14.x)
+        if (!this.battleMode) return target.position;
+        const tx = Math.floor(target.position.x);
+        const ty = Math.floor(target.position.y);
+        if (!Pathfinder.isBlocked(this.stateManager.getBattlefield().grid, tx, ty))
+          return target.position;
+        const t = nearestReachableTile(this.stateManager, target.position);
+        return { x: t.x + 0.5, y: t.y + 0.5 };
+      }
     }
 
     if (unit.unitType === UnitType.HERO) {
