@@ -21,6 +21,7 @@ import {
   DISENGAGE_CLEAR_RADIUS,
 } from './Rules';
 import { GroupPatrol } from './GroupPatrol';
+import { updateWaves, updateBerserkerPath } from './ClassicWaves';
 import { updateRuleHeroes } from './RuleHeroes';
 import { updateControl, damageBases, objectiveEnd, EndReason } from './Objectives';
 import { updateHeroReflex, moveHeroRetreat } from './HeroReflex';
@@ -47,16 +48,9 @@ import {
   AITiming,
   SimConfig,
   DEFAULT_CONFIG,
-  LAST_TILE,
-  INNER_MIN,
-  INNER_MAX,
-  EDGE_MARGIN,
-  EDGE_MARGIN_MAX,
 } from '../types/types';
 
 const WARRIOR_ARRIVE_RADIUS = 2;
-// Wave spawn points along an edge: tiles EDGE_MARGIN..EDGE_MARGIN_MAX
-const EDGE_SPAN = EDGE_MARGIN_MAX - EDGE_MARGIN + 1;
 
 // Simulation speeds the user can choose
 export const SPEED_STEPS = [0.5, 1, 2, 4] as const;
@@ -498,105 +492,10 @@ export class SimulationEngine {
     stepToward(this.stateManager, unit, Math.atan2(dy, dx), deltaTime, grid);
   }
 
+  // Classic berserker waves (ClassicWaves.ts); the stress test has none
   private updateWaveSpawner(bf: IBattlefield): void {
     if (this.stressMode) return;
-    const { elapsedTime, waveNumber } = bf;
-
-    if (waveNumber < 3) {
-      if (elapsedTime < bf.nextWaveTime) return;
-
-      const sizes = [100, 150, 200];
-      const nextTimes = [90, 180, 210];
-
-      this.spawnBerserkerWave(Math.round(sizes[waveNumber] * this.waveMultiplier));
-
-      bf.nextWaveTime = nextTimes[waveNumber];
-      bf.waveNumber++;
-    } else {
-      if (elapsedTime < bf.nextWaveTime) return;
-
-      const size = Math.round((40 + Math.floor(Math.random() * 21)) * this.waveMultiplier);
-      this.spawnBerserkerWave(size);
-
-      bf.nextWaveTime = elapsedTime + 20 + Math.random() * 20;
-      bf.waveNumber++;
-    }
-  }
-
-  private spawnBerserkerWave(count: number): void {
-    const bf = this.stateManager.getBattlefield();
-    const points = this.generateSpawnPoints(count);
-
-    const sharedPaths: Position[][] = points.map((origin) => {
-      const angle = Math.random() * Math.PI * 2;
-      const d = 20 + Math.random() * 20;
-      const px = Math.round(
-        Math.max(EDGE_MARGIN, Math.min(EDGE_MARGIN_MAX, origin.x + Math.cos(angle) * d))
-      );
-      const py = Math.round(
-        Math.max(EDGE_MARGIN, Math.min(EDGE_MARGIN_MAX, origin.y + Math.sin(angle) * d))
-      );
-      return Pathfinder.findPath(bf.grid, { x: origin.x, y: origin.y }, { x: px, y: py });
-    });
-
-    const waveNum = bf.waveNumber;
-
-    for (let i = 0; i < count; i++) {
-      const idx = i % points.length;
-      const origin = points[idx];
-      let x = Math.round(origin.x + (Math.random() * 6 - 3));
-      let y = Math.round(origin.y + (Math.random() * 6 - 3));
-      x = Math.max(INNER_MIN, Math.min(INNER_MAX, x));
-      y = Math.max(INNER_MIN, Math.min(INNER_MAX, y));
-
-      if (bf.grid[y]?.[x] === TerrainType.MOUNTAIN) {
-        x = origin.x;
-        y = origin.y;
-      }
-
-      const groupId = `w${waveNum}_p${idx}`;
-      this.stateManager.spawnBerserker(x, y, groupId, sharedPaths[idx].slice());
-    }
-  }
-
-  private generateSpawnPoints(count: number): Position[] {
-    const numPoints = Math.max(1, Math.min(8, Math.ceil(count / 20)));
-    const points: Position[] = [];
-    let attempts = 0;
-
-    while (points.length < numPoints && attempts < 200) {
-      attempts++;
-
-      const edge = Math.floor(Math.random() * 4);
-      const inset = EDGE_MARGIN + Math.floor(Math.random() * 21);
-      let x: number;
-      let y: number;
-
-      if (edge === 0) {
-        x = EDGE_MARGIN + Math.floor(Math.random() * EDGE_SPAN);
-        y = inset;
-      } else if (edge === 1) {
-        x = EDGE_MARGIN + Math.floor(Math.random() * EDGE_SPAN);
-        y = LAST_TILE - inset;
-      } else if (edge === 2) {
-        x = inset;
-        y = EDGE_MARGIN + Math.floor(Math.random() * EDGE_SPAN);
-      } else {
-        x = LAST_TILE - inset;
-        y = EDGE_MARGIN + Math.floor(Math.random() * EDGE_SPAN);
-      }
-
-      const tooClose = points.some((p) => {
-        const dx = p.x - x;
-        const dy = p.y - y;
-        return dx * dx + dy * dy < 20 * 20;
-      });
-
-      if (!tooClose && this.stateManager.isClearTile(x, y)) points.push({ x, y });
-    }
-
-    if (points.length === 0) points.push({ x: EDGE_MARGIN, y: EDGE_MARGIN });
-    return points;
+    updateWaves(this.stateManager, bf, this.waveMultiplier);
   }
 
   private processRest(units: IUnit[], deltaTime: number): void {
@@ -650,52 +549,11 @@ export class SimulationEngine {
       return;
     }
 
+    // Classic wave berserker: chase its target or patrol with its group (ClassicWaves.ts)
     if (unit.unitType === UnitType.BERSERKER && !this.battleMode) {
       if (unit.state !== BehaviorState.IDLE) return;
 
-      if (unit.target !== null) {
-        const target = this.stateManager.getUnitById(unit.target);
-        if (target && target.hp > 0) {
-          const dtx = Math.floor(target.position.x);
-          const dty = Math.floor(target.position.y);
-
-          const idNum = parseInt(unit.id.replace('unit_', '')) || 0;
-          const angle = (idNum * 2.399963) % (Math.PI * 2);
-          const r = 1.0 + (idNum % 3) * 0.4;
-          let aimX = Math.max(
-            INNER_MIN,
-            Math.min(INNER_MAX, dtx + Math.round(Math.cos(angle) * r))
-          );
-          let aimY = Math.max(
-            INNER_MIN,
-            Math.min(INNER_MAX, dty + Math.round(Math.sin(angle) * r))
-          );
-          if (!this.stateManager.isClearTile(aimX, aimY)) {
-            aimX = dtx;
-            aimY = dty;
-          }
-
-          const pe = unit.path.length > 0 ? unit.path[unit.path.length - 1] : null;
-          if (!pe || pe.x !== aimX || pe.y !== aimY) {
-            const st = { x: Math.floor(unit.position.x), y: Math.floor(unit.position.y) };
-            unit.path = Pathfinder.findPath(grid, st, { x: aimX, y: aimY });
-          }
-        } else {
-          unit.target = null;
-          unit.path = [];
-        }
-      } else if (unit.path.length === 0) {
-        const elapsed = this.stateManager.getBattlefield().elapsedTime;
-        const dest = this.patrol.destination(unit.groupId, unit.position, elapsed);
-        const dtx = Math.floor(dest.x);
-        const dty = Math.floor(dest.y);
-        if (Math.floor(unit.position.x) !== dtx || Math.floor(unit.position.y) !== dty) {
-          const st = { x: Math.floor(unit.position.x), y: Math.floor(unit.position.y) };
-          unit.path = Pathfinder.findPath(grid, st, { x: dtx, y: dty });
-          if (unit.path.length === 0) this.patrol.forget(unit.groupId);
-        }
-      }
-
+      updateBerserkerPath(this.stateManager, this.patrol, unit, grid);
       this.followPath(unit, deltaTime, grid);
       return;
     }

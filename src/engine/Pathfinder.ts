@@ -55,7 +55,8 @@ class MinHeap {
   }
 }
 
-const NO_REGION = -1;
+// Region id of a blocked tile
+export const NO_REGION = -1;
 const DIRS4 = [
   [1, 0],
   [-1, 0],
@@ -71,7 +72,16 @@ export class Pathfinder {
   private static regions(grid: TerrainType[][]): Int32Array {
     let regions = Pathfinder.regionCache.get(grid);
     if (regions) return regions;
-    regions = new Int32Array(GRID_SIZE * GRID_SIZE).fill(NO_REGION);
+    regions = Pathfinder.labelRegions(grid);
+    Pathfinder.regionCache.set(grid, regions);
+    return regions;
+  }
+
+  // Labels the walkable regions of a grid, without the cache: region ids are given in scan
+  // order (row by row, the first unlabelled unblocked tile starts the next id), blocked tiles
+  // get NO_REGION. StateManager uses this to find the map's main region.
+  static labelRegions(grid: TerrainType[][]): Int32Array {
+    const regions = new Int32Array(GRID_SIZE * GRID_SIZE).fill(NO_REGION);
     const stack: number[] = [];
     let next = 0;
     for (let i = 0; i < regions.length; i++) {
@@ -98,7 +108,6 @@ export class Pathfinder {
       }
       next++;
     }
-    Pathfinder.regionCache.set(grid, regions);
     return regions;
   }
 
@@ -252,8 +261,9 @@ export class Pathfinder {
   }
 
   // Blocked if the tile itself is mountain or any cardinal neighbor is.
-  // 1-tile buffer keeps units from clipping into mountain edges.
-  private static isBlocked(grid: TerrainType[][], x: number, y: number): boolean {
+  // 1-tile buffer keeps units from clipping into mountain edges. Off-map tiles are not
+  // mountains. StateManager.isClearTile is the negation of this.
+  static isBlocked(grid: TerrainType[][], x: number, y: number): boolean {
     if (grid[y]?.[x] === TerrainType.MOUNTAIN) return true;
     return (
       grid[y]?.[x + 1] === TerrainType.MOUNTAIN ||

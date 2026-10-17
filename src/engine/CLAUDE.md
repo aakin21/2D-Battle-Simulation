@@ -10,11 +10,13 @@ The simulation itself. `SimulationEngine` owns the loop; the other files are par
 | `HeroReflex.ts`       | Hero survival reflex and retreat movement (D18, D45, D47)                                                        |
 | `Objectives.ts`       | Battle objectives (D30): control points scored by majority, bases that units attack, match end by objective or time |
 | `Strays.ts`           | Stray soldiers (D28): soldiers with no hero in sight, grouped into clusters for the AI and for regroup orders (D40) |
+| `ClassicWaves.ts`     | Classic mode (D19): berserker waves from the map edges, and the path of a wave berserker (chase its target or patrol with its group) |
 | `GroupPatrol.ts`      | Random patrol destinations (classic berserker waves and rule heroes)                                             |
 | `UnitHelpers.ts`      | Shared helpers: nearest enemy, effective sight, terrain speed, stepping, reachable tiles                         |
-| `Pathfinder.ts`       | A\* with a binary heap and path smoothing; mountains and their neighbours are blocked                            |
+| `Pathfinder.ts`       | A\* with a binary heap and path smoothing; mountains and their neighbours are blocked (`isBlocked`); walkable regions (`labelRegions`) |
 | `SpatialGrid.ts`      | Spatial hash for neighbour queries; a finer grid with per-cell faction counts makes courage counts and nearest-enemy search fast in crowds with identical results (D31) |
 | `BerserkerPool.ts`    | Object pool for classic wave berserkers                                                                          |
+| `Sides.ts`            | The two sides (West = friendly, East = enemy): `opponent()` and `sideName()`                                     |
 | `Sectors.ts`          | 10×10 sector grid (A1–J10) and 3×3 sub-sectors (e.g. `D4-NE`) used to describe locations to the AI (D17, D26)    |
 | `Rules.ts`            | The numbers that define behavior (combat range, courage formula, charisma, rest, hero reflex)                    |
 

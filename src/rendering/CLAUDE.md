@@ -2,15 +2,19 @@
 
 Canvas drawing only; no simulation logic here.
 
-| File | Role |
-|---|---|
-| `Renderer.ts` | Main canvas: terrain (cached offscreen), units, HP and courage bars, task points, the selected hero's sight circle, camera, debug overlay, unit-card portrait |
-| `MinimapRenderer.ts` | Minimap: one pixel per tile scaled up by whole pixels, control points, bases, heroes and the main view's rectangle |
-| `TerrainArt.ts` | Battlefield art from the pack's tilesets, built once per map at 8 px per tile (the unit sprites' pixel size): textured ground, edges that follow the tiles, trees, rocks, reeds and flowers placed only on matching tiles |
-| `ObjectiveArt.ts` | Waving flags on control points (holder's colour) and towers for bases (intact, damaged, ruined) |
-| `UnitSprites.ts` | Unit sprite sheets (Ninja Adventure, CC0, D25): team tinting, hit-flash and corpse variants, one sprite per hero slot |
-| `SideColors.ts` | The two sides' marker colours (west gold, east blue), shared by the main view and the minimap |
-| `effects/` | Visual effects layer: frame-diff event detection (`EffectsManager`), hit flash, corpses, blood, slash and smoke bursts (`Bursts`), status emotes, hero aura; pooled objects and pre-rendered sprites |
+| File                  | Role                                                                                                                                                                                                                         |
+| --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Renderer.ts`         | Main canvas and frame order: terrain (cached offscreen), units, HP and courage bars, the selected hero's sight circle, debug overlay, unit-card portrait; keeps the public API (camera calls delegate to `CameraController`) |
+| `CameraController.ts` | Main view's camera: zoom limits, zoom around the cursor, pan, centre on a tile, eased zooms and glides, kept on the map; `getCamera()` returns a copy                                                                        |
+| `OrderMarkers.ts`     | Heroes' task points: X (FX off), bobbing diamond, closing ring on a new order and the selected hero's dashed line (FX on)                                                                                                    |
+| `ObjectiveOverlay.ts` | Control points and bases on the main view (D30): circles, labels and HP bars, flags and towers with the art                                                                                                                  |
+| `ReducedMotion.ts`    | `prefers-reduced-motion`, looked up once and followed live                                                                                                                                                                   |
+| `MinimapRenderer.ts`  | Minimap: one pixel per tile scaled up by whole pixels, control points, bases, heroes and the main view's rectangle                                                                                                           |
+| `TerrainArt.ts`       | Battlefield art from the pack's tilesets, built once per map at 8 px per tile (the unit sprites' pixel size): textured ground, edges that follow the tiles, trees, rocks, reeds and flowers placed only on matching tiles    |
+| `ObjectiveArt.ts`     | Waving flags on control points (holder's colour) and towers for bases (intact, damaged, ruined)                                                                                                                              |
+| `UnitSprites.ts`      | Unit sprite sheets (Ninja Adventure, CC0, D25): team tinting, hit-flash and corpse variants, one sprite per hero slot                                                                                                        |
+| `SideColors.ts`       | The two sides' marker colours (west gold, east blue), shared by the main view and the minimap; the enemy hero colour                                                                                                         |
+| `effects/`            | Visual effects layer: frame-diff event detection (`EffectsManager`), hit flash, corpses, blood, slash and smoke bursts (`Bursts`), status emotes, hero aura; pooled objects and pre-rendered sprites                         |
 
 ## Conventions
 

@@ -4,34 +4,32 @@ import { Renderer } from '../rendering/Renderer';
 import { MinimapRenderer } from '../rendering/MinimapRenderer';
 import { InputHandler } from './InputHandler';
 import {
-  IUnit,
-  IHero,
-  UnitType,
   Faction,
-  BehaviorState,
   SimConfig,
   DEFAULT_CONFIG,
-  BATTLE_CONFIG,
-  TerrainDensity,
-  TerrainType,
   SideAI,
   LlmModel,
   TacticalModel,
-  Objective,
-  GRID_SIZE,
 } from '../types/types';
-import { decodeGrid, listSavedMaps, loadSavedMap, saveMap } from '../state/MapStore';
-import { FIXED_MAP } from '../maps/fixedMap';
 import { JevController } from '../ai/JevController';
-import { isOpenRouterId, OPENROUTER_MODELS, TACTICAL_NAME } from '../ai/Models';
-import { Dropdown } from './Dropdown';
+import { TACTICAL_NAME } from '../ai/Models';
 import { LlmController } from '../ai/LlmController';
-import { AIController, MatchResult, SPEED_STEPS, SpeedStep } from '../engine/SimulationEngine';
+import { AIController, MatchResult } from '../engine/SimulationEngine';
 import { LoadingScreen } from './LoadingScreen';
 import { Hud } from './Hud';
 import { AiPanel } from './AiPanel';
 import { AiSides, MatchLog } from './MatchLog';
 import { Sound } from './Sound';
+import { MainMenu } from './MainMenu';
+import { CanvasInteraction } from './CanvasInteraction';
+import {
+  savedBars,
+  savedDebug,
+  savedEffects,
+  savedSpeed,
+  saveSettings,
+  soundMuted,
+} from './Settings';
 import { icon } from './icons';
 import heroWestUrl from '../assets/sprites/hero_knight_gold.png';
 import heroEastUrl from '../assets/sprites/hero_shaman_lion.png';
@@ -42,12 +40,6 @@ import keyEscapeUrl from '../assets/ui/keys/Escape.png';
 import mouseLeftUrl from '../assets/ui/keys/MouseButtonLeft.png';
 import mouseRightUrl from '../assets/ui/keys/MouseButtonRight.png';
 import mouseWheelUrl from '../assets/ui/keys/MouseWheelUp.png';
-
-const LS_SPEED = 'sim_speed';
-const LS_DEBUG = 'sim_debug';
-const LS_EFFECTS = 'sim_effects';
-const LS_BARS = 'sim_bars';
-const LS_SOUND = 'sim_sound';
 
 // Rows of the Controls screen: key images or key names, then what they do
 const HELP: Array<[string[], string]> = [
@@ -72,12 +64,12 @@ export class UIController {
   private hud: Hud;
   private aiPanel = new AiPanel();
   private sound: Sound;
+  private menu: MainMenu;
+  private canvas: CanvasInteraction;
   private aiSides: AiSides = { west: {}, east: {} };
   private matchLog: MatchLog | null = null;
-  private routerLists = {} as Record<'west' | 'east', Dropdown>; // OpenRouter model lists (D52)
   // Which map the current run uses, for the match log: random, fixed or "saved: <name>"
   private mapChoice: string = 'random';
-  private selectedUnitId: string | null = null;
   private debugMode: boolean = false;
   private lastConfig: SimConfig = DEFAULT_CONFIG;
   // A run started from the menu exists (the menu can go back to it)
@@ -85,16 +77,10 @@ export class UIController {
   private pausedBeforeMenu: boolean = false;
   private shownPaused: boolean | null = null;
 
-  // Throttle tooltip updates — only recalculate when cursor moves significantly
-  private lastTooltipX: number = -999;
-  private lastTooltipY: number = -999;
-
   private elBtnPause: HTMLButtonElement;
   private elBtnDebug: HTMLButtonElement;
   private elBtnEffects: HTMLButtonElement;
   private elSpeedDisplay: HTMLElement;
-  private elTooltip: HTMLElement;
-  private elSelectOverlay: HTMLElement;
   private elMainMenu: HTMLElement;
   private elInstructions: HTMLElement;
   private elCanvasArea: HTMLElement;
@@ -111,14 +97,20 @@ export class UIController {
     this.minimapRenderer = minimapRenderer;
     this.inputHandler = new InputHandler('battleCanvas');
     this.hud = new Hud(engine, stateManager, renderer);
-    this.sound = new Sound(this.readSetting(LS_SOUND) === 'off');
+    this.sound = new Sound(soundMuted());
+    this.canvas = new CanvasInteraction(
+      engine,
+      stateManager,
+      renderer,
+      this.hud,
+      this.sound,
+      this.inputHandler
+    );
 
     this.elBtnPause = document.getElementById('btn-pause') as HTMLButtonElement;
     this.elBtnDebug = document.getElementById('btn-debug') as HTMLButtonElement;
     this.elBtnEffects = document.getElementById('btn-effects') as HTMLButtonElement;
     this.elSpeedDisplay = document.getElementById('speed-display')!;
-    this.elTooltip = document.getElementById('tooltip')!;
-    this.elSelectOverlay = document.getElementById('select-overlay')!;
     this.elMainMenu = document.getElementById('main-menu')!;
     this.elInstructions = document.getElementById('instructions-overlay')!;
     this.elCanvasArea = document.getElementById('canvas-area')!;
@@ -128,7 +120,8 @@ export class UIController {
     this.buildHelp();
     this.watchCanvasSize();
     this.loadSettings();
-    this.wireMainMenu();
+    this.menu = new MainMenu();
+    this.wireMenuButtons();
     this.engine.setOnMatchEnd((r) => this.showMatchResult(r));
     this.engine.setOnError((message) => this.showError(message));
     this.wireButtonEvents();
@@ -215,217 +208,25 @@ export class UIController {
 
   // --- Main menu ---
 
-  private wireMainMenu(): void {
-    const config = document.getElementById('menu-config')!;
-    const stressInfo = document.getElementById('stress-info')!;
-    const battleInfo = document.getElementById('battle-info')!;
-    const tabDefault = document.getElementById('tab-default')!;
-    const tabCustom = document.getElementById('tab-custom')!;
-    const tabStress = document.getElementById('tab-stress')!;
-    const tabBattle = document.getElementById('tab-battle')!;
-    const warriorSlider = document.getElementById('cfg-warriors') as HTMLInputElement;
-    const warriorNum = document.getElementById('cfg-warriors-num') as HTMLInputElement;
-    const waveSlider = document.getElementById('cfg-wave-slider') as HTMLInputElement;
-    const waveVal = document.getElementById('cfg-wave-val')!;
-
-    const setTab = (active: HTMLElement) => {
-      [tabDefault, tabCustom, tabStress, tabBattle].forEach((t) => t.classList.remove('active'));
-      active.classList.add('active');
-      const isStress = active === tabStress;
-      const isCustom = active === tabCustom;
-      const isBattle = active === tabBattle;
-      // Battle uses the soldier count (per side) and terrain settings, but not waves.
-      config.classList.toggle('locked', !isCustom && !isBattle);
-      config.hidden = isStress;
-      document.getElementById('cfg-wave-row')!.hidden = isBattle;
-      document.getElementById('cfg-warriors-label')!.textContent = isBattle
-        ? 'Soldiers'
-        : 'Warriors';
-      document.getElementById('cfg-army-title')!.textContent = isBattle
-        ? 'Army (per side)'
-        : 'Army';
-      stressInfo.hidden = !isStress;
-      battleInfo.hidden = !isBattle;
-    };
-
-    tabDefault.addEventListener('click', () => {
-      setTab(tabDefault);
-      warriorSlider.value = '300';
-      warriorNum.value = '300';
-      waveSlider.value = '1';
-      waveVal.textContent = '1×';
-      this.setOptActive('cfg-terrain', 'normal');
-    });
-
-    tabCustom.addEventListener('click', () => setTab(tabCustom));
-    tabStress.addEventListener('click', () => setTab(tabStress));
-    tabBattle.addEventListener('click', () => {
-      setTab(tabBattle);
-      warriorSlider.value = String(BATTLE_CONFIG.warriorCount);
-      warriorNum.value = String(BATTLE_CONFIG.warriorCount);
-    });
-
-    // Warrior slider + number input — keep in sync
-    warriorSlider.addEventListener('input', () => {
-      warriorNum.value = warriorSlider.value;
-    });
-    warriorNum.addEventListener('input', () => {
-      const v = Math.min(2000, Math.max(0, parseInt(warriorNum.value) || 0));
-      warriorSlider.value = v.toString();
-    });
-    // Show the clamped value once editing is done (clamping while typing would fight the user)
-    warriorNum.addEventListener('change', () => {
-      warriorNum.value = warriorSlider.value;
-    });
-
-    // Wave size slider
-    waveSlider.addEventListener('input', () => {
-      waveVal.textContent = `${waveSlider.value}×`;
-    });
-
-    // Terrain buttons
-    document.getElementById('cfg-terrain')!.addEventListener('click', (e) => {
-      const btn = (e.target as HTMLElement).closest('button');
-      if (btn) this.setOptActive('cfg-terrain', btn.dataset.val!);
-    });
-
-    // Map buttons (D5): Random / Fixed / Saved
-    const mapSaved = document.getElementById('cfg-map-saved') as HTMLSelectElement;
-    document.getElementById('cfg-map')!.addEventListener('click', (e) => {
-      const btn = (e.target as HTMLElement).closest('button');
-      if (!btn) return;
-      this.setOptActive('cfg-map', btn.dataset.val!);
-      mapSaved.hidden = btn.dataset.val !== 'saved';
-    });
-    this.refreshSavedMaps();
-
-    // Battle sides: the user or rules, the LLM alone, or the LLM with Jev or SubQ Snap as its
-    // tactical layer (D38, D51); how the LLM is reached and which model (D29, D52); AI timing
-    // (D4). Each row only appears when it applies.
-    const showAiRows = () => {
-      for (const [side, groupId] of [
-        ['west', 'cfg-west'],
-        ['east', 'cfg-opponent'],
-      ] as const) {
-        const llm = this.getOptActive(groupId).includes('llm');
-        const router = this.getOptActive(`cfg-${side}-provider`) === 'openrouter';
-        const custom = this.routerLists[side].value === '';
-        document.getElementById(`row-${side}-provider`)!.hidden = !llm;
-        document.getElementById(`row-${side}-model`)!.hidden = !llm || router;
-        document.getElementById(`row-${side}-router`)!.hidden = !llm || !router;
-        document.getElementById(`cfg-${side}-router-id`)!.hidden = !custom;
-      }
-      const west = this.getOptActive('cfg-west');
-      const east = this.getOptActive('cfg-opponent');
-      document.getElementById('row-timing')!.hidden = west === 'none' && east === 'none';
-    };
-    for (const side of ['west', 'east'] as const) {
-      this.routerLists[side] = this.routerList(side);
-      this.routerLists[side].onChoose(() => {
-        showAiRows();
-        if (this.routerLists[side].value === '')
-          (document.getElementById(`cfg-${side}-router-id`) as HTMLInputElement).focus();
-      });
-    }
-    for (const id of [
-      'cfg-west',
-      'cfg-opponent',
-      'cfg-timing',
-      'cfg-west-model',
-      'cfg-east-model',
-      'cfg-west-provider',
-      'cfg-east-provider',
-      'cfg-objective',
-    ]) {
-      document.getElementById(id)!.addEventListener('click', (e) => {
-        const btn = (e.target as HTMLElement).closest('button');
-        if (!btn) return;
-        this.setOptActive(id, btn.dataset.val!);
-        showAiRows();
-      });
-    }
-
+  // Start, Continue and the Controls screen; the menu's settings are MainMenu's.
+  private wireMenuButtons(): void {
     // Start: set up the run, keep it paused behind the loading screen, then start it
     document.getElementById('menu-start')!.addEventListener('click', async () => {
       if (this.loading.isActive()) return;
-      // A saved map that cannot be read must not silently become a random one: paired
-      // experiments rely on the map
-      if (!tabStress.classList.contains('active') && this.getOptActive('cfg-map') === 'saved') {
-        if (!mapSaved.value) {
-          window.alert(
-            'There is no saved map yet: save one with the "Save this map" button in the top bar first.'
-          );
-          return;
-        }
-        if (!loadSavedMap(mapSaved.value)) {
-          window.alert(`The saved map "${mapSaved.value}" could not be read. Choose another map.`);
-          return;
-        }
-      }
-      // A mistyped OpenRouter id must not silently run another model: model comparisons rely on it
-      if (tabBattle.classList.contains('active')) {
-        for (const [side, groupId] of [
-          ['west', 'cfg-west'],
-          ['east', 'cfg-opponent'],
-        ] as const) {
-          const llm = this.getOptActive(groupId).includes('llm');
-          if (
-            llm &&
-            this.getOptActive(`cfg-${side}-provider`) === 'openrouter' &&
-            !this.routerId(side)
-          ) {
-            window.alert(
-              `Type the ${side === 'west' ? 'West' : 'East'} model's OpenRouter id, e.g. "google/gemini-3.8-flash".`
-            );
-            return;
-          }
-        }
-      }
-      this.selectedUnitId = null;
-      this.renderer.setSelectedUnit(null);
-      this.hud.showUnit(null);
-      this.renderer.clearTerrainCache();
-      this.minimapRenderer.clearTerrainCache();
+      const choice = this.menu.readStart();
+      if (!choice) return;
+      this.resetView();
       this.closeMenu();
 
-      if (tabStress.classList.contains('active')) {
+      if (choice.kind === 'stress') {
         // Restart (R) repeats the stress test; no AI layers in classic modes
         this.lastConfig = DEFAULT_CONFIG;
         this.engine.restartStressTest();
         this.startControllers();
       } else {
-        const isDefault = tabDefault.classList.contains('active');
-        const isBattle = tabBattle.classList.contains('active');
-        const base: SimConfig = isBattle
-          ? {
-              ...BATTLE_CONFIG,
-              warriorCount: parseInt(warriorSlider.value),
-              terrainDensity: this.getOptActive('cfg-terrain') as TerrainDensity,
-              objective: this.getOptActive('cfg-objective') as Objective,
-            }
-          : isDefault
-            ? DEFAULT_CONFIG
-            : {
-                ...DEFAULT_CONFIG,
-                warriorCount: parseInt(warriorSlider.value),
-                waveMultiplier: parseFloat(waveSlider.value),
-                terrainDensity: this.getOptActive('cfg-terrain') as TerrainDensity,
-              };
-        const cfg: SimConfig = {
-          ...base,
-          presetGrid: this.chosenMap(mapSaved.value),
-          friendlyAI: isBattle ? this.sideAi('cfg-west') : 'none',
-          enemyAI: isBattle ? this.sideAi('cfg-opponent') : 'none',
-          aiTiming: this.getOptActive('cfg-timing') === 'paused' ? 'paused' : 'realtime',
-          friendlyModel: this.chosenModel('west'),
-          enemyModel: this.chosenModel('east'),
-          friendlyTactical: this.tacticalModel('cfg-west'),
-          enemyTactical: this.tacticalModel('cfg-opponent'),
-        };
-        this.lastConfig = cfg;
-        const map = this.getOptActive('cfg-map');
-        this.mapChoice = map === 'saved' ? `saved: ${mapSaved.value}` : map;
-        this.engine.applyConfig(cfg);
+        this.lastConfig = choice.cfg;
+        this.mapChoice = choice.mapChoice;
+        this.engine.applyConfig(choice.cfg);
         this.engine.restart();
         // AI controllers tick inside the engine update, so they stay idle while paused
         this.startControllers();
@@ -479,89 +280,6 @@ export class UIController {
     }
   }
 
-  // Terrain for the chosen map option; undefined means "generate a new random map".
-  private chosenMap(savedName: string): TerrainType[][] | undefined {
-    const choice = this.getOptActive('cfg-map');
-    if (choice === 'fixed') return decodeGrid(FIXED_MAP) ?? undefined;
-    if (choice === 'saved' && savedName) return loadSavedMap(savedName) ?? undefined;
-    return undefined;
-  }
-
-  private refreshSavedMaps(): void {
-    const select = document.getElementById('cfg-map-saved') as HTMLSelectElement;
-    const names = listSavedMaps();
-    select.innerHTML = '';
-    for (const name of names) select.add(new Option(name, name));
-    if (names.length === 0) select.add(new Option('(no saved maps)', ''));
-  }
-
-  // Saves the current terrain under a name so it can be chosen again from the menu.
-  private saveCurrentMap(): void {
-    const defaultName = `map-${new Date().toISOString().slice(0, 16).replace('T', ' ')}`;
-    const name = window.prompt('Save this map as:', defaultName)?.trim();
-    if (!name) return;
-    // Saving twice within a minute gives the same default name; never replace a map unasked
-    if (
-      listSavedMaps().includes(name) &&
-      !window.confirm(`A map named "${name}" is already saved. Replace it?`)
-    )
-      return;
-    if (!saveMap(name, this.stateManager.getBattlefield().grid)) {
-      window.alert('Could not save the map (browser storage is unavailable).');
-      return;
-    }
-    this.refreshSavedMaps();
-  }
-
-  // The OpenRouter models of the menu, grouped by company, then a free id (D52)
-  private routerList(side: 'west' | 'east'): Dropdown {
-    const items = [
-      ...OPENROUTER_MODELS.map((m) => ({ value: m.id, label: m.label, group: m.company })),
-      { value: '', label: 'Other model id…', group: 'Other' },
-    ];
-    const root = document.getElementById(`cfg-${side}-router`)!;
-    return new Dropdown(root, items, 'anthropic/claude-sonnet-5.5');
-  }
-
-  // A side's choice in the menu: "LLM + Snap" is the LLM with Snap as its tactical layer (D51)
-  private sideAi(groupId: string): SideAI {
-    const v = this.getOptActive(groupId);
-    return v === 'snap+llm' ? 'jev+llm' : (v as SideAI);
-  }
-
-  private tacticalModel(groupId: string): TacticalModel {
-    return this.getOptActive(groupId) === 'snap+llm' ? 'snap' : 'jev';
-  }
-
-  // The LLM chosen for a side: a Claude alias, or "openrouter:<id>" (D52). A typed id that is not
-  // an OpenRouter id falls back to the list's first model; Start checks it first.
-  private chosenModel(side: 'west' | 'east'): LlmModel {
-    if (this.getOptActive(`cfg-${side}-provider`) !== 'openrouter')
-      return this.getOptActive(`cfg-${side}-model`) as LlmModel;
-    return `openrouter:${this.routerId(side) ?? OPENROUTER_MODELS[0].id}`;
-  }
-
-  private routerId(side: 'west' | 'east'): string | null {
-    const picked = this.routerLists[side].value;
-    const id =
-      picked || (document.getElementById(`cfg-${side}-router-id`) as HTMLInputElement).value.trim();
-    return isOpenRouterId(id) ? id : null;
-  }
-
-  private setOptActive(groupId: string, val: string): void {
-    const group = document.getElementById(groupId)!;
-    group.querySelectorAll('button').forEach((btn) => {
-      btn.classList.toggle('active', (btn as HTMLButtonElement).dataset.val === val);
-    });
-  }
-
-  private getOptActive(groupId: string): string {
-    const active = document
-      .getElementById(groupId)!
-      .querySelector('button.active') as HTMLButtonElement | null;
-    return active?.dataset.val ?? '';
-  }
-
   // --- Button events ---
 
   private wireButtonEvents(): void {
@@ -570,7 +288,11 @@ export class UIController {
     document.getElementById('btn-faster')!.addEventListener('click', () => this.changeSpeed(1));
     document.getElementById('btn-slower')!.addEventListener('click', () => this.changeSpeed(-1));
     document.getElementById('btn-restart')!.addEventListener('click', () => this.doRestart());
-    document.getElementById('btn-save-map')!.addEventListener('click', () => this.saveCurrentMap());
+    document
+      .getElementById('btn-save-map')!
+      .addEventListener('click', () =>
+        this.menu.saveCurrentMap(this.stateManager.getBattlefield().grid)
+      );
     document.getElementById('btn-menu')!.addEventListener('click', () => this.openMenu());
     document.getElementById('btn-help')!.addEventListener('click', () => {
       this.elInstructions.style.display = 'flex';
@@ -661,227 +383,39 @@ export class UIController {
       }
     });
 
-    // Let InputHandler know whether we're zoomed so it picks the right drag mode
-    this.inputHandler.setZoomChecker(() => this.renderer.isZoomed());
-
-    // Scroll → zoom
-    this.inputHandler.onScroll((delta, x, y) => {
-      this.renderer.zoomAt(delta, x, y, true);
-    });
-
-    // Drag → pan
-    this.inputHandler.onDrag((dx, dy) => {
-      this.renderer.pan(dx, dy);
-    });
-
-    // Left click → clear task point + select unit (sorted by distance)
-    this.inputHandler.onLeftClick((cx, cy) => {
-      const hero = this.stateManager.getHero();
-      if (hero && !this.engine.isBattleMode()) this.engine.issueCommand(hero, null, 'user');
-      const grid = this.renderer.canvasToGrid(cx, cy);
-      const nearby = this.stateManager.getUnitsInRadius(grid.x, grid.y, 2);
-      nearby.sort((a, b) => {
-        const dxa = a.position.x - grid.x;
-        const dya = a.position.y - grid.y;
-        const dxb = b.position.x - grid.x;
-        const dyb = b.position.y - grid.y;
-        return dxa * dxa + dya * dya - (dxb * dxb + dyb * dyb);
-      });
-      const clicked = nearby[0] ?? null;
-      this.selectedUnitId = clicked?.id ?? null;
-      this.renderer.setSelectedUnit(this.selectedUnitId);
-      this.hud.showUnit(clicked);
-    });
-
-    // Right click → task point for the selected friendly hero, or the first one
-    this.inputHandler.onRightClick((cx, cy) => {
-      const grid = this.renderer.canvasToGrid(cx, cy);
-      // Orders outside the map would send the hero to an unreachable point
-      if (grid.x < 0 || grid.y < 0 || grid.x >= GRID_SIZE || grid.y >= GRID_SIZE) return;
-      const hero = this.commandableHero();
-      if (hero) {
-        this.engine.issueCommand(hero, { type: 'move', target: { x: grid.x, y: grid.y } }, 'user');
-        this.sound.play('order');
-      }
-    });
-
-    // Hover → tooltip
-    this.inputHandler.onHover((cx, cy) => {
-      if (Math.abs(cx - this.lastTooltipX) < 5 && Math.abs(cy - this.lastTooltipY) < 5) return;
-      this.lastTooltipX = cx;
-      this.lastTooltipY = cy;
-      this.updateTooltip(cx, cy);
-    });
-
-    // Leave canvas → hide tooltip; a selection drag that leaves the canvas is cancelled
-    this.inputHandler.onCanvasLeave(() => {
-      this.elTooltip.style.display = 'none';
-      this.elSelectOverlay.style.display = 'none';
-      this.lastTooltipX = this.lastTooltipY = -999;
-    });
-
-    // Drag at full zoom → show selection rectangle
-    this.inputHandler.onSelectDrag((x1, y1, x2, y2) => {
-      this.showSelectOverlay(x1, y1, x2, y2);
-    });
-
-    // Selection drag end → show area stats
-    this.inputHandler.onSelectDragEnd((x1, y1, x2, y2) => {
-      this.elSelectOverlay.style.display = 'none';
-      this.showSelectStats(x1, y1, x2, y2);
-    });
-
-    // Minimap click → center main view on that tile
-    const minimapEl = document.getElementById('minimapCanvas') as HTMLCanvasElement;
-    minimapEl.addEventListener('click', (e: MouseEvent) => {
-      const r = minimapEl.getBoundingClientRect();
-      const tileX = ((e.clientX - r.left) / r.width) * GRID_SIZE;
-      const tileY = ((e.clientY - r.top) / r.height) * GRID_SIZE;
-      this.renderer.centerOn(tileX, tileY, true);
-    });
-  }
-
-  // --- Tooltip ---
-
-  private updateTooltip(cx: number, cy: number): void {
-    const grid = this.renderer.canvasToGrid(cx, cy);
-    const nearby = this.stateManager.getUnitsInRadius(grid.x, grid.y, 1.5);
-
-    if (nearby.length === 0) {
-      this.elTooltip.style.display = 'none';
-      return;
-    }
-
-    // Find the closest unit to cursor
-    let closest = nearby[0];
-    let minD2 = Infinity;
-    for (const u of nearby) {
-      const dx = u.position.x - grid.x;
-      const dy = u.position.y - grid.y;
-      const d2 = dx * dx + dy * dy;
-      if (d2 < minD2) {
-        minD2 = d2;
-        closest = u;
-      }
-    }
-
-    const battle = this.engine.isBattleMode();
-    const stateLabel =
-      closest.state === BehaviorState.IDLE && closest.path.length > 0
-        ? 'Moving'
-        : (['Standing', 'Moving', 'Fighting', 'Fleeing', 'Resting'][closest.state] ??
-          BehaviorState[closest.state]);
-    const side = battle ? `${closest.faction === Faction.FRIENDLY ? 'West' : 'East'} ` : '';
-    const kind =
-      closest.unitType === UnitType.HERO
-        ? `hero ${(closest as IHero).heroIndex}`
-        : battle
-          ? 'soldier'
-          : UnitType[closest.unitType].toLowerCase();
-    this.elTooltip.innerHTML =
-      `<span class="${closest.faction === Faction.FRIENDLY ? 'west' : 'east'}-text">${side}${kind}</span><br>` +
-      `HP ${Math.ceil(closest.hp)}/${closest.maxHp}<br>` +
-      `<span class="dim">${stateLabel}</span>`;
-
-    // Position near the cursor; flip to the other side near the right or bottom edge
-    this.elTooltip.style.display = 'block';
-    const tw = this.elTooltip.offsetWidth;
-    const th = this.elTooltip.offsetHeight;
-    const { width, height } = this.renderer.getViewSize();
-    const tipX = cx + 16 + tw > width ? cx - tw - 12 : cx + 16;
-    const tipY = Math.max(0, Math.min(height - th, cy - 12));
-    this.elTooltip.style.left = `${tipX}px`;
-    this.elTooltip.style.top = `${tipY}px`;
-  }
-
-  // --- Drag-select overlay ---
-
-  private showSelectOverlay(x1: number, y1: number, x2: number, y2: number): void {
-    const left = Math.min(x1, x2);
-    const top = Math.min(y1, y2);
-    const w = Math.abs(x2 - x1);
-    const h = Math.abs(y2 - y1);
-    this.elSelectOverlay.style.left = `${left}px`;
-    this.elSelectOverlay.style.top = `${top}px`;
-    this.elSelectOverlay.style.width = `${w}px`;
-    this.elSelectOverlay.style.height = `${h}px`;
-    this.elSelectOverlay.style.display = 'block';
-  }
-
-  private commandableHero(): IHero | undefined {
-    const selected = this.selectedUnitId
-      ? this.stateManager.getUnitById(this.selectedUnitId)
-      : undefined;
-    if (
-      selected &&
-      selected.unitType === UnitType.HERO &&
-      selected.faction === Faction.FRIENDLY &&
-      (selected as IHero).controller === 'user'
-    ) {
-      return selected as IHero;
-    }
-    const first = this.stateManager.getHero();
-    return first?.controller === 'user' ? first : undefined;
-  }
-
-  private showSelectStats(x1: number, y1: number, x2: number, y2: number): void {
-    const g1 = this.renderer.canvasToGrid(Math.min(x1, x2), Math.min(y1, y2));
-    const g2 = this.renderer.canvasToGrid(Math.max(x1, x2), Math.max(y1, y2));
-    const inside: IUnit[] = [];
-    for (const u of this.stateManager.getBattlefield().units) {
-      if (u.position.x < g1.x || u.position.x > g2.x) continue;
-      if (u.position.y < g1.y || u.position.y > g2.y) continue;
-      inside.push(u);
-    }
-    this.hud.showArea(inside);
+    // Mouse on the battlefield and the minimap
+    this.canvas.wire();
   }
 
   // --- LocalStorage ---
 
-  // Storage can be unavailable (private windows, blocked site data); settings then stay
-  // at their defaults for this session.
-  private readSetting(key: string): string | null {
-    try {
-      return localStorage.getItem(key);
-    } catch {
-      return null;
-    }
-  }
-
   private loadSettings(): void {
-    const read = (key: string) => this.readSetting(key);
-    const speed = read(LS_SPEED);
-    if (speed) {
-      const parsed = parseFloat(speed) as SpeedStep;
-      if (SPEED_STEPS.includes(parsed)) {
-        this.engine.setSpeed(parsed);
-        this.updateSpeedDisplay();
-      }
+    const speed = savedSpeed();
+    if (speed !== null) {
+      this.engine.setSpeed(speed);
+      this.updateSpeedDisplay();
     }
 
-    if (read(LS_DEBUG) === 'true') {
+    if (savedDebug()) {
       this.debugMode = true;
       this.renderer.setDebugMode(true);
       this.elBtnDebug.classList.add('on');
     }
 
-    // Effects default to on; only an explicit 'false' turns them off
-    this.renderer.setEffectsEnabled(read(LS_EFFECTS) !== 'false');
+    this.renderer.setEffectsEnabled(savedEffects());
     this.updateEffectsButton();
-    this.renderer.setBarsMode(read(LS_BARS) === 'all' ? 'all' : 'smart');
+    this.renderer.setBarsMode(savedBars());
     this.updateBarsButton();
   }
 
   private saveSettings(): void {
-    try {
-      localStorage.setItem(LS_SPEED, this.engine.getSpeed().toString());
-      localStorage.setItem(LS_DEBUG, this.debugMode.toString());
-      localStorage.setItem(LS_EFFECTS, this.renderer.isEffectsEnabled().toString());
-      localStorage.setItem(LS_BARS, this.renderer.getBarsMode());
-      localStorage.setItem(LS_SOUND, this.sound.isMuted() ? 'off' : 'on');
-    } catch {
-      // Storage unavailable: settings last for this session only
-    }
+    saveSettings({
+      speed: this.engine.getSpeed(),
+      debug: this.debugMode,
+      effects: this.renderer.isEffectsEnabled(),
+      bars: this.renderer.getBarsMode(),
+      muted: this.sound.isMuted(),
+    });
   }
 
   // Battle mode: shown when the match is decided.
@@ -970,13 +504,16 @@ export class UIController {
 
   // --- Restart ---
 
-  private doRestart(): void {
-    if (this.loading.isActive()) return;
-    this.selectedUnitId = null;
-    this.renderer.setSelectedUnit(null);
-    this.hud.showUnit(null);
+  // Clears the selection and the terrain drawn for the old map, before a new run.
+  private resetView(): void {
+    this.canvas.clearSelection();
     this.renderer.clearTerrainCache();
     this.minimapRenderer.clearTerrainCache();
+  }
+
+  private doRestart(): void {
+    if (this.loading.isActive()) return;
+    this.resetView();
     // Restarting a stress test runs the stress test again (it used to restart as Default)
     if (this.engine.isStressMode()) this.engine.restartStressTest();
     else {
@@ -1005,14 +542,7 @@ export class UIController {
         this.stateManager
       );
       this.updatePauseButton();
-      if (this.selectedUnitId) {
-        const unit = this.stateManager.getUnitById(this.selectedUnitId);
-        this.hud.showUnit(unit ?? null);
-        if (!unit) {
-          this.selectedUnitId = null;
-          this.renderer.setSelectedUnit(null);
-        }
-      }
+      this.canvas.refreshSelection();
     }, 100);
   }
 }

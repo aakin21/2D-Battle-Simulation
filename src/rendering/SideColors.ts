@@ -3,3 +3,5 @@
 export const SIDE_HEX = ['#ffd23f', '#6aa8ff'];
 // The same colours as "r, g, b", for rgb() and rgba()
 export const SIDE_RGB = ['255, 210, 63', '106, 168, 255'];
+// Battle mode: enemy heroes (and their task points) stand out from blue berserkers
+export const ENEMY_HERO_COLOR = '#00E5FF';

@@ -1,11 +1,12 @@
 # src/ai
 
-AI layers that command the heroes of one side. Each implements `AIController` (`tick`, `isWaiting`) from `src/engine/SimulationEngine.ts` and is attached per match by `UIController.startControllers()`.
+AI layers that command the heroes of one side. Each extends `AiLayer`, which implements `AIController` (`tick`, `isWaiting`, `dispose`) from `src/engine/SimulationEngine.ts`, and is attached per match by `UIController.startControllers()`.
 
 | File               | Layer                   | How                                                                                                                                  |
 | ------------------ | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
 | `JevController.ts` | 2, tactical (D6, D21)   | Every 4 s, one request per side to `/api/jev` (dev proxy → TypeSafe). One Choice question per hero over a fixed option list.         |
 | `LlmController.ts` | 3, strategic (D10, D22) | Every 15 s (D50), a whole-map report to `/api/llm` (dev server → Claude Agent SDK). Reply is JSON orders, validated before use.            |
+| `AiLayer.ts`       | –                       | Base class of both controllers: the shared lifecycle (interval `tick`, one request at a time, `isWaiting`, `dispose`), the request with its timeout and failure handling (`request`, `tryAgainLater`, `fail`) and the counters the panels read (`exchanges`, `failedRequests`, `lastError`, `failure`, …). What is asked, retries, which failures may pass later and the hints stay in the layers. |
 | `AiServer.ts`      | –                       | Where `/api/jev`, `/api/snap` and `/api/llm` are: this site, or the tunnel address and password given once in the demo link (`?ai=…&key=…`, D37; the address is reduced to its origin, `https://` added when missing, `http://` for localhost). Failure details, retry helpers. |
 | `Models.ts`        | –                       | The models a side can use, one id and label everywhere: Claude aliases (Agent SDK, D44), `openrouter:<id>` for other companies' LLMs (D52, list `OPENROUTER_MODELS`), the tactical model Jev or Snap (D51). |
 | `Snap.ts`          | –                       | SubQ Snap as the tactical layer (D51): Jev's request turned into Snap's format with the same options (one text per option, instructions as text, at most 16 questions). |

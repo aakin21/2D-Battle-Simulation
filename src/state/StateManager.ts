@@ -1,5 +1,4 @@
 import {
-  TerrainType,
   UnitType,
   Faction,
   BehaviorState,
@@ -15,9 +14,10 @@ import {
   TerrainDensity,
   DEFAULT_CONFIG,
 } from '../types/types';
-import { Pathfinder } from '../engine/Pathfinder';
+import { Pathfinder, NO_REGION } from '../engine/Pathfinder';
 import { SpatialGrid } from '../engine/SpatialGrid';
 import { BerserkerPool } from '../engine/BerserkerPool';
+import { generateTerrain } from './TerrainGen';
 import {
   CHARISMA_RADIUS,
   CHARISMA_BONUS,
@@ -54,88 +54,9 @@ export class StateManager {
     this.battlefield = this.emptyBattlefield();
   }
 
+  // Random terrain (TerrainGen.ts)
   initGrid(density: TerrainDensity = 'normal'): void {
-    const grid: TerrainType[][] = Array.from({ length: GRID_SIZE }, () =>
-      new Array(GRID_SIZE).fill(TerrainType.OPEN)
-    );
-
-    const presets: Record<TerrainDensity, { forest: number; swamp: number; mountain: number }> = {
-      light: { forest: 0.15, swamp: 0.08, mountain: 0.05 },
-      normal: { forest: 0.25, swamp: 0.15, mountain: 0.1 },
-      dense: { forest: 0.32, swamp: 0.2, mountain: 0.14 },
-    };
-    const p = presets[density] ?? presets.normal; // a config set from code may hold anything
-    const totalTiles = GRID_SIZE * GRID_SIZE;
-    this.placeBlobClusters(grid, TerrainType.FOREST, Math.floor(totalTiles * p.forest), 4, 12);
-    this.placeBlobClusters(grid, TerrainType.SWAMP, Math.floor(totalTiles * p.swamp), 3, 8);
-    this.placeBlobClusters(grid, TerrainType.MOUNTAIN, Math.floor(totalTiles * p.mountain), 2, 6);
-
-    this.battlefield.grid = grid;
-  }
-
-  private placeBlobClusters(
-    grid: TerrainType[][],
-    type: TerrainType,
-    targetCount: number,
-    minClusters: number,
-    maxClusters: number
-  ): void {
-    const numClusters = minClusters + Math.floor(Math.random() * (maxClusters - minClusters + 1));
-    const tilesPerCluster = Math.ceil(targetCount / numClusters);
-    let totalPlaced = 0;
-
-    for (let c = 0; c < numClusters && totalPlaced < targetCount; c++) {
-      let sx = 0,
-        sy = 0,
-        found = false;
-      for (let attempt = 0; attempt < 300; attempt++) {
-        sx = Math.floor(Math.random() * GRID_SIZE);
-        sy = Math.floor(Math.random() * GRID_SIZE);
-        if (grid[sy][sx] === TerrainType.OPEN) {
-          found = true;
-          break;
-        }
-      }
-      if (!found) continue;
-
-      const frontier: number[] = [sy * GRID_SIZE + sx];
-      const inFrontier = new Set<number>(frontier);
-      const clusterTarget = Math.min(tilesPerCluster, targetCount - totalPlaced);
-      let clusterPlaced = 0;
-
-      while (frontier.length > 0 && clusterPlaced < clusterTarget) {
-        const idx = Math.floor(Math.random() * frontier.length);
-        const key = frontier[idx];
-        frontier[idx] = frontier[frontier.length - 1];
-        frontier.pop();
-
-        const x = key % GRID_SIZE;
-        const y = Math.floor(key / GRID_SIZE);
-
-        if (grid[y][x] !== TerrainType.OPEN) continue;
-
-        grid[y][x] = type;
-        totalPlaced++;
-        clusterPlaced++;
-
-        const dirs = [
-          [1, 0],
-          [-1, 0],
-          [0, 1],
-          [0, -1],
-        ];
-        for (const [dx, dy] of dirs) {
-          const nx = x + dx,
-            ny = y + dy;
-          if (nx < 0 || nx >= GRID_SIZE || ny < 0 || ny >= GRID_SIZE) continue;
-          const nk = ny * GRID_SIZE + nx;
-          if (!inFrontier.has(nk) && grid[ny][nx] === TerrainType.OPEN) {
-            inFrontier.add(nk);
-            frontier.push(nk);
-          }
-        }
-      }
-    }
+    this.battlefield.grid = generateTerrain(density);
   }
 
   private spawnInitialUnits(warriorCount: number = 100): void {
@@ -320,17 +241,9 @@ export class StateManager {
     return positions;
   }
 
+  // Neither the tile nor a cardinal neighbour is a mountain: walkable for the pathfinder
   public isClearTile(x: number, y: number): boolean {
-    const dirs = [
-      [0, 0],
-      [1, 0],
-      [-1, 0],
-      [0, 1],
-      [0, -1],
-    ];
-    return dirs.every(
-      ([dx, dy]) => this.battlefield.grid[y + dy]?.[x + dx] !== TerrainType.MOUNTAIN
-    );
+    return !Pathfinder.isBlocked(this.battlefield.grid, x, y);
   }
 
   // True if the tile belongs to the largest connected walkable area of the map.
@@ -342,46 +255,20 @@ export class StateManager {
     return this.mainRegion[ty * GRID_SIZE + tx] === 1;
   }
 
-  // Flood-fills walkable tiles (same rule as the pathfinder) and keeps the largest area.
+  // The pathfinder's walkable regions (same flood fill and ids, in scan order); keeps the
+  // largest, the first one scanned on a tie. On a map without a clear tile, best stays
+  // NO_REGION and so every tile is marked.
   private computeMainRegion(): void {
-    const label = new Int32Array(GRID_SIZE * GRID_SIZE).fill(-1);
-    let best = -1;
+    const label = Pathfinder.labelRegions(this.battlefield.grid);
+    const sizes: number[] = [];
+    for (let k = 0; k < label.length; k++) {
+      if (label[k] !== NO_REGION) sizes[label[k]] = (sizes[label[k]] ?? 0) + 1;
+    }
+    let best = NO_REGION;
     let bestSize = 0;
-    let next = 0;
-    const stack: number[] = [];
-
-    for (let start = 0; start < label.length; start++) {
-      if (label[start] !== -1) continue;
-      const sx = start % GRID_SIZE;
-      const sy = Math.floor(start / GRID_SIZE);
-      if (!this.isClearTile(sx, sy)) continue;
-
-      const id = next++;
-      let size = 0;
-      label[start] = id;
-      stack.push(start);
-      while (stack.length > 0) {
-        const k = stack.pop()!;
-        size++;
-        const x = k % GRID_SIZE;
-        const y = Math.floor(k / GRID_SIZE);
-        for (const [dx, dy] of [
-          [1, 0],
-          [-1, 0],
-          [0, 1],
-          [0, -1],
-        ]) {
-          const nx = x + dx;
-          const ny = y + dy;
-          if (nx < 0 || ny < 0 || nx >= GRID_SIZE || ny >= GRID_SIZE) continue;
-          const nk = ny * GRID_SIZE + nx;
-          if (label[nk] !== -1 || !this.isClearTile(nx, ny)) continue;
-          label[nk] = id;
-          stack.push(nk);
-        }
-      }
-      if (size > bestSize) {
-        bestSize = size;
+    for (let id = 0; id < sizes.length; id++) {
+      if (sizes[id] > bestSize) {
+        bestSize = sizes[id];
         best = id;
       }
     }
