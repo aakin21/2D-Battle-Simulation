@@ -158,6 +158,7 @@ D1–D4 are the professor's proposals from the 2026-09-30 meeting; D5 onwards ca
 | D50 | 2026-10-13 | LLM report interval 15 s instead of 20 s | Fresher strategic orders. Measured answer times in the author's logs of 2026-10-10 (real time): Sonnet mean 3.3–3.9 s, Opus 8.9–10.3 s (longest 22.8 s; 4 skipped requests in one match at 20 s); Haiku 5.5 not measured yet (author: about 12 s). Cost: about 33% more LLM requests, and more skipped requests when an answer takes over 15 s (Q7). Changes the interval of D1/D26 | Accepted (2026-10-16) |
 | D51 | 2026-10-14 | Race two decision models as the tactical layer: Jev (TypeSafe) and SubQ Snap (Subquadratic) become two experiment conditions, "LLM + Jev" and "LLM + Snap". First a shadow comparison: the Jev requests saved in match logs are sent unchanged to Snap and the two models' choices, agreement, probabilities and latency are compared (no effect on any match); then a menu choice of the tactical model. Both get the same option names and descriptions | Snap claims to beat Jev on its own benchmarks, while Jev leads an independent comparison of 23 decision models; only our own task can settle it, and comparing decision models in a real-time game is a thesis contribution (R14). Snap's API has Jev's request format (same `/v1/systemone` path, `state`, `questions`, `noul`/`choice`/`score`), so the work is small: options' what/not_for become one text, at most 16 questions per request. Not replacing Jev (no evidence for our task, it would change a condition mid-thesis); not asking both on every decision (latency of the slower one, unclear who decided) | Accepted (2026-10-14) |
 | D52 | 2026-10-14 | The thesis will also compare LLMs of different companies (e.g. Gemini, Claude, GPT) as the strategic layer, through OpenRouter: one key and one API for every model, and in that experiment every compared model, Claude included, goes through the same OpenRouter path. The main experiments stay on Claude through the Agent SDK and the author's subscription (D44); Jev and SubQ Snap keep their own accounts (D51) | One harness for all models keeps the comparison fair (prompts and harness change results strongly, R13); one key instead of an account per company. Cost: OpenRouter bills per token (author's logs at API prices: Sonnet about $0.75–0.80 and Opus $1.0–2.5 per side per match of 10–21 answers; a full 500 s match is about 25 answers), so the experiment needs a budget (models, number of matches) before it runs. The API is stateless, unlike the persistent Agent SDK session: the history must be resent or summarised (Q16). See R15 | Accepted (2026-10-14) |
+| D53 | 2026-10-17 | Battle mode: units take up room. Units closer than 0.9 tiles push each other apart (at most 2 tiles/s, a soldier's walking speed), never into a mountain buffer or another walkable region; a hero is not pushed by its own soldiers, which give way; soldiers stop around a standing hero within a radius that grows with the group. A cap on attackers per target ("attack slots") and a shorter combat range stay as alternatives if heroes still die too fast | Units stacked on one tile and nearly a whole army could hit one unit, so melee followed a law steeper than Lanchester's square law: 700 soldiers beat 500 losing 79 (square law: 210; linear law of melee: 500). With separation: 340 lost, at most 26–28 attackers on one unit, 2.5 ms per engine step at 1000 vs 1000 (`tests/smoke/CASES.md` 14.x). A physical rule (units take up room) was preferred to an abstract cap. See R17 | Accepted (2026-10-17) |
 
 ### Decision records
 
@@ -1057,6 +1058,35 @@ Only this scenario was run at first: the full test was stopped at the author's r
 
 **Sources:**
 - [Churchill, Saffidine, Buro: Fast Heuristic Search for RTS Game Combat Scenarios (AIIDE 2012)](https://ojs.aaai.org/index.php/AIIDE/article/view/12527)
+
+### R17: Why bigger armies won so cheaply, and how games keep units apart (2026-10-17)
+
+**Question:** Why did a bigger army beat a smaller one with almost no losses (author: 700 vs 500, ~100 lost against ~400), and how do games stop units from piling up?
+
+**Setup:** `tests/smoke/out/probe-lanchester.ts` (outside the repository): two armies in discs around their three heroes, heroes ordered to attack, open map; losses, most attackers on one unit, most units on one tile.
+
+| Fight | Bigger side lost (before → after separation) | Most attackers on one unit | Most units on one tile |
+|---|---|---|---|
+| 500 vs 700 | 79 → 340 | 247 → 26 | 366 → 12 |
+| 300 vs 700 | 8 → 149 | 172 → 28 | 297 → 12 |
+| 500 vs 500 | 446 → 482 | 86 → 18 | 75 → 10 |
+
+**Findings:**
+- ✅ Lanchester's laws: in aimed fire every unit can hit, so strength grows with the square of the numbers; in melee only units in contact fight, so strength grows linearly and both sides lose about as many (linear law). 700 vs 500 by the square law: the bigger side loses about 210; by the linear law about 500.
+- ❌ Our units had no size: armies stood on a few tiles and, with a combat range of 2 tiles, almost all of them could hit one unit, a law even steeper than the square law (79 lost).
+- ✅ Games limit simultaneous attackers with attack tokens or slots (DOOM 2016, The Last of Us Part II) or give units room: boids separation, reciprocal velocity obstacles (ORCA) as in StarCraft II-style movement; hard one-unit-per-tile occupancy causes jams.
+- ✅ Soft separation alone (D53) moved the result between the two laws and removed the stacking; it brought new cases (shaking around a standing hero, pockets behind mountain corners, a hero held by its own crowd), each fixed and measured (`tests/smoke/CASES.md` 14.x).
+
+**Conclusion:** Units must take up room for melee to behave like melee; a physical rule was enough, with an attacker cap kept as a fallback.
+
+**Sources:**
+- [Worlds of Design: Gun vs. Sword (Lanchester)](https://www.enworld.org/posts/7787421/)
+- [Kress et al.: Lanchester models](https://faculty.nps.edu/mkress/docs/lanchester3dorl.pdf)
+- [A stochastic version of Lanchester's model (arXiv)](https://arxiv.org/pdf/1905.03122)
+- [Attack token system](https://www.strayspark.studio/blog/attack-token-system-ue5-group-combat-that-feels-fair)
+- [Fixing melee AI clumping (slots)](https://bugnet.io/blog/how-to-fix-unity-melee-ai-clumping-on-player)
+- [SMAClite: StarCraft II-like movement with ORCA](https://arxiv.org/pdf/2305.05566)
+- [Movements and collisions in RTS](https://simonpicarter.itch.io/fair-and-square/devlog/540419/movements-and-collisions-in-rts)
 
 ---
 

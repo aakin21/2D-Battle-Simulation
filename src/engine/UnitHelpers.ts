@@ -1,3 +1,4 @@
+import { Pathfinder } from './Pathfinder';
 import { StateManager } from '../state/StateManager';
 import {
   IUnit,
@@ -130,7 +131,8 @@ export function stepToward(
   unit: IUnit,
   baseAngle: number,
   deltaTime: number,
-  grid: TerrainType[][]
+  grid: TerrainType[][],
+  keepRegion = false
 ): void {
   const xi = Math.floor(unit.position.x);
   const yi = Math.floor(unit.position.y);
@@ -150,7 +152,16 @@ export function stepToward(
     const angle = baseAngle + offset;
     const newX = Math.max(POS_MIN, Math.min(POS_MAX, unit.position.x + Math.cos(angle) * step));
     const newY = Math.max(POS_MIN, Math.min(POS_MAX, unit.position.y + Math.sin(angle) * step));
-    if (sm.isClearTile(Math.floor(newX), Math.floor(newY))) {
+    const nx = Math.floor(newX);
+    const ny = Math.floor(newY);
+    // keepRegion (battle mode): never step into another walkable region through the corner
+    // where two mountain buffers meet; fleeing units ended up in pockets no path reaches, and
+    // the army chasing them stood in front (CASES 14.x)
+    const sameTile = nx === xi && ny === yi;
+    if (
+      sm.isClearTile(nx, ny) &&
+      (!keepRegion || sameTile || Pathfinder.sameRegion(grid, xi, yi, nx, ny))
+    ) {
       unit.position.x = newX;
       unit.position.y = newY;
       return;

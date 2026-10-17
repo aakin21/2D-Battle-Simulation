@@ -70,5 +70,5 @@ export function moveHeroRetreat(
   const ax = hero.position.x - ex / n;
   const ay = hero.position.y - ey / n;
   if (ax === 0 && ay === 0) return;
-  stepToward(sm, hero, Math.atan2(ay, ax), deltaTime, grid);
+  stepToward(sm, hero, Math.atan2(ay, ax), deltaTime, grid, true);
 }

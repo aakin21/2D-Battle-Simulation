@@ -113,7 +113,7 @@ export class Pathfinder {
 
   // True if A* from the start tile can reach the (unblocked) end tile. The start tile
   // itself may be blocked (see findPath); A* then continues from its unblocked neighbours.
-  private static sameRegion(
+  static sameRegion(
     grid: TerrainType[][],
     sx: number,
     sy: number,

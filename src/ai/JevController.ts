@@ -22,6 +22,7 @@ import {
 } from './Observations';
 import type { JevAssessment } from './LlmController';
 import { strayClusters, regroupTarget } from '../engine/Strays';
+import { sameCommand } from '../engine/HeroCommands';
 import { enemyBase } from '../engine/Objectives';
 import { opponent, sideName } from '../engine/Sides';
 import { aiEndpoint, aiHeaders, fetchWithRetries, transientStatus } from './AiServer';
@@ -251,7 +252,16 @@ export class JevController extends AiLayer {
           const confidence = num(choice.confidence) ?? 0;
           const applied = confidence >= this.opts.minConfidence;
           // A repeated order is ignored by the command interface (D27).
-          if (applied) this.engine.issueCommand(hero, option.command, 'jev');
+          // An option that does what the commander ordered (e.g. its own regroup while the
+          // LLM's order is regroup) is following that order: it runs as "follow the LLM", so the
+          // panel, the logs and the override counts show agreement, not an override (CASES 14.6)
+          const command =
+            option.command.type !== 'continueLlm' &&
+            hero.lastLlmCommand &&
+            sameCommand(option.command, hero.lastLlmCommand)
+              ? ({ type: 'continueLlm' } as const)
+              : option.command;
+          if (applied) this.engine.issueCommand(hero, command, 'jev');
           if (applied) this.lastChoice.set(hero.heroIndex, option.key);
           this.decisions.push({
             time,
