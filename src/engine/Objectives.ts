@@ -7,15 +7,14 @@ import {
   CONTROL_POINTS_PER_SEC,
   CONTROL_RADIUS,
 } from './Rules';
+import { opponent } from './Sides';
 
 // Battle objectives (D30): control points scored by majority, and bases that units attack.
 
 export type EndReason = 'elimination' | 'base' | 'points' | 'time';
 
-const other = (f: Faction) => (f === Faction.FRIENDLY ? Faction.ENEMY : Faction.FRIENDLY);
-
 export function enemyBase(sm: StateManager, faction: Faction): Base | undefined {
-  return sm.getBattlefield().objective.bases.find((b) => b.faction === other(faction));
+  return sm.getBattlefield().objective.bases.find((b) => b.faction === opponent(faction));
 }
 
 export function ownBase(sm: StateManager, faction: Faction): Base | undefined {
@@ -78,7 +77,7 @@ export function objectiveEnd(
   if (o.mode === 'base') {
     const fallen = o.bases.filter((b) => b.hp <= 0);
     if (fallen.length === 2) return { winner: null, reason: 'base' };
-    if (fallen.length === 1) return { winner: other(fallen[0].faction), reason: 'base' };
+    if (fallen.length === 1) return { winner: opponent(fallen[0].faction), reason: 'base' };
   }
   if (o.timeLimit !== null && bf.elapsedTime >= o.timeLimit) {
     // Time up: control is decided on points, every mode then on total HP left.

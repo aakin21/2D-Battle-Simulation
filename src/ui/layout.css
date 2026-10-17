@@ -306,9 +306,28 @@
   border-top: 2px solid var(--well);
 }
 
+.ai-strategy .stance {
+  display: inline-block;
+  margin-bottom: 3px;
+}
+
+/* Free texts written by the LLM (plan, situation, reasons): a readable font, cut to a few
+   lines; the pixel font stays for labels and numbers */
+.ai-text {
+  font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-size: 12px;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+
 .ai-situation {
   color: var(--text-dim);
-  margin-top: 2px;
+  margin-top: 3px;
 }
 
 /* One block per hero, a labelled line for each layer */
@@ -329,8 +348,10 @@
 
 .ai-hero-head {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: baseline;
+  gap: 0 8px;
   margin-bottom: 2px;
 }
 
@@ -387,7 +408,33 @@
 }
 
 .ai-plan {
-  margin: 2px 0;
+  color: var(--text);
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+}
+
+/* The order running now: one line, whose it is, since when, the tactical layer agreeing */
+.ai-order {
+  margin-top: 2px;
+  overflow-wrap: anywhere;
+}
+
+.ai-cmd {
+  color: var(--text);
+}
+
+.ai-agree {
+  color: #8fd18a;
+  white-space: nowrap;
+}
+
+/* What the tactical layer said, on one line (the tooltip has it all) */
+.ai-tac {
+  margin-top: 3px;
+  color: var(--text-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .ai-orders,
@@ -420,6 +467,7 @@
 
 .ai-why {
   color: var(--text-dim);
+  margin-top: 2px;
 }
 
 .ai-warn {

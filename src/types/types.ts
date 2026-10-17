@@ -42,7 +42,7 @@ export interface IUnit {
   sight: number;
   baseSpeed: number;
   damage: number;
-  path: Position[]; // A* path to follow — empty when idle or in combat
+  path: Position[]; // A* path to follow — empty when there is nowhere to go or in combat
   target: string | null; // ID of the unit being attacked (null = no target)
   attackCooldown: number; // seconds until next attack (0 = ready)
   groupId: string; // spawn group identifier — used for coordinated berserker patrol
@@ -52,8 +52,8 @@ export interface IUnit {
 // 'ai' heroes get orders from the AI layers attached to the match (Jev and/or the LLM).
 export type HeroController = 'user' | 'rule' | 'ai';
 
-// Which AI layers command a side in battle mode: the LLM alone, or the LLM with Jev as its
-// tactical layer. Jev alone was dropped: it sees only each hero's surroundings, so it cannot
+// Which AI layers command a side in battle mode: the LLM alone, or the LLM with a tactical layer
+// (Jev or SubQ Snap, D51; the model is chosen separately). Jev alone was dropped: it sees only each hero's surroundings, so it cannot
 // command a side by itself. 'none': the user (west) or the rule layer (east).
 export type SideAI = 'none' | 'llm' | 'jev+llm';
 
@@ -88,7 +88,7 @@ export interface IHero extends IUnit {
   charismaBonus: number;
   controller: HeroController;
   heroIndex: number; // 1-based number within its side, used by "attack hero N"
-  home: Position; // start position; "retreat" falls back toward it
+  home: Position; // start position; a retreat's fallback when it has no point of its own (D39)
   command: HeroCommand | null;
   commandSource: CommandSource | null;
   commandTime: number; // simulation time of the last command
@@ -178,6 +178,13 @@ export const UNIT_COLORS: Record<string, string> = {
 };
 
 export const GRID_SIZE = 150;
+export const LAST_TILE = GRID_SIZE - 1;
+// Tiles off the map's outer border (1..148)
+export const INNER_MIN = 1;
+export const INNER_MAX = GRID_SIZE - 2;
+// Classic waves spawn, and patrols aim, at least this many tiles from the map's edge (5..144)
+export const EDGE_MARGIN = 5;
+export const EDGE_MARGIN_MAX = LAST_TILE - EDGE_MARGIN;
 export const TILE_SIZE = 5; // pixels per tile at base zoom (offscreen terrain canvas = 750×750)
 
 export type TerrainDensity = 'light' | 'normal' | 'dense';

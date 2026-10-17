@@ -1,5 +1,15 @@
+import { Pathfinder } from './Pathfinder';
 import { StateManager } from '../state/StateManager';
-import { IUnit, Position, TerrainType, TERRAIN_SPEED, TERRAIN_SIGHT } from '../types/types';
+import {
+  IUnit,
+  Position,
+  TerrainType,
+  TERRAIN_SPEED,
+  TERRAIN_SIGHT,
+  GRID_SIZE,
+  INNER_MIN,
+  INNER_MAX,
+} from '../types/types';
 import { FLEE_SPEED_MULT } from './Rules';
 
 // Small queries and movement helpers shared by the engine and its hero modules.
@@ -7,6 +17,11 @@ import { FLEE_SPEED_MULT } from './Rules';
 // Mountains are impassable for pathfinding, but a unit can still clip a mountain tile's
 // corner while moving. Speed 0 there would trap it forever, so it crawls out instead.
 const MOUNTAIN_ESCAPE_SPEED = 0.5;
+// A fleeing unit stays at least half a tile inside the map
+const POS_MIN = 0.5;
+const POS_MAX = GRID_SIZE - 0.5;
+// A unit this close to a tile's centre is at (or next to) that tile
+export const NEAR_TILE_DISTANCE = 1.5;
 
 export function terrainSpeed(terrain: TerrainType): number {
   return terrain === TerrainType.MOUNTAIN
@@ -69,6 +84,29 @@ export function tileOf(pos: Position): Position {
   return { x: Math.floor(pos.x), y: Math.floor(pos.y) };
 }
 
+// Distance from a position to the centre of a tile
+export function distToTileCentre(pos: Position, tile: Position): number {
+  return Math.hypot(pos.x - (tile.x + 0.5), pos.y - (tile.y + 0.5));
+}
+
+// Sum of the positions of the living enemies within radius of the unit, and their number.
+export function enemyPositionSum(
+  sm: StateManager,
+  unit: IUnit,
+  radius: number
+): { x: number; y: number; n: number } {
+  let x = 0;
+  let y = 0;
+  let n = 0;
+  sm.forEachInRadius(unit.position.x, unit.position.y, radius, (other) => {
+    if (other.hp <= 0 || other.faction === unit.faction) return;
+    x += other.position.x;
+    y += other.position.y;
+    n++;
+  });
+  return { x, y, n };
+}
+
 // Targets inside mountains or in enclosed pockets are unreachable; use the closest
 // tile of the map's main walkable region instead.
 export function nearestReachableTile(sm: StateManager, target: Position): Position {
@@ -79,7 +117,7 @@ export function nearestReachableTile(sm: StateManager, target: Position): Positi
         if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
         const x = t.x + dx;
         const y = t.y + dy;
-        if (x < 1 || y < 1 || x > 148 || y > 148) continue;
+        if (x < INNER_MIN || y < INNER_MIN || x > INNER_MAX || y > INNER_MAX) continue;
         if (sm.isInMainRegion(x, y)) return { x, y };
       }
     }
@@ -93,7 +131,8 @@ export function stepToward(
   unit: IUnit,
   baseAngle: number,
   deltaTime: number,
-  grid: TerrainType[][]
+  grid: TerrainType[][],
+  keepRegion = false
 ): void {
   const xi = Math.floor(unit.position.x);
   const yi = Math.floor(unit.position.y);
@@ -111,9 +150,18 @@ export function stepToward(
   ];
   for (const offset of offsets) {
     const angle = baseAngle + offset;
-    const newX = Math.max(0.5, Math.min(149.5, unit.position.x + Math.cos(angle) * step));
-    const newY = Math.max(0.5, Math.min(149.5, unit.position.y + Math.sin(angle) * step));
-    if (sm.isClearTile(Math.floor(newX), Math.floor(newY))) {
+    const newX = Math.max(POS_MIN, Math.min(POS_MAX, unit.position.x + Math.cos(angle) * step));
+    const newY = Math.max(POS_MIN, Math.min(POS_MAX, unit.position.y + Math.sin(angle) * step));
+    const nx = Math.floor(newX);
+    const ny = Math.floor(newY);
+    // keepRegion (battle mode): never step into another walkable region through the corner
+    // where two mountain buffers meet; fleeing units ended up in pockets no path reaches, and
+    // the army chasing them stood in front (CASES 14.x)
+    const sameTile = nx === xi && ny === yi;
+    if (
+      sm.isClearTile(nx, ny) &&
+      (!keepRegion || sameTile || Pathfinder.sameRegion(grid, xi, yi, nx, ny))
+    ) {
       unit.position.x = newX;
       unit.position.y = newY;
       return;

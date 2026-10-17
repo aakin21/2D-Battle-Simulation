@@ -3,34 +3,27 @@ import type { LlmController } from '../ai/LlmController';
 import { groupStats, GroupStats } from '../ai/Observations';
 import { sameCommand } from '../engine/HeroCommands';
 import { positionToSubsector } from '../engine/Sectors';
+import type { Side } from '../engine/Sides';
 import { BehaviorState, Faction, IHero, SimConfig } from '../types/types';
 import type { StateManager } from '../state/StateManager';
 import type { AiSides } from './MatchLog';
 import { AiRequestLog } from './AiRequestLog';
-import { describeCommand } from './Hud';
+import { describeCommand, escapeHtml, SIDE_NAME } from './format';
 import { modelLabel } from '../ai/Models';
 
 // The AI panels in the side panel, below Map, Armies and Area: one for each side with AI
 // layers, West and East side by side when both have them. Each shows when the LLM and Jev last
 // answered and when they ask next, the LLM's stance, plan and situation, then one block per
-// hero with a line for each layer: the order running now and whose it is (the LLM's, or Jev's,
-// which then overrides the LLM), the LLM's latest order with its reason (D41), Jev's latest
+// hero with a line for each layer: the order running now and whose it is (the LLM's, Jev agreeing,
+// or Jev overriding the LLM), the LLM's latest order with its reason (D41), Jev's latest
 // choice with its assessment, and the hero's state; below, that side's requests and answers.
 
-const SIDE_NAME = { west: 'West', east: 'East' } as const;
-type Side = 'west' | 'east';
 type JevDecision = JevController['decisions'][number];
 
 const STATS_EVERY_MS = 500; // followers are counted at most this often (every unit is visited)
 
-export function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
+// Kept here for code that imports it from the AI panel
+export { escapeHtml } from './format';
 
 function ago(now: number, then: number): string {
   return `${Math.max(0, Math.round(now - then))} s ago`;
@@ -69,9 +62,10 @@ function heroState(h: IHero): string {
   }
 }
 
-// A labelled line: "LLM   move to F4-NW · 12 s ago"
-function line(label: string, value: string): string {
-  return `<div class="ai-kv"><span class="ai-k">${label}</span><span>${value}</span></div>`;
+// A free text written by the LLM, cut to a few lines; the whole text is in the tooltip
+function clamped(cls: string, text: string): string {
+  const t = escapeHtml(text);
+  return `<div class="ai-text ${cls}" title="${t}">${t}</div>`;
 }
 
 const SOURCE_NAME: Record<string, string> = { llm: 'LLM', jev: 'Jev', rule: 'rules', user: 'user' };
@@ -177,21 +171,23 @@ export class AiPanel {
     return `<div class="ai-status"><span class="ai-k">${name}</span><span>${text}</span></div>`;
   }
 
-  // The LLM's latest reading of the battle: stance, plan, situation, rejected orders
+  // The LLM's latest reading of the battle: stance and plan, the situation it read, rejected
+  // orders. Long texts are cut to a few lines; the whole text is in the tooltip and the log.
   private strategyHtml(llm: LlmController): string {
     const d = llm.decisions[llm.decisions.length - 1];
     if (!d) return '';
     let html = '<div class="ai-strategy">';
-    if (d.stance) html += `<span class="stance stance-${d.stance}">${d.stance}</span> `;
-    if (d.plan) html += `<span class="ai-plan">${escapeHtml(d.plan)}</span>`;
-    if (d.situation) html += `<div class="ai-situation">${escapeHtml(d.situation)}</div>`;
+    if (d.stance) html += `<span class="stance stance-${d.stance}">${d.stance}</span>`;
+    if (d.plan) html += clamped('ai-plan', d.plan);
+    if (d.situation) html += clamped('ai-situation', d.situation);
     if (d.rejected.length)
       html += `<div class="ai-fail">${d.rejected.map((o) => `rejected: ${escapeHtml(o)}`).join('<br>')}</div>`;
     return html + '</div>';
   }
 
-  // One block per hero: running now (and whose), what the LLM ordered and why, what Jev said,
-  // the hero's state
+  // One card per hero: who it is and how it is doing; the order running now, whose it is and
+  // since when; the LLM's reason; what the tactical layer said. An order shows once: the LLM's
+  // when it runs (the tactical layer agreeing or not), the tactical layer's when it overrides it.
   private heroHtml(
     h: IHero,
     jev: JevController | undefined,
@@ -202,62 +198,57 @@ export class AiPanel {
     if (h.hp <= 0)
       return `<div class="ai-hero dead"><div class="ai-hero-head">${name}<span>dead</span></div></div>`;
     const g = this.stats.get(h.id);
-    const vitals = `HP ${Math.round((100 * h.hp) / h.maxHp)}%${g ? ` · ${count(g.followers, 'soldier')}` : ''}`;
+    const vitals = [
+      `HP ${Math.round((100 * h.hp) / h.maxHp)}%`,
+      g ? count(g.followers, 'soldier') : '',
+      heroState(h),
+      positionToSubsector(h.position),
+    ]
+      .filter(Boolean)
+      .join(' · ');
     let html = `<div class="ai-hero-head">${name}<span class="faint">${vitals}</span></div>`;
 
-    // Running now and whose it is. Jev's "follow the LLM" puts the LLM's order back in effect,
-    // so it counts as the LLM's; a Jev order that differs from the LLM's overrides it.
+    // Jev's "follow the LLM" puts the LLM's order back in effect, so it counts as the LLM's; a
+    // tactical order that differs from the LLM's overrides it
     const c = h.command;
     const resumes = c?.type === 'continueLlm';
     const effective = resumes ? h.lastLlmCommand : c;
     const source = resumes ? 'llm' : (h.commandSource ?? 'rule');
+    const llmOrder = h.lastLlmCommand;
     const overrides =
-      source === 'jev' &&
-      !!h.lastLlmCommand &&
-      !!effective &&
-      !sameCommand(effective, h.lastLlmCommand);
-    // Jev following the LLM's order while it runs changes nothing, so it shows here only (if
-    // Jev answered after that order was given)
+      source === 'jev' && !!llmOrder && !!effective && !sameCommand(effective, llmOrder);
+    // Following the LLM's order while it runs changes nothing, so the agreement shows here only
+    // (if the tactical layer answered after that order was given)
     const agreed =
       resumes ||
       (source === 'llm' && d?.applied && d.choice === 'continue_llm' && d.time >= h.lastLlmTime);
     const tactical = jev?.name ?? 'Jev';
     const sourceName = source === 'jev' ? tactical : (SOURCE_NAME[source] ?? source);
-    let running = `<span class="ai-src ai-src-${source}">${sourceName}</span> `;
-    running += effective
-      ? escapeHtml(describeCommand(effective))
-      : '<span class="faint">no order</span>';
-    if (agreed) running += ` <span class="faint">(${tactical} agreed)</span>`;
-    if (overrides) running += `<div class="ai-override">${tactical} overrides the LLM</div>`;
-    html += line('now', running);
+    const since = source === 'llm' ? h.lastLlmTime : h.commandTime;
 
-    const o = h.lastLlmCommand;
-    html += line(
-      'LLM',
-      o
-        ? `${escapeHtml(describeCommand(o))} <span class="faint">· ${ago(now, h.lastLlmTime)}</span>` +
-            (o.reason ? `<div class="ai-why">why: ${escapeHtml(o.reason)}</div>` : '')
-        : '<span class="faint">no order yet</span>'
-    );
+    let order = `<span class="ai-src ai-src-${source}">${sourceName}</span> `;
+    order += effective
+      ? `<span class="ai-cmd">${escapeHtml(describeCommand(effective))}</span> <span class="faint">· ${ago(now, since)}</span>`
+      : '<span class="faint">no order yet</span>';
+    if (agreed && d)
+      order += ` <span class="ai-agree">${tactical} agrees ${percent(d.confidence)}</span>`;
+    html += `<div class="ai-order">${order}</div>`;
+    if (overrides && llmOrder)
+      html += `<div class="ai-override">overrides the LLM's "${escapeHtml(describeCommand(llmOrder))}"</div>`;
+    if (llmOrder?.reason) html += clamped('ai-why', llmOrder.reason);
 
-    if (jev) {
-      let said = '<span class="faint">nothing yet</span>';
-      if (d) {
-        const a = jev.assessmentFor(h.heroIndex);
-        const notes = [
-          a.threat === undefined ? '' : `threat ${a.threat}`,
-          a.surrounded === undefined ? '' : `surrounded ${percent(a.surrounded)}`,
-          a.orderStillFits === undefined ? '' : `LLM order fits ${percent(a.orderStillFits)}`,
-        ].filter(Boolean);
-        said =
-          `${escapeHtml(prettyChoice(d.choice))} ${percent(d.confidence)} <span class="faint">· ${ago(now, d.time)}</span>` +
-          (d.applied ? '' : '<div class="faint">too unsure: not applied</div>') +
-          (notes.length ? `<div class="faint">${notes.join(' · ')}</div>` : '');
-      }
-      html += line(jev.name, said);
+    if (jev && d) {
+      const a = jev.assessmentFor(h.heroIndex);
+      const notes = [
+        `${prettyChoice(d.choice)} ${percent(d.confidence)}${d.applied ? '' : ' (too unsure)'}`,
+        a.threat === undefined ? '' : `threat ${a.threat.toFixed(1)}/3`,
+        a.surrounded === undefined ? '' : `surrounded ${percent(a.surrounded)}`,
+        a.orderStillFits === undefined ? '' : `LLM order fits ${percent(a.orderStillFits)}`,
+        ago(now, d.time),
+      ].filter(Boolean);
+      const text = `${tactical}: ${notes.join(' · ')}`;
+      html += `<div class="ai-tac" title="${escapeHtml(text)}">${escapeHtml(text)}</div>`;
     }
-
-    html += line('state', `${heroState(h)} · ${positionToSubsector(h.position)}`);
     return `<div class="ai-hero${overrides ? ' override' : ''}">${html}</div>`;
   }
 

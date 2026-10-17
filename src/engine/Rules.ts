@@ -43,6 +43,11 @@ export const HERO_REFLEX_OFF_SECONDS = 5;
 export const RETREAT_SECONDS = 5;
 export const RETREAT_SCAN = 20;
 
+// Room per unit (battle mode): units closer than this push each other apart, at most this fast
+export const SEPARATION_RADIUS = 0.9; // tiles
+export const SEPARATION_SPEED = 2; // tiles/s, a soldier's walking speed
+export const SEPARATION_DEAD_ZONE = 0.15; // a smaller total overlap does not push
+
 // Breaking off a fight (D27): a hero that breaks off ignores enemies until none is this close
 export const DISENGAGE_CLEAR_RADIUS = 6;
 
