@@ -89,6 +89,9 @@ export class MatchLog {
       east: c.enemyAI ?? 'none',
       westModel: usesLlm(c.friendlyAI) ? c.friendlyModel : undefined,
       eastModel: usesLlm(c.enemyAI) ? c.enemyModel : undefined,
+      // D51: which decision model was the tactical layer
+      westTactical: c.friendlyAI === 'jev+llm' ? (c.friendlyTactical ?? 'jev') : undefined,
+      eastTactical: c.enemyAI === 'jev+llm' ? (c.enemyTactical ?? 'jev') : undefined,
       aiTiming: c.aiTiming ?? 'realtime',
     };
   }
@@ -108,6 +111,7 @@ export class MatchLog {
         : undefined,
       jev: side.jev
         ? {
+            model: side.jev.name,
             decisions: side.jev.decisions,
             skippedRequests: side.jev.skippedRequests,
             failedRequests: side.jev.failedRequests,

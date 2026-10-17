@@ -978,3 +978,108 @@
     display: none;
   }
 }
+
+/* Battle menu: OpenRouter model list (src/ui/Dropdown.ts) and a free model id (D52) */
+.dropdown {
+  position: relative;
+}
+
+.dd-button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 210px;
+  border: 6px solid transparent;
+  border-image: url('../assets/ui/well-dark.png') 3 fill / 6px / 0 stretch;
+  image-rendering: pixelated;
+  background: none;
+  color: var(--text);
+  padding: 3px 8px 5px;
+  cursor: pointer;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.dd-button:hover,
+.dd-button[aria-expanded='true'] {
+  border-image-source: url('../assets/ui/well.png');
+}
+
+/* A pixel arrow, turned up while the list is open */
+.dd-caret {
+  width: 0;
+  height: 0;
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-top: 6px solid var(--wood-light);
+}
+
+.dd-button[aria-expanded='true'] .dd-caret {
+  transform: rotate(180deg);
+}
+
+.dd-list {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 100%;
+  max-height: 248px;
+  overflow-y: auto;
+  border: 6px solid transparent;
+  border-image: url('../assets/ui/well-dark.png') 3 fill / 6px / 0 stretch;
+  image-rendering: pixelated;
+  box-shadow: 4px 4px 0 #00000088;
+  padding: 2px 0 4px;
+}
+
+.dd-list.up {
+  top: auto;
+  bottom: calc(100% + 4px);
+}
+
+.dd-list:focus {
+  outline: none;
+}
+
+.dd-group {
+  padding: 7px 10px 3px;
+  color: var(--text-faint);
+}
+
+.dd-item {
+  padding: 4px 12px 5px 18px;
+  color: var(--text-dim);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.dd-item.active {
+  background: var(--well);
+  color: var(--text);
+}
+
+.dd-item.selected {
+  background: var(--wood);
+  color: #fff;
+  text-shadow: 2px 2px 0 var(--wood-dark);
+}
+
+.dd-item.selected.active {
+  background: var(--wood-mid);
+}
+
+.router-id {
+  width: 210px;
+  max-width: 100%;
+  background: var(--well-dark);
+  border: 2px solid var(--ink);
+  box-shadow: inset 2px 2px 0 #00000055;
+  color: var(--text);
+  padding: 4px 8px;
+}
+
+.router-id::placeholder {
+  color: var(--text-faint);
+}

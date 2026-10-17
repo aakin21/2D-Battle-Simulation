@@ -7,7 +7,9 @@ Code that runs inside the Vite dev server (Node), never in the browser. Loaded f
 | `aiAccess.ts`  | Guard for `/api/*` (D37): CORS for the online demo's origin; requests that do not come from localhost (i.e. through a tunnel) need `AI_PASSWORD` in the `x-ai-key` header. Requests that carry another website's `Origin` are refused (403) even on localhost: any page open in the browser can send a simple POST there. Refusals carry `x-ai-access: denied`. |
 | `llmPlugin.ts` | `POST /api/llm`: one persistent, lean Claude Agent SDK session per side (D10, D22). A new `matchId` or model starts a new session. The system prompt and the model (`haiku` / `sonnet` / `opus`, chosen per side in the menu, D29) come with each request; each alias runs a pinned model id of the 5.5 generation (`MODEL_IDS`, D44), never the CLI's own alias.                                                                                                      |
 
-The Jev proxy (`/api/jev`) is configured directly in `vite.config.ts`: it adds `TYPESAFE_API_KEY` from `.env.local` and drops the browser's `Origin` header (D7, P1).
+The decision-model proxies are configured directly in `vite.config.ts`: `/api/jev` (TypeSafe, `TYPESAFE_API_KEY`) and `/api/snap` (SubQ Snap, `SUBQ_API_KEY`, D51) both go to `/v1/systemone`, add their key from `.env.local` and drop the browser's `Origin` header (D7, P1).
+
+A model `openrouter:<id>` (D52) runs that model through OpenRouter's chat API with `OPENROUTER_API_KEY`: the session keeps the match's messages and sends them all with each request; HTTP 400–404 (wrong key, no credits, unknown model) are not retryable; cost comes from OpenRouter's `usage.cost`. An unknown model name is refused with 400.
 
 ## Conventions
 

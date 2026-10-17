@@ -8,6 +8,7 @@ import type { StateManager } from '../state/StateManager';
 import type { AiSides } from './MatchLog';
 import { AiRequestLog } from './AiRequestLog';
 import { describeCommand } from './Hud';
+import { modelLabel } from '../ai/Models';
 
 // The AI panels in the side panel, below Map, Armies and Area: one for each side with AI
 // layers, West and East side by side when both have them. Each shows when the LLM and Jev last
@@ -137,13 +138,13 @@ export class AiPanel {
     heroes: IHero[]
   ): string {
     const model = side === 'west' ? config.friendlyModel : config.enemyModel;
-    const name = model ? ` ${model[0].toUpperCase()}${model.slice(1)}` : '';
-    const who = [llm ? `LLM${name}` : '', jev ? 'Jev' : ''].filter(Boolean).join(' + ');
+    const name = model ? ` ${modelLabel(model)}` : '';
+    const who = [llm ? `LLM${name}` : '', jev ? jev.name : ''].filter(Boolean).join(' + ');
     let html =
       `<div class="ai-head"><span class="ai-side-name ${side}-text">${SIDE_NAME[side]}</span>` +
       `<span class="army-who">${escapeHtml(who)}</span></div>`;
     if (llm) html += this.statusHtml('LLM', llm, now);
-    if (jev) html += this.statusHtml('Jev', jev, now);
+    if (jev) html += this.statusHtml(jev.name, jev, now);
     if (llm) html += this.strategyHtml(llm);
     const faction = side === 'west' ? Faction.FRIENDLY : Faction.ENEMY;
     const mine = heroes
@@ -220,12 +221,14 @@ export class AiPanel {
     const agreed =
       resumes ||
       (source === 'llm' && d?.applied && d.choice === 'continue_llm' && d.time >= h.lastLlmTime);
-    let running = `<span class="ai-src ai-src-${source}">${SOURCE_NAME[source] ?? source}</span> `;
+    const tactical = jev?.name ?? 'Jev';
+    const sourceName = source === 'jev' ? tactical : (SOURCE_NAME[source] ?? source);
+    let running = `<span class="ai-src ai-src-${source}">${sourceName}</span> `;
     running += effective
       ? escapeHtml(describeCommand(effective))
       : '<span class="faint">no order</span>';
-    if (agreed) running += ' <span class="faint">(Jev agreed)</span>';
-    if (overrides) running += '<div class="ai-override">Jev overrides the LLM</div>';
+    if (agreed) running += ` <span class="faint">(${tactical} agreed)</span>`;
+    if (overrides) running += `<div class="ai-override">${tactical} overrides the LLM</div>`;
     html += line('now', running);
 
     const o = h.lastLlmCommand;
@@ -251,7 +254,7 @@ export class AiPanel {
           (d.applied ? '' : '<div class="faint">too unsure: not applied</div>') +
           (notes.length ? `<div class="faint">${notes.join(' · ')}</div>` : '');
       }
-      html += line('Jev', said);
+      html += line(jev.name, said);
     }
 
     html += line('state', `${heroState(h)} · ${positionToSubsector(h.position)}`);

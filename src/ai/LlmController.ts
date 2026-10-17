@@ -44,7 +44,7 @@ import { AiExchange, finishExchange, startExchange } from './Exchange';
 const MAX_STRAY_CLUSTERS = 5;
 const MAX_REASON = 300; // characters of an order's reason that are kept
 
-// Layer 3 (D1, D10): the LLM plans the overall strategy every 20 s from a computed summary
+// Layer 3 (D1, D10): the LLM plans the overall strategy every 15 s (D50) from a computed summary
 // of the whole map (D16, R5). It runs in the dev server through the Claude Agent SDK.
 
 export type Stance = 'aggressive' | 'defensive' | 'regroup';
@@ -109,16 +109,18 @@ export interface LlmOptions {
   fetchFn: typeof fetch;
   jevAssessment: ((heroIndex: number) => JevAssessment) | null; // set when Jev runs on the same side
   model: LlmModel;
+  tacticalName: string; // the tactical layer's name in the rulebook ("Jev" or "Snap", D51)
   timeoutMs: number; // a request without an answer by then counts as a failure
 }
 
 const DEFAULTS: LlmOptions = {
-  intervalSec: 20,
+  intervalSec: 15, // D50: answers take ~4–10 s (Sonnet, Opus)
   fallbackToRules: true,
   endpoint: aiEndpoint('/api/llm'),
   fetchFn: (...args) => fetch(...args),
   jevAssessment: null,
   model: 'sonnet',
+  tacticalName: 'Jev',
   timeoutMs: 120_000,
 };
 
@@ -176,7 +178,8 @@ export class LlmController {
       this.side,
       this.opts.jevAssessment !== null,
       this.opts.intervalSec,
-      stateManager.getBattlefield().objective.mode
+      stateManager.getBattlefield().objective.mode,
+      this.opts.tacticalName
     );
   }
 

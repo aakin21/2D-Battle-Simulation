@@ -16,12 +16,15 @@ import {
   TerrainType,
   SideAI,
   LlmModel,
+  TacticalModel,
   Objective,
   GRID_SIZE,
 } from '../types/types';
 import { decodeGrid, listSavedMaps, loadSavedMap, saveMap } from '../state/MapStore';
 import { FIXED_MAP } from '../maps/fixedMap';
 import { JevController } from '../ai/JevController';
+import { isOpenRouterId, OPENROUTER_MODELS, TACTICAL_NAME } from '../ai/Models';
+import { Dropdown } from './Dropdown';
 import { LlmController } from '../ai/LlmController';
 import { AIController, MatchResult } from '../engine/SimulationEngine';
 import { LoadingScreen } from './LoadingScreen';
@@ -71,6 +74,7 @@ export class UIController {
   private sound: Sound;
   private aiSides: AiSides = { west: {}, east: {} };
   private matchLog: MatchLog | null = null;
+  private routerLists = {} as Record<'west' | 'east', Dropdown>; // OpenRouter model lists (D52)
   // Which map the current run uses, for the match log: random, fixed or "saved: <name>"
   private mapChoice: string = 'random';
   private selectedUnitId: string | null = null;
@@ -295,21 +299,42 @@ export class UIController {
     });
     this.refreshSavedMaps();
 
-    // Battle sides (rules / AI layers), LLM models and AI timing (D4). Model and timing rows
-    // only appear when an LLM or any AI is chosen.
+    // Battle sides: the user or rules, the LLM alone, or the LLM with Jev or SubQ Snap as its
+    // tactical layer (D38, D51); how the LLM is reached and which model (D29, D52); AI timing
+    // (D4). Each row only appears when it applies.
     const showAiRows = () => {
+      for (const [side, groupId] of [
+        ['west', 'cfg-west'],
+        ['east', 'cfg-opponent'],
+      ] as const) {
+        const llm = this.getOptActive(groupId).includes('llm');
+        const router = this.getOptActive(`cfg-${side}-provider`) === 'openrouter';
+        const custom = this.routerLists[side].value === '';
+        document.getElementById(`row-${side}-provider`)!.hidden = !llm;
+        document.getElementById(`row-${side}-model`)!.hidden = !llm || router;
+        document.getElementById(`row-${side}-router`)!.hidden = !llm || !router;
+        document.getElementById(`cfg-${side}-router-id`)!.hidden = !custom;
+      }
       const west = this.getOptActive('cfg-west');
       const east = this.getOptActive('cfg-opponent');
-      document.getElementById('row-west-model')!.hidden = !west.includes('llm');
-      document.getElementById('row-east-model')!.hidden = !east.includes('llm');
       document.getElementById('row-timing')!.hidden = west === 'none' && east === 'none';
     };
+    for (const side of ['west', 'east'] as const) {
+      this.routerLists[side] = this.routerList(side);
+      this.routerLists[side].onChoose(() => {
+        showAiRows();
+        if (this.routerLists[side].value === '')
+          (document.getElementById(`cfg-${side}-router-id`) as HTMLInputElement).focus();
+      });
+    }
     for (const id of [
       'cfg-west',
       'cfg-opponent',
       'cfg-timing',
       'cfg-west-model',
       'cfg-east-model',
+      'cfg-west-provider',
+      'cfg-east-provider',
       'cfg-objective',
     ]) {
       document.getElementById(id)!.addEventListener('click', (e) => {
@@ -335,6 +360,25 @@ export class UIController {
         if (!loadSavedMap(mapSaved.value)) {
           window.alert(`The saved map "${mapSaved.value}" could not be read. Choose another map.`);
           return;
+        }
+      }
+      // A mistyped OpenRouter id must not silently run another model: model comparisons rely on it
+      if (tabBattle.classList.contains('active')) {
+        for (const [side, groupId] of [
+          ['west', 'cfg-west'],
+          ['east', 'cfg-opponent'],
+        ] as const) {
+          const llm = this.getOptActive(groupId).includes('llm');
+          if (
+            llm &&
+            this.getOptActive(`cfg-${side}-provider`) === 'openrouter' &&
+            !this.routerId(side)
+          ) {
+            window.alert(
+              `Type the ${side === 'west' ? 'West' : 'East'} model's OpenRouter id, e.g. "google/gemini-3.8-flash".`
+            );
+            return;
+          }
         }
       }
       this.selectedUnitId = null;
@@ -370,11 +414,13 @@ export class UIController {
         const cfg: SimConfig = {
           ...base,
           presetGrid: this.chosenMap(mapSaved.value),
-          friendlyAI: isBattle ? (this.getOptActive('cfg-west') as SideAI) : 'none',
-          enemyAI: isBattle ? (this.getOptActive('cfg-opponent') as SideAI) : 'none',
+          friendlyAI: isBattle ? this.sideAi('cfg-west') : 'none',
+          enemyAI: isBattle ? this.sideAi('cfg-opponent') : 'none',
           aiTiming: this.getOptActive('cfg-timing') === 'paused' ? 'paused' : 'realtime',
-          friendlyModel: this.getOptActive('cfg-west-model') as LlmModel,
-          enemyModel: this.getOptActive('cfg-east-model') as LlmModel,
+          friendlyModel: this.chosenModel('west'),
+          enemyModel: this.chosenModel('east'),
+          friendlyTactical: this.tacticalModel('cfg-west'),
+          enemyTactical: this.tacticalModel('cfg-opponent'),
         };
         this.lastConfig = cfg;
         const map = this.getOptActive('cfg-map');
@@ -465,6 +511,41 @@ export class UIController {
       return;
     }
     this.refreshSavedMaps();
+  }
+
+  // The OpenRouter models of the menu, grouped by company, then a free id (D52)
+  private routerList(side: 'west' | 'east'): Dropdown {
+    const items = [
+      ...OPENROUTER_MODELS.map((m) => ({ value: m.id, label: m.label, group: m.company })),
+      { value: '', label: 'Other model id…', group: 'Other' },
+    ];
+    const root = document.getElementById(`cfg-${side}-router`)!;
+    return new Dropdown(root, items, 'anthropic/claude-sonnet-5.5');
+  }
+
+  // A side's choice in the menu: "LLM + Snap" is the LLM with Snap as its tactical layer (D51)
+  private sideAi(groupId: string): SideAI {
+    const v = this.getOptActive(groupId);
+    return v === 'snap+llm' ? 'jev+llm' : (v as SideAI);
+  }
+
+  private tacticalModel(groupId: string): TacticalModel {
+    return this.getOptActive(groupId) === 'snap+llm' ? 'snap' : 'jev';
+  }
+
+  // The LLM chosen for a side: a Claude alias, or "openrouter:<id>" (D52). A typed id that is not
+  // an OpenRouter id falls back to the list's first model; Start checks it first.
+  private chosenModel(side: 'west' | 'east'): LlmModel {
+    if (this.getOptActive(`cfg-${side}-provider`) !== 'openrouter')
+      return this.getOptActive(`cfg-${side}-model`) as LlmModel;
+    return `openrouter:${this.routerId(side) ?? OPENROUTER_MODELS[0].id}`;
+  }
+
+  private routerId(side: 'west' | 'east'): string | null {
+    const picked = this.routerLists[side].value;
+    const id =
+      picked || (document.getElementById(`cfg-${side}-router-id`) as HTMLInputElement).value.trim();
+    return isOpenRouterId(id) ? id : null;
   }
 
   private setOptActive(groupId: string, val: string): void {
@@ -846,21 +927,23 @@ export class UIController {
     if (!battle) return;
 
     const controllers: AIController[] = [];
-    const sides: Array<[Faction, SideAI, 'west' | 'east', LlmModel]> = [
+    const sides: Array<[Faction, SideAI, 'west' | 'east', LlmModel, TacticalModel]> = [
       [
         Faction.FRIENDLY,
         this.lastConfig.friendlyAI ?? 'none',
         'west',
         this.lastConfig.friendlyModel ?? 'sonnet',
+        this.lastConfig.friendlyTactical ?? 'jev',
       ],
       [
         Faction.ENEMY,
         this.lastConfig.enemyAI ?? 'none',
         'east',
         this.lastConfig.enemyModel ?? 'sonnet',
+        this.lastConfig.enemyTactical ?? 'jev',
       ],
     ];
-    for (const [faction, ai, name, model] of sides) {
+    for (const [faction, ai, name, model, tactical] of sides) {
       if (ai === 'none') continue;
       // The LLM commands the side; with Jev it is the LLM's tactical layer (Jev alone was
       // dropped: it sees only each hero's surroundings)
@@ -870,6 +953,7 @@ export class UIController {
         side.jev = new JevController(this.engine, this.stateManager, faction, {
           fallbackToRules: false,
           withCommander: true,
+          model: tactical,
         });
         controllers.push(side.jev);
       }
@@ -877,6 +961,7 @@ export class UIController {
         model,
         fallbackToRules: !both,
         jevAssessment: side.jev ? (heroIndex) => side.jev!.assessmentFor(heroIndex) : null,
+        tacticalName: TACTICAL_NAME[tactical],
       });
       controllers.push(side.llm);
     }
