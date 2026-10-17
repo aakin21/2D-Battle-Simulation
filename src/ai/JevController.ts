@@ -24,19 +24,11 @@ import type { JevAssessment } from './LlmController';
 import { strayClusters, regroupTarget } from '../engine/Strays';
 import { sameCommand } from '../engine/HeroCommands';
 import { enemyBase } from '../engine/Objectives';
-import {
-  aiEndpoint,
-  aiHeaders,
-  deniedByAiServer,
-  AI_PASSWORD_HINT,
-  unreachableHint,
-  failureInfo,
-  fetchWithRetries,
-  transientStatus,
-  unreachableStatus,
-  FAILURES_IN_A_ROW,
-} from './AiServer';
-import { AiExchange, finishExchange, startExchange } from './Exchange';
+import { opponent, sideName } from '../engine/Sides';
+import { aiEndpoint, aiHeaders, fetchWithRetries, transientStatus } from './AiServer';
+import { AiLayer } from './AiLayer';
+import { finishExchange, startExchange } from './Exchange';
+import { JEV_MAX_REQUEST_SIZE, JEV_TIMEOUT_MS } from './Limits';
 import { TACTICAL_NAME, type TacticalModel } from './Models';
 import { SNAP_MAX_QUESTIONS, toSnapRequest } from './Snap';
 
@@ -63,7 +55,7 @@ export interface JevDecision {
 export interface JevOptions {
   intervalSec: number; // how often to ask (3–5 s, D1)
   minConfidence: number; // below this the hero keeps its current command
-  fallbackToRules: boolean; // on failure, hand heroes to the rule layer (when Jev is the only AI layer)
+  fallbackToRules: boolean; // on failure, hand heroes to the rule layer (the UI passes false: Jev always runs under an LLM, D38)
   withCommander: boolean; // an LLM commands the same side (changes Jev's role and goal)
   model: TacticalModel; // Jev or SubQ Snap (D51): same options, same questions
   endpoint: string;
@@ -79,14 +71,13 @@ const DEFAULTS: JevOptions = {
   model: 'jev',
   endpoint: aiEndpoint('/api/jev'),
   fetchFn: (...args) => fetch(...args),
-  timeoutMs: 30_000,
+  timeoutMs: JEV_TIMEOUT_MS,
 };
 
 const MAP_CELL = 2; // local map: one character per 2×2 tiles
 const STEP_TILES = JEV_STEP_TILES; // length of a "step" move
 const HERO_SCAN = LOCAL_RADIUS * 2; // enemy heroes within this distance can be targeted
 const STRAY_REACH = 25; // stray groups within this distance are shown to Jev
-const MAX_REQUEST_CHARS = 100_000;
 
 interface Option {
   key: string;
@@ -95,35 +86,22 @@ interface Option {
   command: HeroCommand;
 }
 
-export class JevController {
-  private opts: JevOptions;
-  private nextAt = 0;
-
-  // Simulation time of the next decision (for the AI panel)
-  get nextDecisionAt(): number {
-    return this.nextAt;
-  }
-  private pending = false;
-  private failed = false;
+export class JevController extends AiLayer {
+  protected opts: JevOptions;
+  protected readonly nextAsk = 'decision';
+  protected readonly stoppedText = 'tactical layer stopped';
   readonly decisions: JevDecision[] = [];
-  readonly exchanges: AiExchange[] = []; // every request with its answer (request log, match log)
-  failedRequests = 0; // requests that failed but were not the last straw
-  lastError: string | null = null; // the latest failed request's reason, until an answer comes
-  private failuresInARow = 0;
-  skippedRequests = 0; // a new request was due while the previous one was still open (Q7)
-  failure: string | null = null; // why the layer stopped, for the AI panel and the match log
-  private disposed = false;
-  private inFlight: AbortController | null = null;
   private lastForce = new Map<number, number>(); // force ratio per hero at the previous request
   private lastChoice = new Map<number, string>();
   private assessments = new Map<number, Omit<JevAssessment, 'recentDecisions'>>();
 
   constructor(
-    private engine: SimulationEngine,
-    private stateManager: StateManager,
-    private faction: Faction,
+    engine: SimulationEngine,
+    stateManager: StateManager,
+    faction: Faction,
     opts: Partial<JevOptions> = {}
   ) {
+    super(engine, stateManager, faction);
     const model = opts.model ?? DEFAULTS.model;
     this.opts = {
       ...DEFAULTS,
@@ -142,25 +120,8 @@ export class JevController {
     return this.opts.model;
   }
 
-  isWaiting(): boolean {
-    return this.pending;
-  }
-
-  // The match ended or restarted: no more requests, and a late answer is dropped.
-  dispose(): void {
-    this.disposed = true;
-    this.inFlight?.abort();
-  }
-
-  // Called by the engine every simulation step.
-  tick(elapsed: number): void {
-    if (this.failed || this.disposed || elapsed < this.nextAt) return;
-    this.nextAt = elapsed + this.opts.intervalSec;
-    if (this.pending) {
-      this.skippedRequests++;
-      return;
-    }
-    void this.decide(elapsed);
+  protected get logName(): string {
+    return this.name;
   }
 
   // The last few applied decisions for one hero, oldest first (shown to the LLM, D15).
@@ -176,14 +137,8 @@ export class JevController {
     return { recentDecisions: this.recentFor(heroIndex), ...this.assessments.get(heroIndex) };
   }
 
-  private heroes(): IHero[] {
-    return this.stateManager
-      .getHeroes()
-      .filter((h) => h.faction === this.faction && h.hp > 0 && h.controller === 'ai');
-  }
-
-  private async decide(time: number): Promise<void> {
-    const heroes = this.heroes();
+  protected async decide(time: number): Promise<void> {
+    const heroes = this.ownHeroes();
     if (heroes.length === 0) return;
 
     const groups = groupStats(this.stateManager, this.faction);
@@ -197,7 +152,7 @@ export class JevController {
       ),
       objective: this.objectiveState(),
       time_seconds: Math.round(time),
-      your_side: this.faction === Faction.FRIENDLY ? 'west' : 'east',
+      your_side: sideName(this.faction),
     };
 
     for (const hero of heroes) {
@@ -249,7 +204,7 @@ export class JevController {
       return;
     }
     // Far above a normal request (~13 KB); the deployed proxy refuses more (api/jev.ts)
-    if (body.length > MAX_REQUEST_CHARS) {
+    if (body.length > JEV_MAX_REQUEST_SIZE) {
       const reason = `request too large (${Math.round(body.length / 1024)} KB)`;
       finishExchange(exchange, 0, null, reason);
       this.fail(reason, '');
@@ -258,141 +213,82 @@ export class JevController {
 
     this.pending = true;
     const started = performance.now();
-    // An answer that never comes would block the layer, and in paused mode the whole battle
-    const abort = new AbortController();
-    this.inFlight = abort;
-    const timer = setTimeout(() => abort.abort(), this.opts.timeoutMs);
-    try {
-      const { res, attempts } = await fetchWithRetries(this.opts.fetchFn, this.opts.endpoint, {
-        method: 'POST',
-        headers: aiHeaders(),
-        signal: abort.signal,
-        body,
-      });
-      const latencyMs = performance.now() - started;
-      if (this.disposed) return;
+    await this.request(
+      exchange,
+      started,
+      (signal) =>
+        fetchWithRetries(this.opts.fetchFn, this.opts.endpoint, {
+          method: 'POST',
+          headers: aiHeaders(),
+          signal,
+          body,
+        }),
+      (reply, latencyMs, attempts) => {
+        const answer = reply as {
+          model?: unknown;
+          usage?: { input_tokens?: unknown };
+          answers?: Record<
+            string,
+            { choice?: string; confidence?: number; score?: number; noul?: number }
+          >;
+        } | null;
+        const model = typeof answer?.model === 'string' ? answer.model : undefined;
+        const inputTokens = num(answer?.usage?.input_tokens);
+        const a = answer?.answers ?? {};
+        for (const hero of heroes) {
+          const key = `hero${hero.heroIndex}`;
+          const assessment = {
+            surrounded: num(a[`${key}_surrounded`]?.noul),
+            threat: num(a[`${key}_threat`]?.score),
+            orderStillFits: num(a[`${key}_order_fits`]?.noul),
+          };
+          this.assessments.set(hero.heroIndex, assessment);
+          this.lastForce.set(hero.heroIndex, forceNow.get(hero.heroIndex) ?? Infinity);
 
-      if (!res.ok) {
-        const info = await failureInfo(res);
-        if (this.disposed) return;
-        const reason = `HTTP ${res.status}${info.detail}${attempts > 1 ? ` after ${attempts} tries` : ''}`;
-        finishExchange(exchange, latencyMs, null, reason);
-        exchange.attempts = attempts;
-        const retryable = transientStatus(res);
-        if (retryable && this.tryAgainLater(reason)) return;
-        this.fail(
-          retryable ? `${reason} (${FAILURES_IN_A_ROW} failed requests in a row)` : reason,
-          deniedByAiServer(res)
-            ? AI_PASSWORD_HINT
-            : res.status === 401 || res.status === 403
-              ? `Set ${this.opts.model === 'snap' ? 'SUBQ_API_KEY' : 'TYPESAFE_API_KEY'} in .env.local and restart the dev server.`
-              : unreachableStatus(res.status)
-                ? unreachableHint()
-                : ''
-        );
-        return;
+          const choice = a[key];
+          const option = options.get(hero.heroIndex)?.find((o) => o.key === choice?.choice);
+          if (!choice || !option || hero.hp <= 0) continue;
+
+          const confidence = num(choice.confidence) ?? 0;
+          const applied = confidence >= this.opts.minConfidence;
+          // A repeated order is ignored by the command interface (D27).
+          // An option that does what the commander ordered (e.g. its own regroup while the
+          // LLM's order is regroup) is following that order: it runs as "follow the LLM", so the
+          // panel, the logs and the override counts show agreement, not an override (CASES 14.6)
+          const command =
+            option.command.type !== 'continueLlm' &&
+            hero.lastLlmCommand &&
+            sameCommand(option.command, hero.lastLlmCommand)
+              ? ({ type: 'continueLlm' } as const)
+              : option.command;
+          if (applied) this.engine.issueCommand(hero, command, 'jev');
+          if (applied) this.lastChoice.set(hero.heroIndex, option.key);
+          this.decisions.push({
+            time,
+            heroIndex: hero.heroIndex,
+            choice: option.key,
+            confidence,
+            applied,
+            latencyMs,
+            ...assessment,
+            model,
+            inputTokens,
+            attempts,
+          });
+        }
       }
-
-      const answer = (await res.json()) as {
-        model?: unknown;
-        usage?: { input_tokens?: unknown };
-        answers?: Record<
-          string,
-          { choice?: string; confidence?: number; score?: number; noul?: number }
-        >;
-      } | null;
-      if (this.disposed) return;
-      finishExchange(exchange, latencyMs, answer);
-      exchange.attempts = attempts;
-      this.failuresInARow = 0;
-      this.lastError = null;
-      const model = typeof answer?.model === 'string' ? answer.model : undefined;
-      const inputTokens = num(answer?.usage?.input_tokens);
-      const a = answer?.answers ?? {};
-      for (const hero of heroes) {
-        const key = `hero${hero.heroIndex}`;
-        const assessment = {
-          surrounded: num(a[`${key}_surrounded`]?.noul),
-          threat: num(a[`${key}_threat`]?.score),
-          orderStillFits: num(a[`${key}_order_fits`]?.noul),
-        };
-        this.assessments.set(hero.heroIndex, assessment);
-        this.lastForce.set(hero.heroIndex, forceNow.get(hero.heroIndex) ?? Infinity);
-
-        const choice = a[key];
-        const option = options.get(hero.heroIndex)?.find((o) => o.key === choice?.choice);
-        if (!choice || !option || hero.hp <= 0) continue;
-
-        const confidence = num(choice.confidence) ?? 0;
-        const applied = confidence >= this.opts.minConfidence;
-        // A repeated order is ignored by the command interface (D27).
-        // An option that does what the commander ordered (e.g. its own regroup while the LLM's
-        // order is regroup) is following that order: it runs as "follow the LLM", so the panel,
-        // the logs and the override counts show agreement, not an override (CASES 10.9, 15.x)
-        const command =
-          option.command.type !== 'continueLlm' &&
-          hero.lastLlmCommand &&
-          sameCommand(option.command, hero.lastLlmCommand)
-            ? ({ type: 'continueLlm' } as const)
-            : option.command;
-        if (applied) this.engine.issueCommand(hero, command, 'jev');
-        if (applied) this.lastChoice.set(hero.heroIndex, option.key);
-        this.decisions.push({
-          time,
-          heroIndex: hero.heroIndex,
-          choice: option.key,
-          confidence,
-          applied,
-          latencyMs,
-          ...assessment,
-          model,
-          inputTokens,
-          attempts,
-        });
-      }
-    } catch (err) {
-      if (this.disposed) return;
-      const reason = abort.signal.aborted
-        ? `no answer within ${this.opts.timeoutMs / 1000} s`
-        : String(err);
-      if (exchange.latencyMs === null)
-        finishExchange(exchange, performance.now() - started, null, reason);
-      // Lost connections were already retried twice; the next request may still get through.
-      // No answer within the whole time budget stops the layer, as in paused mode it holds the
-      // battle.
-      if (abort.signal.aborted) this.fail(reason, '');
-      else if (!this.tryAgainLater(reason))
-        this.fail(`${reason} (${FAILURES_IN_A_ROW} failed requests in a row)`, unreachableHint());
-    } finally {
-      clearTimeout(timer);
-      this.inFlight = null;
-      this.pending = false;
-    }
+    );
   }
 
-  // A request that may work next time (rate limited, overloaded, a lost connection), even after
-  // the retries within it, is counted and the next one goes out as usual; only several failures
-  // in a row stop the layer.
-  private tryAgainLater(reason: string): boolean {
-    this.failedRequests++;
-    this.failuresInARow++;
-    this.lastError = reason;
-    if (this.failuresInARow >= FAILURES_IN_A_ROW) return false;
-    console.warn(`${this.name} request failed (${reason}); asking again at the next decision.`);
-    return true;
+  // 408, 429 and 5xx may pass later; they were already retried within the request
+  protected retryable(res: Response): boolean {
+    return transientStatus(res);
   }
 
-  // Jev is unavailable: stop asking. If no other AI layer commands these heroes, hand them
-  // back to the rule layer so the game goes on.
-  private fail(reason: string, hint: string): void {
-    this.failed = true;
-    if (this.opts.fallbackToRules) for (const hero of this.heroes()) hero.controller = 'rule';
-    const what = this.opts.fallbackToRules
-      ? 'heroes switched to rule-based control'
-      : 'tactical layer stopped';
-    // The hint says what to do; it is shown in the AI panel and kept in the match log
-    this.failure = hint ? `${reason}; ${what}. ${hint}` : `${reason}; ${what}`;
-    console.warn(`${this.name} unavailable (${reason}); ${what}. ${hint}`);
+  protected statusHint(status: number): string | null {
+    return status === 401 || status === 403
+      ? `Set ${this.opts.model === 'snap' ? 'SUBQ_API_KEY' : 'TYPESAFE_API_KEY'} in .env.local and restart the dev server.`
+      : null;
   }
 
   // The options Jev can choose from for one hero (D20, D26), each with what it is for and
@@ -655,7 +551,7 @@ export class JevController {
         const b = base(f);
         return b ? exactPlace(b.position) : 'none';
       };
-      const enemyF = mine === Faction.FRIENDLY ? Faction.ENEMY : Faction.FRIENDLY;
+      const enemyF = opponent(mine);
       return {
         mode: 'destroy the base',
         seconds_left: secondsLeft,

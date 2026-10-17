@@ -9,8 +9,8 @@ const ARRIVE_RADIUS = 2;
 // Rule heroes whose survival reflex is running; kept per hero object, so a restart forgets them.
 const fled = new WeakSet<IHero>();
 
-// Rule-controlled heroes (battle mode, no AI): attack when an enemy is in sight, otherwise
-// patrol like a berserker group. Orders go through the command interface like any other.
+// Rule-controlled heroes (battle mode, no AI): attack when an enemy is in sight, otherwise take a
+// control point or attack the enemy base (D30), otherwise patrol like a berserker group. Orders go through the command interface like any other.
 export function updateRuleHeroes(
   sm: StateManager,
   commands: HeroCommands,

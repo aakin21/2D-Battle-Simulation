@@ -16,35 +16,22 @@ import {
 import { EffectsManager } from './effects/EffectsManager';
 import { TerrainArt, ART_PX } from './TerrainArt';
 import { ObjectiveArt } from './ObjectiveArt';
+import { ENEMY_HERO_COLOR } from './SideColors';
 // ATTACK_INTERVAL: attackCooldown is reset to it on each hit, which times the attack pose
-import { CONTROL_RADIUS, BASE_RADIUS, ATTACK_INTERVAL } from '../engine/Rules';
+import { ATTACK_INTERVAL } from '../engine/Rules';
 import { UnitSprites, FRAME, COL_LEFT, COL_RIGHT, WALK_FRAMES, ROW_ATTACK } from './UnitSprites';
+import { CameraController } from './CameraController';
+import { OrderMarkers } from './OrderMarkers';
+import { drawObjectives } from './ObjectiveOverlay';
 
-// The canvas fills the window, so the smallest zoom is the one that fits the whole map
-// (see resize()); until the first resize it is the original 750 px view.
-const ZOOM_FIT_DEFAULT = TILE_SIZE; // 150 tiles × 5 px = 750 px
-const ZOOM_MAX = 40; // max zoom: ~19 tiles visible on a 750 px view
-const ENEMY_HERO_COLOR = '#00E5FF'; // battle mode: enemy heroes stand out from blue berserkers
-
-// Eased camera: fraction of the remaining distance covered per second (exponential)
-const CAMERA_EASE_RATE = 18;
-// Order feedback: the ring that closes on a new task point, in real seconds
-const ORDER_PING_TIME = 0.45;
 // Attack pose: the sprite leans this far toward its facing side, as a share of its size
 const ATTACK_LUNGE = 0.12;
-
-function reducedMotion(): boolean {
-  return typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
-}
 
 // Sprite animation
 const WALK_FPS = 8;
 // The attack frame is shown for this long after each hit
 const ATTACK_POSE_TIME = 0.25;
 const HERO_RING_COLORS = ['#FFD700', ENEMY_HERO_COLOR]; // by Faction
-// Order markers by Faction: west gold, east blue (as in the HUD)
-const SIDE_FILL = ['#ffd23f', '#6aa8ff'];
-const SIDE_LINE = ['rgba(255, 210, 63, 0.75)', 'rgba(106, 168, 255, 0.75)'];
 
 export class Renderer {
   private canvas: HTMLCanvasElement;
@@ -57,25 +44,14 @@ export class Renderer {
   private artCanvas: HTMLCanvasElement | null = null;
   private objectiveArt = new ObjectiveArt();
 
-  private zoomMin: number = ZOOM_FIT_DEFAULT;
-  private camera: Camera = { x: 0, y: 0, zoom: ZOOM_FIT_DEFAULT };
-  // Eased camera moves: a zoom around a fixed screen point, or a glide to a position
-  private zoomEase: {
-    target: number;
-    screenX: number;
-    screenY: number;
-    gridX: number;
-    gridY: number;
-  } | null = null;
-  private panEase: { x: number; y: number } | null = null;
-  private lastCameraStep = 0;
+  // Camera position, zoom and easing (CameraController.ts)
+  private view: CameraController;
   // Bars over units: 'smart' shows them only where something is happening (FX on)
   private barsMode: 'smart' | 'all' = 'smart';
-  // Order markers: the command each hero had last frame, and when a new one appeared
-  private lastOrders = new Map<string, unknown>();
+  // Task-point markers and the rings for new orders (OrderMarkers.ts)
+  private orderMarkers = new OrderMarkers();
   // Called each frame with the hits and deaths on screen, for sound (set by the UI)
   private battleSound: ((hits: number, deaths: number, loudness: number) => void) | null = null;
-  private orderPings: Array<{ x: number; y: number; faction: Faction; start: number }> = [];
   private selectedUnitId: string | null = null;
   private battleMode: boolean = false;
 
@@ -95,6 +71,7 @@ export class Renderer {
   constructor(canvasId: string) {
     this.canvas = document.getElementById(canvasId) as HTMLCanvasElement;
     this.ctx = this.canvas.getContext('2d')!;
+    this.view = new CameraController(this.canvas);
     // Disable image smoothing so zoomed terrain stays crisp
     this.ctx.imageSmoothingEnabled = false;
     // Warm-up draws land on the canvas, which is cleared on the first render
@@ -107,8 +84,13 @@ export class Renderer {
     this.objectiveArt.load().catch((err) => console.warn('Objective art not loaded:', err));
   }
 
+  // The live camera of the main view (CameraController); getCamera() returns a copy
+  private get camera(): Camera {
+    return this.view.state;
+  }
+
   render(battlefield: IBattlefield): void {
-    this.stepCamera(performance.now());
+    this.view.step(performance.now());
     if (!this.offscreenTerrain) {
       this.buildTerrainCanvas(battlefield.grid);
     }
@@ -119,7 +101,15 @@ export class Renderer {
     this.updateEffects(battlefield);
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
     this.drawTerrain();
-    this.drawObjectives(battlefield);
+    drawObjectives(
+      this.ctx,
+      battlefield.objective,
+      this.camera,
+      this.canvas.width,
+      this.canvas.height,
+      this.effects.isEnabled() && this.objectiveArt.isReady() ? this.objectiveArt : null,
+      this.effects.getSimTime()
+    );
     this.spriteMode = this.decideSpriteMode();
     this.effects.setSpriteMode(this.spriteMode);
     this.effects.drawUnderUnits(
@@ -140,7 +130,15 @@ export class Renderer {
       this.canvas.width,
       this.canvas.height
     );
-    this.drawTaskPoint(battlefield.units);
+    this.orderMarkers.draw(
+      this.ctx,
+      battlefield.units,
+      this.camera,
+      this.canvas.width,
+      this.canvas.height,
+      this.effects.isEnabled(),
+      this.selectedUnitId
+    );
     if (this.debugMode) this.drawDebugInfo(battlefield);
   }
 
@@ -167,12 +165,12 @@ export class Renderer {
     return this.effects.isEnabled();
   }
 
-  // 'smart': with FX on, bars only over units that are hurt, fighting, fleeing, resting,
-  // selected, or heroes; 'all': over every unit (FX off always shows all)
   setBattleSound(fn: ((hits: number, deaths: number, loudness: number) => void) | null): void {
     this.battleSound = fn;
   }
 
+  // 'smart': with FX on, bars only over units that are hurt, fighting, fleeing, resting,
+  // selected, or heroes; 'all': over every unit (FX off always shows all)
   setBarsMode(mode: 'smart' | 'all'): void {
     this.barsMode = mode;
   }
@@ -189,16 +187,11 @@ export class Renderer {
     const w = Math.max(1, Math.floor(width));
     const h = Math.max(1, Math.floor(height));
     if (w === this.canvas.width && h === this.canvas.height) return;
-    const wasFit = this.camera.zoom <= this.zoomMin * 1.0001;
-    this.zoomEase = null;
-    this.panEase = null;
     this.canvas.width = w;
     this.canvas.height = h;
     // Resizing resets the context state
     this.ctx.imageSmoothingEnabled = false;
-    this.zoomMin = Math.min(w, h) / GRID_SIZE;
-    if (wasFit || this.camera.zoom < this.zoomMin) this.camera.zoom = this.zoomMin;
-    this.clampCamera();
+    this.view.onResize();
   }
 
   getViewSize(): { width: number; height: number } {
@@ -217,118 +210,42 @@ export class Renderer {
     target.drawImage(set.normal, 0, 0, FRAME, FRAME, 0, 0, width, height);
   }
 
-  // --- Camera controls ---
+  // --- Camera controls (CameraController) ---
 
   // Zooms around the cursor. With smooth on (the mouse wheel), the zoom eases to its new
   // value over a few frames; repeated wheel steps add up.
   zoomAt(delta: number, mouseCanvasX: number, mouseCanvasY: number, smooth = false): void {
-    const factor = delta > 0 ? 1.15 : 1 / 1.15;
-    const from = this.zoomEase ? this.zoomEase.target : this.camera.zoom;
-    const target = Math.max(this.zoomMin, Math.min(ZOOM_MAX, from * factor));
-    if (target === from) return;
-
-    // Keep the tile under the mouse cursor fixed on screen
-    const gridX = this.camera.x + mouseCanvasX / this.camera.zoom;
-    const gridY = this.camera.y + mouseCanvasY / this.camera.zoom;
-    this.panEase = null;
-    if (smooth && !reducedMotion()) {
-      this.zoomEase = { target, screenX: mouseCanvasX, screenY: mouseCanvasY, gridX, gridY };
-      return;
-    }
-    this.zoomEase = null;
-    this.camera.zoom = target;
-    this.camera.x = gridX - mouseCanvasX / target;
-    this.camera.y = gridY - mouseCanvasY / target;
-    this.clampCamera();
+    this.view.zoomAt(delta, mouseCanvasX, mouseCanvasY, smooth);
   }
 
   pan(dx: number, dy: number): void {
-    this.panEase = null;
-    // A zoom still easing keeps its anchor, moved along with the drag
-    if (this.zoomEase) {
-      this.zoomEase.gridX -= dx / this.camera.zoom;
-      this.zoomEase.gridY -= dy / this.camera.zoom;
-    }
-    this.camera.x -= dx / this.camera.zoom;
-    this.camera.y -= dy / this.camera.zoom;
-    this.clampCamera();
-  }
-
-  // Advances eased zooms and pans; called once per frame with real time.
-  private stepCamera(now: number): void {
-    const dt = this.lastCameraStep ? Math.min(0.1, (now - this.lastCameraStep) / 1000) : 0;
-    this.lastCameraStep = now;
-    const k = 1 - Math.exp(-dt * CAMERA_EASE_RATE);
-    const z = this.zoomEase;
-    if (z) {
-      this.camera.zoom += (z.target - this.camera.zoom) * k;
-      if (Math.abs(z.target - this.camera.zoom) < z.target * 0.002) {
-        this.camera.zoom = z.target;
-        this.zoomEase = null;
-      }
-      this.camera.x = z.gridX - z.screenX / this.camera.zoom;
-      this.camera.y = z.gridY - z.screenY / this.camera.zoom;
-      this.clampCamera();
-    }
-    const p = this.panEase;
-    if (p) {
-      this.camera.x += (p.x - this.camera.x) * k;
-      this.camera.y += (p.y - this.camera.y) * k;
-      if (Math.abs(p.x - this.camera.x) + Math.abs(p.y - this.camera.y) < 0.02) {
-        this.camera.x = p.x;
-        this.camera.y = p.y;
-        this.panEase = null;
-      }
-      this.clampCamera();
-    }
+    this.view.pan(dx, dy);
   }
 
   canvasToGrid(canvasX: number, canvasY: number): Position {
-    return {
-      x: this.camera.x + canvasX / this.camera.zoom,
-      y: this.camera.y + canvasY / this.camera.zoom,
-    };
+    return this.view.canvasToGrid(canvasX, canvasY);
   }
 
+  // A copy of the camera (the simulation engine keeps it)
   getCamera(): Camera {
-    return { ...this.camera };
+    return this.view.getCamera();
   }
 
   isZoomed(): boolean {
-    return this.camera.zoom > this.zoomMin * 1.0001;
+    return this.view.isZoomed();
   }
 
   // Centres the view on a tile; with smooth on (minimap clicks) the view glides there.
   centerOn(tileX: number, tileY: number, smooth = false): void {
-    const visW = this.canvas.width / this.camera.zoom;
-    const visH = this.canvas.height / this.camera.zoom;
-    this.zoomEase = null;
-    if (smooth && !reducedMotion()) {
-      // Clamp the destination the same way the camera is clamped
-      const keep = { ...this.camera };
-      this.camera.x = tileX - visW / 2;
-      this.camera.y = tileY - visH / 2;
-      this.clampCamera();
-      this.panEase = { x: this.camera.x, y: this.camera.y };
-      this.camera = keep;
-      return;
-    }
-    this.panEase = null;
-    this.camera.x = tileX - visW / 2;
-    this.camera.y = tileY - visH / 2;
-    this.clampCamera();
+    this.view.centerOn(tileX, tileY, smooth);
   }
 
   // Call on reset — clears terrain and returns camera to default
   clearTerrainCache(): void {
     this.offscreenTerrain = null;
     this.artCanvas = null;
-    this.zoomEase = null;
-    this.panEase = null;
-    this.lastOrders.clear();
-    this.orderPings.length = 0;
-    this.camera = { x: 0, y: 0, zoom: this.zoomMin };
-    this.clampCamera();
+    this.orderMarkers.reset();
+    this.view.reset();
     this.selectedUnitId = null;
     this.effects.reset();
     this.fxHitCount = 0;
@@ -336,20 +253,6 @@ export class Renderer {
   }
 
   // --- Private helpers ---
-
-  // Keeps the view on the map. Along an axis where the whole map fits, it is centred.
-  private clampCamera(): void {
-    const visW = this.canvas.width / this.camera.zoom;
-    const visH = this.canvas.height / this.camera.zoom;
-    this.camera.x =
-      visW >= GRID_SIZE
-        ? (GRID_SIZE - visW) / 2
-        : Math.max(0, Math.min(GRID_SIZE - visW, this.camera.x));
-    this.camera.y =
-      visH >= GRID_SIZE
-        ? (GRID_SIZE - visH) / 2
-        : Math.max(0, Math.min(GRID_SIZE - visH, this.camera.y));
-  }
 
   private buildTerrainCanvas(grid: TerrainType[][]): void {
     const oc = document.createElement('canvas');
@@ -562,7 +465,7 @@ export class Renderer {
       // Closer views are louder: 0.35 at the full map, 1 from about 20 px per tile
       const loudness = Math.min(
         1,
-        0.35 + (0.65 * (zoom - this.zoomMin)) / Math.max(1, 20 - this.zoomMin)
+        0.35 + (0.65 * (zoom - this.view.zoomMin)) / Math.max(1, 20 - this.view.zoomMin)
       );
       if (hits || deaths) this.battleSound(hits, deaths, loudness);
     }
@@ -623,183 +526,5 @@ export class Renderer {
     this.ctx.strokeStyle = 'rgba(255, 0, 0, 0.4)';
     this.ctx.lineWidth = 1;
     this.ctx.stroke();
-  }
-
-  // Draws an X marker at each hero's current task point (enemy heroes in their own colour).
-  // D30: control points (circle in the colour of the side holding it) and bases (square with
-  // an HP bar), drawn on the ground under the units.
-  private drawObjectives(battlefield: IBattlefield): void {
-    const o = battlefield.objective;
-    const { x: camX, y: camY, zoom } = this.camera;
-    const sideColor = (f: Faction | null) =>
-      f === Faction.FRIENDLY
-        ? '255, 210, 63'
-        : f === Faction.ENEMY
-          ? '106, 168, 255'
-          : '220, 220, 220';
-
-    // With FX on: a flag on each point and a tower for each base (ObjectiveArt)
-    const art = this.effects.isEnabled() && this.objectiveArt.isReady();
-    const simTime = this.effects.getSimTime();
-
-    for (const p of o.points) {
-      const sx = (p.position.x + 0.5 - camX) * zoom;
-      const sy = (p.position.y + 0.5 - camY) * zoom;
-      const r = CONTROL_RADIUS * zoom;
-      if (sx + r < 0 || sx - r > this.canvas.width || sy + r < 0 || sy - r > this.canvas.height)
-        continue;
-      const c = sideColor(p.holder);
-      this.ctx.beginPath();
-      this.ctx.arc(sx, sy, r, 0, Math.PI * 2);
-      this.ctx.fillStyle = `rgba(${c}, 0.12)`;
-      this.ctx.fill();
-      this.ctx.strokeStyle = `rgba(${c}, 0.8)`;
-      this.ctx.lineWidth = 2;
-      if (art) this.ctx.setLineDash([Math.max(4, zoom), Math.max(3, zoom * 0.6)]);
-      this.ctx.stroke();
-      this.ctx.setLineDash([]);
-      const label = Math.min(28, Math.max(12, zoom * 2.5));
-      if (art) {
-        const size = Math.max(12, zoom * 2);
-        this.objectiveArt.drawFlag(this.ctx, p.holder, sx, sy + size * 0.4, size, simTime);
-      }
-      this.ctx.fillStyle = `rgba(${c}, 0.95)`;
-      this.ctx.font = art ? `${Math.round(label)}px Pixel, monospace` : `bold ${label}px monospace`;
-      this.ctx.textAlign = 'center';
-      this.ctx.textBaseline = 'middle';
-      if (art) {
-        // Letter beside the flag, outlined for any ground
-        const lx = sx + Math.max(12, zoom * 2);
-        this.ctx.lineWidth = 3;
-        this.ctx.strokeStyle = '#131b1b';
-        this.ctx.strokeText(p.name, lx, sy);
-        this.ctx.fillText(p.name, lx, sy);
-      } else this.ctx.fillText(p.name, sx, sy);
-      this.ctx.textAlign = 'start';
-      this.ctx.textBaseline = 'alphabetic';
-    }
-
-    for (const b of o.bases) {
-      const half = BASE_RADIUS * zoom;
-      const sx = (b.position.x + 0.5 - camX) * zoom;
-      const sy = (b.position.y + 0.5 - camY) * zoom;
-      if (
-        sx + half < 0 ||
-        sx - half > this.canvas.width ||
-        sy + half < 0 ||
-        sy - half > this.canvas.height
-      )
-        continue;
-      if (art) {
-        this.objectiveArt.drawTower(this.ctx, b.faction, b.hp / b.maxHp, sx, sy, half * 2);
-      } else {
-        const c = sideColor(b.faction);
-        this.ctx.fillStyle = b.hp > 0 ? `rgba(${c}, 0.35)` : 'rgba(60, 60, 60, 0.5)';
-        this.ctx.fillRect(sx - half, sy - half, half * 2, half * 2);
-        this.ctx.strokeStyle = `rgba(${c}, 0.9)`;
-        this.ctx.lineWidth = 2;
-        this.ctx.strokeRect(sx - half, sy - half, half * 2, half * 2);
-      }
-      const barH = Math.max(3, zoom * 0.5);
-      this.ctx.fillStyle = '#550000';
-      this.ctx.fillRect(sx - half, sy - half - barH - 2, half * 2, barH);
-      this.ctx.fillStyle = '#00cc44';
-      this.ctx.fillRect(sx - half, sy - half - barH - 2, half * 2 * (b.hp / b.maxHp), barH);
-    }
-  }
-
-  // Each hero's current task point. FX off: the original X. FX on: a small marker in the
-  // side's colour, a ring that closes on the point when a new order arrives (from the user,
-  // the rules, Jev or the LLM) and a dashed line from the selected hero to its target.
-  private drawTaskPoint(units: IUnit[]): void {
-    const { x: camX, y: camY, zoom } = this.camera;
-    const ctx = this.ctx;
-    const fx = this.effects.isEnabled();
-    const now = performance.now();
-    const half = Math.max(5, zoom * 0.7);
-
-    for (const unit of units) {
-      if (unit.unitType !== UnitType.HERO) continue;
-      const hero = unit as IHero;
-      if (fx) {
-        const prev = this.lastOrders.get(hero.id);
-        if (hero.command !== prev) {
-          this.lastOrders.set(hero.id, hero.command);
-          if (prev !== undefined && hero.taskPoint && !reducedMotion()) {
-            this.orderPings.push({
-              x: hero.taskPoint.x,
-              y: hero.taskPoint.y,
-              faction: hero.faction,
-              start: now,
-            });
-          }
-        }
-      }
-      if (!hero.taskPoint) continue;
-
-      const sx = (hero.taskPoint.x - camX) * zoom;
-      const sy = (hero.taskPoint.y - camY) * zoom;
-
-      if (fx && hero.id === this.selectedUnitId) {
-        ctx.strokeStyle = SIDE_LINE[hero.faction];
-        ctx.lineWidth = 2;
-        ctx.setLineDash([6, 5]);
-        ctx.beginPath();
-        ctx.moveTo((hero.position.x - camX) * zoom, (hero.position.y - camY) * zoom);
-        ctx.lineTo(sx, sy);
-        ctx.stroke();
-        ctx.setLineDash([]);
-      }
-
-      if (sx < -20 || sx > this.canvas.width + 20) continue;
-      if (sy < -20 || sy > this.canvas.height + 20) continue;
-
-      if (!fx) {
-        ctx.strokeStyle = hero.faction === Faction.ENEMY ? ENEMY_HERO_COLOR : '#FF0000';
-        ctx.lineWidth = Math.max(1, zoom * 0.2);
-        ctx.beginPath();
-        ctx.moveTo(sx - half, sy - half);
-        ctx.lineTo(sx + half, sy + half);
-        ctx.moveTo(sx + half, sy - half);
-        ctx.lineTo(sx - half, sy + half);
-        ctx.stroke();
-        continue;
-      }
-
-      // A diamond that bobs gently above the point
-      const r = Math.max(4, zoom * 0.55);
-      const bob = reducedMotion() ? 0 : Math.sin(now / 220) * r * 0.3;
-      const cy = sy - r * 1.4 + bob;
-      ctx.beginPath();
-      ctx.moveTo(sx, cy - r);
-      ctx.lineTo(sx + r * 0.75, cy);
-      ctx.lineTo(sx, cy + r);
-      ctx.lineTo(sx - r * 0.75, cy);
-      ctx.closePath();
-      ctx.fillStyle = SIDE_FILL[hero.faction];
-      ctx.fill();
-      ctx.lineWidth = 2;
-      ctx.strokeStyle = '#131b1b';
-      ctx.stroke();
-    }
-
-    // Rings closing on new task points
-    let keep = 0;
-    for (const ping of this.orderPings) {
-      const t = (now - ping.start) / 1000 / ORDER_PING_TIME;
-      if (t >= 1) continue;
-      this.orderPings[keep++] = ping;
-      const px = (ping.x - camX) * zoom;
-      const py = (ping.y - camY) * zoom;
-      const radius = Math.max(6, zoom * 2.5) * (1 - 0.75 * t);
-      ctx.beginPath();
-      ctx.ellipse(px, py, radius, radius * 0.6, 0, 0, Math.PI * 2);
-      ctx.globalAlpha = 1 - t;
-      ctx.lineWidth = 3;
-      ctx.strokeStyle = SIDE_FILL[ping.faction];
-      ctx.stroke();
-      ctx.globalAlpha = 1;
-    }
-    this.orderPings.length = keep;
   }
 }

@@ -1,16 +1,19 @@
 # src/ai
 
-AI layers that command the heroes of one side. Each implements `AIController` (`tick`, `isWaiting`) from `src/engine/SimulationEngine.ts` and is attached per match by `UIController.startControllers()`.
+AI layers that command the heroes of one side. Each extends `AiLayer`, which implements `AIController` (`tick`, `isWaiting`, `dispose`) from `src/engine/SimulationEngine.ts`, and is attached per match by `UIController.startControllers()`.
 
 | File               | Layer                   | How                                                                                                                                  |
 | ------------------ | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
 | `JevController.ts` | 2, tactical (D6, D21)   | Every 4 s, one request per side to `/api/jev` (dev proxy → TypeSafe). One Choice question per hero over a fixed option list.         |
 | `LlmController.ts` | 3, strategic (D10, D22) | Every 15 s (D50), a whole-map report to `/api/llm` (dev server → Claude Agent SDK). Reply is JSON orders, validated before use.            |
-| `AiServer.ts`      | –                       | Where `/api/jev` and `/api/llm` are: this site, or the tunnel address and password given once in the demo link (`?ai=…&key=…`, D37; the address is reduced to its origin, `https://` added when missing, `http://` for localhost). Failure details, retry helpers. |
+| `AiLayer.ts`       | –                       | Base class of both controllers: the shared lifecycle (interval `tick`, one request at a time, `isWaiting`, `dispose`), the request with its timeout and failure handling (`request`, `tryAgainLater`, `fail`) and the counters the panels read (`exchanges`, `failedRequests`, `lastError`, `failure`, …). What is asked, retries, which failures may pass later and the hints stay in the layers. |
+| `AiServer.ts`      | –                       | Where `/api/jev`, `/api/snap` and `/api/llm` are: this site, or the tunnel address and password given once in the demo link (`?ai=…&key=…`, D37; the address is reduced to its origin, `https://` added when missing, `http://` for localhost). Failure details, retry helpers. |
 | `Models.ts`        | –                       | The models a side can use, one id and label everywhere: Claude aliases (Agent SDK, D44), `openrouter:<id>` for other companies' LLMs (D52, list `OPENROUTER_MODELS`), the tactical model Jev or Snap (D51). |
 | `Snap.ts`          | –                       | SubQ Snap as the tactical layer (D51): Jev's request turned into Snap's format with the same options (one text per option, instructions as text, at most 16 questions). |
+| `Exchange.ts`      | –                       | One request with its answer or error, kept for the AI panel's request log and the match log.                                       |
 | `GameRules.ts`     | –                       | The rulebook for both layers, built from `src/engine/Rules.ts`: the LLM system prompt and Jev's `game_rules` (D26).                  |
 | `Observations.ts`  | –                       | Values computed by code for both layers: group stats, local force ratio, army HP (R5).                                               |
+| `Limits.ts`        | –                       | Timeouts and size limits shared by the browser and the dev server (LLM 120 s in the browser, 110 s on the server; Jev 30 s; Jev request size). `api/jev.ts` keeps its own copies. |
 
 ## Conventions
 
@@ -25,7 +28,7 @@ AI layers that command the heroes of one side. Each implements `AIController` (`
 - Jev has no memory: every request carries `game_rules`. The LLM gets the rulebook once per match as its system prompt.
 - Log every decision with its response time (`decisions`); these feed the latency experiments. Every request is also kept with its answer or error (`exchanges`, `Exchange.ts`) for the AI panel's request log and the match log; the LLM's rulebook is kept once (`system`), not per request.
 - Never start a new request while one is open; count it as skipped (Q7).
-- Every request has a timeout (LLM 120 s, Jev 30 s, `timeoutMs`); a request without an answer counts as a failure, so paused AI timing can never freeze the battle.
+- Every request has a timeout (LLM 120 s, Jev 30 s, `timeoutMs`, values in `Limits.ts`); a request without an answer counts as a failure, so paused AI timing can never freeze the battle.
 - Failed requests (pass 4, following TypeSafe's and Anthropic's guidance): Jev retries 408, 429, 5xx and lost connections twice within the request, after 0.5 s and 1 s with up to 25% jitter (from `crypto`) and honouring `Retry-After`, as TypeSafe's own SDKs do (`fetchWithRetries`); the LLM does not, since the Claude CLI behind the endpoint already retries up to 10 times. A request that still fails but may pass later (the LLM endpoint's `retryable`, 408/429/5xx, a lost connection) is counted in `failedRequests` and shown as `lastError`, and the layer asks again at its next decision; `FAILURES_IN_A_ROW` (3) such failures stop it. 401, 403, 404/405, 413, 422, a refused AI password, a plan or budget limit and a timeout stop it at once.
 - Answers are recorded with what the services report: Jev's version (`model`, e.g. `jev-1.13.0`; the request asks for `jev-latest`), its input tokens and the number of tries; the LLM's estimated cost, tokens, API time and full model ids (`usage`). Jev's choice probabilities stay in the request log and the match log.
 - Controllers implement `dispose()`: the engine disposes them on restart and when they are replaced, which aborts the open request and drops a late answer, so it cannot reach the heroes of the next match. One malformed entry in the LLM's `orders` is skipped with a reason, not treated as a failure.

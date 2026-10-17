@@ -17,6 +17,7 @@ import {
   LlmModel,
 } from '../types/types';
 import { llmSystemPrompt } from './GameRules';
+import { LLM_TIMEOUT_MS } from './Limits';
 import {
   armyHp,
   exactPlace,
@@ -28,18 +29,10 @@ import {
 } from './Observations';
 import { strayClusters } from '../engine/Strays';
 import { enemyBase, pointCounts } from '../engine/Objectives';
-import {
-  aiEndpoint,
-  aiHeaders,
-  deniedByAiServer,
-  AI_PASSWORD_HINT,
-  unreachableHint,
-  failureInfo,
-  transientStatus,
-  unreachableStatus,
-  FAILURES_IN_A_ROW,
-} from './AiServer';
-import { AiExchange, finishExchange, startExchange } from './Exchange';
+import { opponent, sideName } from '../engine/Sides';
+import { aiEndpoint, aiHeaders, deniedByAiServer, transientStatus } from './AiServer';
+import { AiLayer } from './AiLayer';
+import { startExchange } from './Exchange';
 
 const MAX_STRAY_CLUSTERS = 5;
 const MAX_REASON = 300; // characters of an order's reason that are kept
@@ -121,7 +114,7 @@ const DEFAULTS: LlmOptions = {
   jevAssessment: null,
   model: 'sonnet',
   tacticalName: 'Jev',
-  timeoutMs: 120_000,
+  timeoutMs: LLM_TIMEOUT_MS,
 };
 
 interface RawOrder {
@@ -133,30 +126,16 @@ interface RawOrder {
   target_hero?: unknown;
 }
 
-export class LlmController {
-  private opts: LlmOptions;
-  private nextAt = 0;
-
-  // Simulation time of the next report (for the AI panel)
-  get nextDecisionAt(): number {
-    return this.nextAt;
-  }
-  private pending = false;
-  private failed = false;
+export class LlmController extends AiLayer {
+  protected opts: LlmOptions;
+  protected readonly nextAsk = 'report';
+  protected readonly stoppedText = 'strategic layer stopped';
   // Not from Math.random: the simulation draws from it, and creating a controller must not
   // change the battle
   private readonly matchId = `match_${Date.now()}_${crypto.getRandomValues(new Uint32Array(1))[0].toString(36)}`;
   private readonly side: 'west' | 'east';
   readonly system: string; // the rulebook sent as the session's system prompt
   readonly decisions: LlmDecision[] = [];
-  readonly exchanges: AiExchange[] = []; // every request with its answer (request log, match log)
-  skippedRequests = 0;
-  failedRequests = 0; // requests that failed but were tried again at the next report
-  lastError: string | null = null; // the latest failed request's reason, until an answer comes
-  private failuresInARow = 0;
-  failure: string | null = null; // why the layer stopped, for the AI panel and the match log
-  private disposed = false;
-  private inFlight: AbortController | null = null;
 
   // Memory between reports
   private lastForceRatio: number | null = null;
@@ -167,13 +146,14 @@ export class LlmController {
   private heroFleeing = new Set<string>();
 
   constructor(
-    private engine: SimulationEngine,
-    private stateManager: StateManager,
-    private faction: Faction,
+    engine: SimulationEngine,
+    stateManager: StateManager,
+    faction: Faction,
     opts: Partial<LlmOptions> = {}
   ) {
+    super(engine, stateManager, faction);
     this.opts = { ...DEFAULTS, ...opts };
-    this.side = faction === Faction.FRIENDLY ? 'west' : 'east';
+    this.side = sideName(faction);
     this.system = llmSystemPrompt(
       this.side,
       this.opts.jevAssessment !== null,
@@ -183,25 +163,14 @@ export class LlmController {
     );
   }
 
-  isWaiting(): boolean {
-    return this.pending;
+  protected get logName(): string {
+    return `LLM (${this.side})`;
   }
 
-  // The match ended or restarted: no more requests, and a late answer is dropped.
-  dispose(): void {
-    this.disposed = true;
-    this.inFlight?.abort();
-  }
-
+  // Hero events are noted every step, before the base class decides whether to ask
   tick(elapsed: number): void {
     this.watchEvents(elapsed);
-    if (this.failed || this.disposed || elapsed < this.nextAt) return;
-    this.nextAt = elapsed + this.opts.intervalSec;
-    if (this.pending) {
-      this.skippedRequests++;
-      return;
-    }
-    void this.decide(elapsed);
+    super.tick(elapsed);
   }
 
   // Notes hero deaths and survival-reflex retreats as they happen, for the next report.
@@ -233,12 +202,10 @@ export class LlmController {
   }
 
   private myHeroes(): IHero[] {
-    return this.stateManager
-      .getHeroes()
-      .filter((h) => h.faction === this.faction && h.hp > 0 && h.controller === 'ai');
+    return this.ownHeroes();
   }
 
-  private async decide(time: number): Promise<void> {
+  protected async decide(time: number): Promise<void> {
     const heroes = this.myHeroes();
     if (heroes.length === 0) return;
 
@@ -252,71 +219,45 @@ export class LlmController {
       model: this.opts.model,
       prompt: report,
     });
-    // An answer that never comes would block the layer, and in paused mode the whole battle
-    const abort = new AbortController();
-    this.inFlight = abort;
-    const timer = setTimeout(() => abort.abort(), this.opts.timeoutMs);
-    try {
-      const res = await this.opts.fetchFn(this.opts.endpoint, {
-        method: 'POST',
-        headers: aiHeaders(),
-        signal: abort.signal,
-        body: JSON.stringify({
-          side: this.side,
-          matchId: this.matchId,
-          system: this.system,
-          model: this.opts.model,
-          prompt: JSON.stringify(report),
+    await this.request(
+      exchange,
+      started,
+      async (signal) => ({
+        res: await this.opts.fetchFn(this.opts.endpoint, {
+          method: 'POST',
+          headers: aiHeaders(),
+          signal,
+          body: JSON.stringify({
+            side: this.side,
+            matchId: this.matchId,
+            system: this.system,
+            model: this.opts.model,
+            prompt: JSON.stringify(report),
+          }),
         }),
-      });
-      const latencyMs = performance.now() - started;
-      if (this.disposed) return;
-      if (!res.ok) {
-        const info = await failureInfo(res);
-        if (this.disposed) return;
-        const reason = `HTTP ${res.status}${info.detail}`;
-        finishExchange(exchange, latencyMs, null, reason);
-        const retryable = !deniedByAiServer(res) && (info.retryable ?? transientStatus(res));
-        if (retryable && this.tryAgainLater(reason)) return;
-        this.fail(
-          retryable ? `${reason} (${FAILURES_IN_A_ROW} failed requests in a row)` : reason,
-          deniedByAiServer(res)
-            ? AI_PASSWORD_HINT
-            : res.status === 404 || res.status === 405
-              ? 'This site has no LLM endpoint: run npm run dev, or open the demo through the tunnel (?ai=...).'
-              : unreachableStatus(res.status)
-                ? unreachableHint()
-                : ''
-        );
-        return;
-      }
-      const body = (await res.json()) as Record<string, unknown> | null;
-      if (this.disposed) return;
-      finishExchange(exchange, latencyMs, body);
-      remember();
-      this.failuresInARow = 0;
-      this.lastError = null;
-      // A reply that is not text is applied as an empty one: "not valid JSON", layer goes on
-      const text = typeof body?.text === 'string' ? body.text : '';
-      const model = typeof body?.model === 'string' ? body.model : this.opts.model;
-      this.apply(time, latencyMs, text, model, usageOf(body));
-    } catch (err) {
-      if (this.disposed) return;
-      const reason = abort.signal.aborted
-        ? `no answer within ${this.opts.timeoutMs / 1000} s`
-        : String(err);
-      if (exchange.latencyMs === null)
-        finishExchange(exchange, performance.now() - started, null, reason);
-      // A lost connection may come back (tunnel hiccup); no answer at all within the timeout
-      // means the server is stuck, since it gives up and says so first
-      if (abort.signal.aborted) this.fail(reason, '');
-      else if (!this.tryAgainLater(reason))
-        this.fail(`${reason} (${FAILURES_IN_A_ROW} failed requests in a row)`, unreachableHint());
-    } finally {
-      clearTimeout(timer);
-      this.inFlight = null;
-      this.pending = false;
-    }
+      }),
+      (answer, latencyMs) => {
+        const body = answer as Record<string, unknown> | null;
+        // A reply that is not text is applied as an empty one: "not valid JSON", layer goes on
+        const text = typeof body?.text === 'string' ? body.text : '';
+        const model = typeof body?.model === 'string' ? body.model : this.opts.model;
+        this.apply(time, latencyMs, text, model, usageOf(body));
+      },
+      // The report reached the LLM: the next one counts its changes from this one
+      remember
+    );
+  }
+
+  // The endpoint says whether trying again may help; a refused AI password never does. The
+  // CLI behind the endpoint has already retried, so there are no retries here.
+  protected retryable(res: Response, info: { retryable: boolean | null }): boolean {
+    return !deniedByAiServer(res) && (info.retryable ?? transientStatus(res));
+  }
+
+  protected statusHint(status: number): string | null {
+    return status === 404 || status === 405
+      ? 'This site has no LLM endpoint: run npm run dev, or open the demo through the tunnel (?ai=...).'
+      : null;
   }
 
   // Validates the LLM's reply and applies the usable orders through the command interface.
@@ -445,36 +386,13 @@ export class LlmController {
     }
   }
 
-  // A request that may work next time (overloaded, rate limited, a lost connection) is counted
-  // and asked again at the next report, as the CLI behind the endpoint has already retried it;
-  // only several failures in a row stop the layer.
-  private tryAgainLater(reason: string): boolean {
-    this.failedRequests++;
-    this.failuresInARow++;
-    this.lastError = reason;
-    if (this.failuresInARow >= FAILURES_IN_A_ROW) return false;
-    console.warn(`LLM (${this.side}) request failed (${reason}); asking again at the next report.`);
-    return true;
-  }
-
-  private fail(reason: string, hint: string): void {
-    this.failed = true;
-    if (this.opts.fallbackToRules) for (const hero of this.myHeroes()) hero.controller = 'rule';
-    const what = this.opts.fallbackToRules
-      ? 'heroes switched to rule-based control'
-      : 'strategic layer stopped';
-    // The hint says what to do; it is shown in the AI panel and kept in the match log
-    this.failure = hint ? `${reason}; ${what}. ${hint}` : `${reason}; ${what}`;
-    console.warn(`LLM (${this.side}) unavailable (${reason}); ${what}. ${hint}`);
-  }
-
   // The whole battlefield as computed values (R5, D26).
   private report(time: number): { report: Record<string, unknown>; remember: () => void } {
     const sm = this.stateManager;
     const mine = (f: Faction) => f === this.faction;
     const heroes = sm.getHeroes().filter((h) => h.hp > 0);
     const myGroups = groupStats(sm, this.faction);
-    const enemyFaction = this.faction === Faction.FRIENDLY ? Faction.ENEMY : Faction.FRIENDLY;
+    const enemyFaction = opponent(this.faction);
     const enemyGroups = groupStats(sm, enemyFaction);
 
     // Armies and sectors: [count, sum of HP share, sum of courage, fleeing]
@@ -657,7 +575,7 @@ export class LlmController {
           enemy_units_within_15_tiles: attackers,
         };
       };
-      const enemyF = mineF === Faction.FRIENDLY ? Faction.ENEMY : Faction.FRIENDLY;
+      const enemyF = opponent(mineF);
       return {
         mode: 'destroy the base',
         seconds_left: secondsLeft,
