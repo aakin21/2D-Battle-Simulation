@@ -9,6 +9,7 @@ Canvas drawing only; no simulation logic here.
 | `TerrainArt.ts` | Battlefield art from the pack's tilesets, built once per map at 8 px per tile (the unit sprites' pixel size): textured ground, edges that follow the tiles, trees, rocks, reeds and flowers placed only on matching tiles |
 | `ObjectiveArt.ts` | Waving flags on control points (holder's colour) and towers for bases (intact, damaged, ruined) |
 | `UnitSprites.ts` | Unit sprite sheets (Ninja Adventure, CC0, D25): team tinting, hit-flash and corpse variants, one sprite per hero slot |
+| `SideColors.ts` | The two sides' marker colours (west gold, east blue), shared by the main view and the minimap |
 | `effects/` | Visual effects layer: frame-diff event detection (`EffectsManager`), hit flash, corpses, blood, slash and smoke bursts (`Bursts`), status emotes, hero aura; pooled objects and pre-rendered sprites |
 
 ## Conventions

@@ -1,6 +1,6 @@
 import { StateManager } from '../state/StateManager';
 import { IHero, BehaviorState, TerrainType } from '../types/types';
-import { effectiveSight, stepToward } from './UnitHelpers';
+import { effectiveSight, enemyPositionSum, stepToward } from './UnitHelpers';
 import {
   HERO_RETREAT_HP_RATIO as RETREAT_HP_RATIO,
   HERO_OUTNUMBERED_MIN_ENEMIES as OUTNUMBERED_MIN_ENEMIES,
@@ -65,15 +65,7 @@ export function moveHeroRetreat(
   deltaTime: number,
   grid: TerrainType[][]
 ): void {
-  let ex = 0;
-  let ey = 0;
-  let n = 0;
-  sm.forEachInRadius(hero.position.x, hero.position.y, effectiveSight(sm, hero), (other) => {
-    if (other.hp <= 0 || other.faction === hero.faction) return;
-    ex += other.position.x;
-    ey += other.position.y;
-    n++;
-  });
+  const { x: ex, y: ey, n } = enemyPositionSum(sm, hero, effectiveSight(sm, hero));
   if (n === 0) return;
   const ax = hero.position.x - ex / n;
   const ay = hero.position.y - ey / n;

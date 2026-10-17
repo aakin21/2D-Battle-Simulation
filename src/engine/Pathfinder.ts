@@ -153,13 +153,6 @@ export class Pathfinder {
     heap.push({ x: sx, y: sy, g: 0, h: sh, f: sh, parent: null });
     gScore.set(key(sx, sy), 0);
 
-    const DIRS = [
-      [1, 0],
-      [-1, 0],
-      [0, 1],
-      [0, -1],
-    ] as const;
-
     while (heap.size > 0) {
       const cur = heap.pop();
 
@@ -172,7 +165,7 @@ export class Pathfinder {
         return Pathfinder.smoothPath(grid, { x: sx, y: sy }, raw);
       }
 
-      for (const [dx, dy] of DIRS) {
+      for (const [dx, dy] of DIRS4) {
         const nx = cur.x + dx;
         const ny = cur.y + dy;
         if (nx < 0 || nx >= GRID_SIZE || ny < 0 || ny >= GRID_SIZE) continue;

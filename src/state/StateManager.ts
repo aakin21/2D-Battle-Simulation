@@ -29,6 +29,10 @@ import {
 // Battle mode: soldiers start at random tiles within this many columns of their side's
 // hero column (west x = 20, east x = 129), over the full height of the map.
 const SPAWN_AREA_HALF_WIDTH = 20;
+// Battle mode: a hero starts on a clear tile in a square around its slot on the side's edge,
+// grown from this half-width up to the maximum until it holds one.
+const HERO_SPOT_RADIUS = 3;
+const HERO_SPOT_MAX_RADIUS = 40;
 
 export class StateManager {
   private battlefield: IBattlefield;
@@ -134,7 +138,7 @@ export class StateManager {
     }
   }
 
-  spawnInitialUnits(warriorCount: number = 100): void {
+  private spawnInitialUnits(warriorCount: number = 100): void {
     const warriorPositions = this.getShuffledPositions(5, 74, 5, 145);
     const count = Math.min(warriorCount, warriorPositions.length);
     for (let i = 0; i < count; i++) {
@@ -162,9 +166,7 @@ export class StateManager {
         unit.position = extraWarriorPositions[i];
         this.addUnit(unit);
       }
-    }
 
-    if (this.stressMode) {
       const berserkerPositions = this.getShuffledPositions(90, 145, 10, 140);
       const rallyPoint: Position = { x: 30, y: 75 };
       for (let i = 0; i < 2000 && i < berserkerPositions.length; i++) {
@@ -255,7 +257,7 @@ export class StateManager {
       const heroTiles = new Set<string>();
       for (let h = 0; h < heroCount; h++) {
         const cy = Math.round(((h + 1) * GRID_SIZE) / (heroCount + 1));
-        const heroPos = this.clearSpotsAround(side.x, cy, 3, 1, 40)[0];
+        const heroPos = this.heroSpot(side.x, cy);
         if (!heroPos) continue;
 
         const hero = this.createHero(side.faction, side.controller, h + 1);
@@ -286,30 +288,22 @@ export class StateManager {
     }
   }
 
-  // Shuffled clear tiles of the main region in a square around (cx, cy). The square grows
-  // until it holds at least `needed` tiles. Soldiers keep the default limit so they start
-  // within their hero's sight.
-  private clearSpotsAround(
-    cx: number,
-    cy: number,
-    radius: number,
-    needed: number,
-    maxRadius = 12
-  ): Position[] {
-    let spots: Position[] = [];
-    for (let r = radius; r <= maxRadius; r += 2) {
-      spots = this.getShuffledPositions(
+  // A random clear tile of the main region in a square around (cx, cy), the square growing
+  // until it holds one; undefined when none is found.
+  private heroSpot(cx: number, cy: number): Position | undefined {
+    for (let r = HERO_SPOT_RADIUS; r <= HERO_SPOT_MAX_RADIUS; r += 2) {
+      const spots = this.getShuffledPositions(
         Math.max(1, cx - r),
         Math.min(GRID_SIZE - 1, cx + r + 1),
         Math.max(1, cy - r),
         Math.min(GRID_SIZE - 1, cy + r + 1)
       ).filter((p) => this.isInMainRegion(p.x, p.y));
-      if (spots.length >= needed) break;
+      if (spots.length > 0) return spots[0];
     }
-    return spots;
+    return undefined;
   }
 
-  getShuffledPositions(xMin: number, xMax: number, yMin: number, yMax: number): Position[] {
+  private getShuffledPositions(xMin: number, xMax: number, yMin: number, yMax: number): Position[] {
     const positions: Position[] = [];
 
     for (let y = yMin; y < yMax; y++) {

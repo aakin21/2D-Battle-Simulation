@@ -178,6 +178,13 @@ export const UNIT_COLORS: Record<string, string> = {
 };
 
 export const GRID_SIZE = 150;
+export const LAST_TILE = GRID_SIZE - 1;
+// Tiles off the map's outer border (1..148)
+export const INNER_MIN = 1;
+export const INNER_MAX = GRID_SIZE - 2;
+// Classic waves spawn, and patrols aim, at least this many tiles from the map's edge (5..144)
+export const EDGE_MARGIN = 5;
+export const EDGE_MARGIN_MAX = LAST_TILE - EDGE_MARGIN;
 export const TILE_SIZE = 5; // pixels per tile at base zoom (offscreen terrain canvas = 750×750)
 
 export type TerrainDensity = 'light' | 'normal' | 'dense';

@@ -36,7 +36,7 @@ The three decision layers (D1): rules every frame (`src/engine`), Jev every ~4 s
 - `npm run build`: static build. On Vercel, `api/jev.ts` serves `/api/jev` (key in the Vercel project's `TYPESAFE_API_KEY`); the LLM is not available there until the Claude API is used (D10).
 - AI in the online demo (D37): set `AI_PASSWORD=...` in `.env.local`, run `npm run dev` and a tunnel (`cloudflared tunnel --url http://localhost:5173` or `ngrok http 5173`), then open the demo once with `?ai=<tunnel address>&key=<AI_PASSWORD>`. Requests from localhost need no password; `AI_ALLOWED_ORIGINS` overrides the allowed demo origin (default `https://aakin21.github.io`).
 - Jev needs `TYPESAFE_API_KEY=...` in `.env.local`. The LLM uses the developer's Claude login through the Agent SDK; the model is chosen per side in the Battle menu (Haiku / Sonnet / Opus, pinned to the 5.5 generation, D44; `LLM_MODEL` only sets the server default).
-- Formatting: Prettier (`.prettierrc`); lint: `npm run lint`. Run both on files you change.
+- Formatting: Prettier (`.prettierrc`); lint: `npm run lint` (src, server, api); types: `npm run typecheck` (the browser code and, through `tsconfig.node.json`, the Node code). Run them on files you change.
 - Smoke tests (D24) live outside the repo in `../tests/smoke/` (`./run-all.sh`, `README.md`): headless, fake AIs only. `same.ts` hashes the battlefield, so diffing its output before and after a change shows the simulation is unchanged.
 
 ## Thesis documentation rule

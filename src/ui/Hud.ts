@@ -2,26 +2,15 @@ import { modelLabel, TACTICAL_NAME, type TacticalModel } from '../ai/Models';
 import { SimulationEngine, MatchResult } from '../engine/SimulationEngine';
 import { StateManager } from '../state/StateManager';
 import type { Renderer } from '../rendering/Renderer';
-import {
-  IUnit,
-  IHero,
-  UnitType,
-  Faction,
-  BehaviorState,
-  HeroCommand,
-  SimConfig,
-  SideAI,
-} from '../types/types';
-import { positionToSubsector } from '../engine/Sectors';
-import { escapeHtml } from './AiPanel';
+import { IUnit, IHero, UnitType, Faction, BehaviorState, SimConfig, SideAI } from '../types/types';
+import { sideName } from '../engine/Sides';
+import { clock, describeCommand, escapeHtml, SIDE_NAME } from './format';
 
 // What the player sees around the map: the match banner in the top bar, the armies in the
 // side panel, the selected-unit card, area counts and the match result. Read-only: it never
 // changes the simulation.
 
 const SIDES = [Faction.FRIENDLY, Faction.ENEMY] as const;
-const SIDE_NAME = ['West', 'East'];
-const SIDE_CLASS = ['west', 'east'];
 
 // Per-side totals at the start of a match, for "how much is left" bars
 interface Baseline {
@@ -42,11 +31,6 @@ export function sideLabel(
   return `${TACTICAL_NAME[tactical ?? 'jev']} + LLM${m}`;
 }
 
-function clock(seconds: number): string {
-  const s = Math.max(0, Math.floor(seconds));
-  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
-}
-
 function bar(ratio: number, cls = ''): string {
   const pct = Math.round(Math.max(0, Math.min(1, ratio)) * 100);
   return `<div class="bar ${cls}"><i style="width:${pct}%"></i></div>`;
@@ -54,27 +38,6 @@ function bar(ratio: number, cls = ''): string {
 
 function hpColor(ratio: number): string {
   return ratio > 0.5 ? 'var(--hp)' : ratio > 0.25 ? 'var(--hp-low)' : 'var(--hp-crit)';
-}
-
-export function describeCommand(c: HeroCommand): string {
-  switch (c.type) {
-    case 'move':
-      return `move to ${positionToSubsector(c.target)}`;
-    case 'hold':
-      return `hold in ${positionToSubsector(c.at)}`;
-    case 'retreat':
-      return 'retreat a short way';
-    case 'attack':
-      return 'attack nearest enemy';
-    case 'attackHero':
-      return `attack enemy hero ${c.heroIndex}`;
-    case 'regroup':
-      return 'regroup strays';
-    case 'attackBase':
-      return 'attack the enemy base';
-    case 'continueLlm':
-      return "follow the LLM's order";
-  }
 }
 
 function stateText(unit: IUnit): string {
@@ -93,10 +56,10 @@ function stateText(unit: IUnit): string {
 function unitName(unit: IUnit, battle: boolean): string {
   if (unit.unitType === UnitType.HERO) {
     const hero = unit as IHero;
-    return battle ? `${SIDE_NAME[hero.faction]} hero ${hero.heroIndex}` : 'Hero';
+    return battle ? `${SIDE_NAME[sideName(hero.faction)]} hero ${hero.heroIndex}` : 'Hero';
   }
   if (!battle) return unit.unitType === UnitType.WARRIOR ? 'Warrior' : 'Berserker';
-  return `${SIDE_NAME[unit.faction]} soldier`;
+  return `${SIDE_NAME[sideName(unit.faction)]} soldier`;
 }
 
 export class Hud {
@@ -198,7 +161,7 @@ export class Hud {
       east = String(Math.floor(o.scores.enemy));
       const flags = o.points
         .map((p) => {
-          const cls = p.holder === null ? '' : ` ${SIDE_CLASS[p.holder]}`;
+          const cls = p.holder === null ? '' : ` ${sideName(p.holder)}`;
           return `<span class="flag${cls}" title="Point ${p.name}">${p.name}</span>`;
         })
         .join('');
@@ -284,8 +247,8 @@ export class Hud {
         .join('');
       const fallen = Math.max(0, base.heroes[f] - heroes.filter((h) => h.faction === f).length);
       return (
-        `<div class="army"><div class="army-head"><span class="${SIDE_CLASS[f]}-text">${SIDE_NAME[f]}</span><span class="army-who">${who}</span></div>` +
-        `<div class="army-row"><span class="lbl">Soldiers</span>${bar(soldiers[f] / total, SIDE_CLASS[f])}<span class="val">${soldiers[f]}</span></div>` +
+        `<div class="army"><div class="army-head"><span class="${sideName(f)}-text">${SIDE_NAME[sideName(f)]}</span><span class="army-who">${who}</span></div>` +
+        `<div class="army-row"><span class="lbl">Soldiers</span>${bar(soldiers[f] / total, sideName(f))}<span class="val">${soldiers[f]}</span></div>` +
         `<div class="army-row"><span class="lbl">HP</span>${bar(hp[f] / (base.hp[f] || 1))}<span class="val">${Math.round((100 * hp[f]) / (base.hp[f] || 1))}%</span></div>` +
         heroRows +
         (fallen > 0
@@ -311,7 +274,7 @@ export class Hud {
       this.renderer.drawPortrait(this.elPortrait.getContext('2d')!, unit);
     }
     this.elType.textContent = unitName(unit, battle);
-    this.elType.className = `uc-title ${battle || unit.unitType !== UnitType.HERO ? SIDE_CLASS[unit.faction] + '-text' : ''}`;
+    this.elType.className = `uc-title ${battle || unit.unitType !== UnitType.HERO ? sideName(unit.faction) + '-text' : ''}`;
     const r = unit.hp / unit.maxHp;
     this.elHp.textContent = `${Math.ceil(unit.hp)} / ${unit.maxHp}`;
     this.elHpBar.style.width = `${Math.round(r * 100)}%`;
@@ -370,7 +333,7 @@ export class Hud {
     const title =
       winner === null
         ? '<h2>Draw</h2>'
-        : `<h2 class="${SIDE_CLASS[winner]}-text">${SIDE_NAME[winner]} wins</h2>`;
+        : `<h2 class="${sideName(winner)}-text">${SIDE_NAME[sideName(winner)]} wins</h2>`;
     // A side with nowhere to deploy (e.g. a saved map split by mountains) loses at once
     const noRoom = r.reason === 'elimination' && r.time < 1;
     const how = noRoom

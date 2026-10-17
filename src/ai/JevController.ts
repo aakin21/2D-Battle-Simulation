@@ -23,6 +23,7 @@ import {
 import type { JevAssessment } from './LlmController';
 import { strayClusters, regroupTarget } from '../engine/Strays';
 import { enemyBase } from '../engine/Objectives';
+import { opponent, sideName } from '../engine/Sides';
 import {
   aiEndpoint,
   aiHeaders,
@@ -36,6 +37,7 @@ import {
   FAILURES_IN_A_ROW,
 } from './AiServer';
 import { AiExchange, finishExchange, startExchange } from './Exchange';
+import { JEV_MAX_REQUEST_SIZE, JEV_TIMEOUT_MS } from './Limits';
 import { TACTICAL_NAME, type TacticalModel } from './Models';
 import { SNAP_MAX_QUESTIONS, toSnapRequest } from './Snap';
 
@@ -78,14 +80,13 @@ const DEFAULTS: JevOptions = {
   model: 'jev',
   endpoint: aiEndpoint('/api/jev'),
   fetchFn: (...args) => fetch(...args),
-  timeoutMs: 30_000,
+  timeoutMs: JEV_TIMEOUT_MS,
 };
 
 const MAP_CELL = 2; // local map: one character per 2×2 tiles
 const STEP_TILES = JEV_STEP_TILES; // length of a "step" move
 const HERO_SCAN = LOCAL_RADIUS * 2; // enemy heroes within this distance can be targeted
 const STRAY_REACH = 25; // stray groups within this distance are shown to Jev
-const MAX_REQUEST_CHARS = 100_000;
 
 interface Option {
   key: string;
@@ -196,7 +197,7 @@ export class JevController {
       ),
       objective: this.objectiveState(),
       time_seconds: Math.round(time),
-      your_side: this.faction === Faction.FRIENDLY ? 'west' : 'east',
+      your_side: sideName(this.faction),
     };
 
     for (const hero of heroes) {
@@ -248,7 +249,7 @@ export class JevController {
       return;
     }
     // Far above a normal request (~13 KB); the deployed proxy refuses more (api/jev.ts)
-    if (body.length > MAX_REQUEST_CHARS) {
+    if (body.length > JEV_MAX_REQUEST_SIZE) {
       const reason = `request too large (${Math.round(body.length / 1024)} KB)`;
       finishExchange(exchange, 0, null, reason);
       this.fail(reason, '');
@@ -645,7 +646,7 @@ export class JevController {
         const b = base(f);
         return b ? exactPlace(b.position) : 'none';
       };
-      const enemyF = mine === Faction.FRIENDLY ? Faction.ENEMY : Faction.FRIENDLY;
+      const enemyF = opponent(mine);
       return {
         mode: 'destroy the base',
         seconds_left: secondsLeft,

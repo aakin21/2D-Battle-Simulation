@@ -1,4 +1,4 @@
-import { Position } from '../types/types';
+import { Position, EDGE_MARGIN, EDGE_MARGIN_MAX } from '../types/types';
 
 // Random patrol destinations shared by a group (classic berserker waves) or by one
 // rule-based hero. A destination is kept for 15–30 s, then a new one is picked.
@@ -12,8 +12,8 @@ export class GroupPatrol {
     const angle = Math.random() * Math.PI * 2;
     const d = 20 + Math.random() * 30;
     const dest: Position = {
-      x: Math.round(Math.max(5, Math.min(144, pos.x + Math.cos(angle) * d))),
-      y: Math.round(Math.max(5, Math.min(144, pos.y + Math.sin(angle) * d))),
+      x: Math.round(Math.max(EDGE_MARGIN, Math.min(EDGE_MARGIN_MAX, pos.x + Math.cos(angle) * d))),
+      y: Math.round(Math.max(EDGE_MARGIN, Math.min(EDGE_MARGIN_MAX, pos.y + Math.sin(angle) * d))),
     };
     this.entries.set(groupId, { dest, expiry: elapsed + 15 + Math.random() * 15 });
     return dest;

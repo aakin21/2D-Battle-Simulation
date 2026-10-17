@@ -24,7 +24,14 @@ import { GroupPatrol } from './GroupPatrol';
 import { updateRuleHeroes } from './RuleHeroes';
 import { updateControl, damageBases, objectiveEnd, EndReason } from './Objectives';
 import { updateHeroReflex, moveHeroRetreat } from './HeroReflex';
-import { effectiveSight, findNearestEnemy, stepToward, terrainSpeed } from './UnitHelpers';
+import {
+  distToTileCentre,
+  effectiveSight,
+  findNearestEnemy,
+  NEAR_TILE_DISTANCE,
+  stepToward,
+  terrainSpeed,
+} from './UnitHelpers';
 import {
   IUnit,
   IHero,
@@ -40,9 +47,20 @@ import {
   AITiming,
   SimConfig,
   DEFAULT_CONFIG,
+  LAST_TILE,
+  INNER_MIN,
+  INNER_MAX,
+  EDGE_MARGIN,
+  EDGE_MARGIN_MAX,
 } from '../types/types';
 
 const WARRIOR_ARRIVE_RADIUS = 2;
+// Wave spawn points along an edge: tiles EDGE_MARGIN..EDGE_MARGIN_MAX
+const EDGE_SPAN = EDGE_MARGIN_MAX - EDGE_MARGIN + 1;
+
+// Simulation speeds the user can choose
+export const SPEED_STEPS = [0.5, 1, 2, 4] as const;
+export type SpeedStep = (typeof SPEED_STEPS)[number];
 
 // An AI layer that gives heroes orders (Jev or the LLM). Ticked every simulation step.
 export interface AIController {
@@ -123,7 +141,7 @@ export class SimulationEngine {
     return this.paused;
   }
 
-  setSpeed(multiplier: 0.5 | 1 | 2 | 4): void {
+  setSpeed(multiplier: SpeedStep): void {
     this.speedMultiplier = multiplier;
   }
 
@@ -132,15 +150,13 @@ export class SimulationEngine {
   }
 
   increaseSpeed(): void {
-    const steps: Array<0.5 | 1 | 2 | 4> = [0.5, 1, 2, 4];
-    const idx = steps.indexOf(this.speedMultiplier as 0.5 | 1 | 2 | 4);
-    if (idx < steps.length - 1) this.speedMultiplier = steps[idx + 1];
+    const idx = SPEED_STEPS.indexOf(this.speedMultiplier as SpeedStep);
+    if (idx < SPEED_STEPS.length - 1) this.speedMultiplier = SPEED_STEPS[idx + 1];
   }
 
   decreaseSpeed(): void {
-    const steps: Array<0.5 | 1 | 2 | 4> = [0.5, 1, 2, 4];
-    const idx = steps.indexOf(this.speedMultiplier as 0.5 | 1 | 2 | 4);
-    if (idx > 0) this.speedMultiplier = steps[idx - 1];
+    const idx = SPEED_STEPS.indexOf(this.speedMultiplier as SpeedStep);
+    if (idx > 0) this.speedMultiplier = SPEED_STEPS[idx - 1];
   }
 
   applyConfig(config: SimConfig): void {
@@ -191,31 +207,25 @@ export class SimulationEngine {
   }
 
   restart(): void {
-    this.stop();
-    this.stressMode = false;
-    this.stateManager.setStressMode(false);
-    this.stateManager.reset(this.lastConfig);
-    this.setControllers([]);
-    this.result = null;
-    this.error = null;
-    this.battleMode = this.stateManager.isBattleMode();
-    this.renderer.setBattleMode(this.battleMode);
-    this.patrol.clear();
-    this.paused = false;
-    this.speedMultiplier = 1;
-    this.start();
+    this.restartRun(false);
   }
 
   restartStressTest(): void {
+    this.restartRun(true);
+  }
+
+  // A new run with the last config, or the stress test (classic rules, default config)
+  private restartRun(stress: boolean): void {
     this.stop();
-    this.stressMode = true;
-    this.stateManager.setStressMode(true);
-    this.stateManager.reset();
+    this.stressMode = stress;
+    this.stateManager.setStressMode(stress);
+    if (stress) this.stateManager.reset();
+    else this.stateManager.reset(this.lastConfig);
     this.setControllers([]);
     this.result = null;
     this.error = null;
-    this.battleMode = false;
-    this.renderer.setBattleMode(false);
+    this.battleMode = stress ? false : this.stateManager.isBattleMode();
+    this.renderer.setBattleMode(this.battleMode);
     this.patrol.clear();
     this.paused = false;
     this.speedMultiplier = 1;
@@ -270,7 +280,7 @@ export class SimulationEngine {
     if (!this.battleMode || unit.unitType !== UnitType.HERO) return false;
     const p = (unit as IHero).taskPoint;
     if (!p) return false;
-    return Math.hypot(unit.position.x - (p.x + 0.5), unit.position.y - (p.y + 0.5)) > 1.5;
+    return distToTileCentre(unit.position, p) > NEAR_TILE_DISTANCE;
   }
 
   // A resting hero of the user, Jev or the LLM stops as soon as an order sends it somewhere, so
@@ -356,10 +366,9 @@ export class SimulationEngine {
   private updateCourage(unit: IUnit): void {
     if (!this.isSoldier(unit)) return;
 
-    // Battle mode: both sides use warrior stats (D19), courage included.
-    const base = this.battleMode
-      ? UNIT_STATS.WARRIOR.courage
-      : UNIT_STATS[UnitType[unit.unitType] as keyof typeof UNIT_STATS].courage;
+    // Soldiers are warriors in classic mode; in battle mode both sides use warrior stats
+    // (D19), courage included.
+    const base = UNIT_STATS.WARRIOR.courage;
 
     const hpLostFraction = 1 - unit.hp / unit.maxHp;
     const woundedPenalty = -Math.floor(hpLostFraction / WOUND_STEP) * WOUND_PENALTY;
@@ -396,22 +405,7 @@ export class SimulationEngine {
       return;
 
     if (unit.unitType === UnitType.BERSERKER && !this.battleMode) {
-      const enemy = findNearestEnemy(this.stateManager, unit);
-      if (enemy) {
-        const dx = enemy.position.x - unit.position.x;
-        const dy = enemy.position.y - unit.position.y;
-        if (dx * dx + dy * dy <= COMBAT_RANGE * COMBAT_RANGE) {
-          unit.state = BehaviorState.ATTACK;
-          unit.target = enemy.id;
-          unit.path = [];
-        } else {
-          unit.state = BehaviorState.IDLE;
-          unit.target = enemy.id;
-        }
-      } else {
-        unit.state = BehaviorState.IDLE;
-        unit.target = null;
-      }
+      this.attackOrIdle(unit, findNearestEnemy(this.stateManager, unit), true);
       return;
     }
 
@@ -468,39 +462,28 @@ export class SimulationEngine {
         }
         hero.disengaging = false;
       }
-      if (enemy) {
-        const dx = enemy.position.x - unit.position.x;
-        const dy = enemy.position.y - unit.position.y;
-        if (dx * dx + dy * dy <= COMBAT_RANGE * COMBAT_RANGE) {
-          unit.state = BehaviorState.ATTACK;
-          unit.target = enemy.id;
-          unit.path = [];
-          return;
-        }
+      this.attackOrIdle(unit, enemy, false);
+      return;
+    }
+
+    this.attackOrIdle(unit, enemy, true);
+  }
+
+  // Attack the enemy if it is within COMBAT_RANGE, otherwise stay IDLE. keepTarget: an enemy
+  // out of range stays the target, so the unit moves toward it (heroes follow their task point).
+  private attackOrIdle(unit: IUnit, enemy: IUnit | null, keepTarget: boolean): void {
+    if (enemy) {
+      const dx = enemy.position.x - unit.position.x;
+      const dy = enemy.position.y - unit.position.y;
+      if (dx * dx + dy * dy <= COMBAT_RANGE * COMBAT_RANGE) {
+        unit.state = BehaviorState.ATTACK;
+        unit.target = enemy.id;
+        unit.path = [];
+        return;
       }
-      unit.state = BehaviorState.IDLE;
-      unit.target = null;
-      return;
     }
-
-    if (!enemy) {
-      unit.state = BehaviorState.IDLE;
-      unit.target = null;
-      return;
-    }
-
-    const dx = enemy.position.x - unit.position.x;
-    const dy = enemy.position.y - unit.position.y;
-    const dist2 = dx * dx + dy * dy;
-
-    if (dist2 <= COMBAT_RANGE * COMBAT_RANGE) {
-      unit.state = BehaviorState.ATTACK;
-      unit.target = enemy.id;
-      unit.path = [];
-    } else {
-      unit.state = BehaviorState.IDLE;
-      unit.target = enemy.id;
-    }
+    unit.state = BehaviorState.IDLE;
+    unit.target = enemy && keepTarget ? enemy.id : null;
   }
 
   private moveFlee(unit: IUnit, deltaTime: number, grid: TerrainType[][]): void {
@@ -547,8 +530,12 @@ export class SimulationEngine {
     const sharedPaths: Position[][] = points.map((origin) => {
       const angle = Math.random() * Math.PI * 2;
       const d = 20 + Math.random() * 20;
-      const px = Math.round(Math.max(5, Math.min(144, origin.x + Math.cos(angle) * d)));
-      const py = Math.round(Math.max(5, Math.min(144, origin.y + Math.sin(angle) * d)));
+      const px = Math.round(
+        Math.max(EDGE_MARGIN, Math.min(EDGE_MARGIN_MAX, origin.x + Math.cos(angle) * d))
+      );
+      const py = Math.round(
+        Math.max(EDGE_MARGIN, Math.min(EDGE_MARGIN_MAX, origin.y + Math.sin(angle) * d))
+      );
       return Pathfinder.findPath(bf.grid, { x: origin.x, y: origin.y }, { x: px, y: py });
     });
 
@@ -559,8 +546,8 @@ export class SimulationEngine {
       const origin = points[idx];
       let x = Math.round(origin.x + (Math.random() * 6 - 3));
       let y = Math.round(origin.y + (Math.random() * 6 - 3));
-      x = Math.max(1, Math.min(148, x));
-      y = Math.max(1, Math.min(148, y));
+      x = Math.max(INNER_MIN, Math.min(INNER_MAX, x));
+      y = Math.max(INNER_MIN, Math.min(INNER_MAX, y));
 
       if (bf.grid[y]?.[x] === TerrainType.MOUNTAIN) {
         x = origin.x;
@@ -581,22 +568,22 @@ export class SimulationEngine {
       attempts++;
 
       const edge = Math.floor(Math.random() * 4);
-      const inset = 5 + Math.floor(Math.random() * 21);
+      const inset = EDGE_MARGIN + Math.floor(Math.random() * 21);
       let x: number;
       let y: number;
 
       if (edge === 0) {
-        x = 5 + Math.floor(Math.random() * 140);
+        x = EDGE_MARGIN + Math.floor(Math.random() * EDGE_SPAN);
         y = inset;
       } else if (edge === 1) {
-        x = 5 + Math.floor(Math.random() * 140);
-        y = 149 - inset;
+        x = EDGE_MARGIN + Math.floor(Math.random() * EDGE_SPAN);
+        y = LAST_TILE - inset;
       } else if (edge === 2) {
         x = inset;
-        y = 5 + Math.floor(Math.random() * 140);
+        y = EDGE_MARGIN + Math.floor(Math.random() * EDGE_SPAN);
       } else {
-        x = 149 - inset;
-        y = 5 + Math.floor(Math.random() * 140);
+        x = LAST_TILE - inset;
+        y = EDGE_MARGIN + Math.floor(Math.random() * EDGE_SPAN);
       }
 
       const tooClose = points.some((p) => {
@@ -608,7 +595,7 @@ export class SimulationEngine {
       if (!tooClose && this.stateManager.isClearTile(x, y)) points.push({ x, y });
     }
 
-    if (points.length === 0) points.push({ x: 5, y: 5 });
+    if (points.length === 0) points.push({ x: EDGE_MARGIN, y: EDGE_MARGIN });
     return points;
   }
 
@@ -675,8 +662,14 @@ export class SimulationEngine {
           const idNum = parseInt(unit.id.replace('unit_', '')) || 0;
           const angle = (idNum * 2.399963) % (Math.PI * 2);
           const r = 1.0 + (idNum % 3) * 0.4;
-          let aimX = Math.max(1, Math.min(148, dtx + Math.round(Math.cos(angle) * r)));
-          let aimY = Math.max(1, Math.min(148, dty + Math.round(Math.sin(angle) * r)));
+          let aimX = Math.max(
+            INNER_MIN,
+            Math.min(INNER_MAX, dtx + Math.round(Math.cos(angle) * r))
+          );
+          let aimY = Math.max(
+            INNER_MIN,
+            Math.min(INNER_MAX, dty + Math.round(Math.sin(angle) * r))
+          );
           if (!this.stateManager.isClearTile(aimX, aimY)) {
             aimX = dtx;
             aimY = dty;
@@ -703,27 +696,7 @@ export class SimulationEngine {
         }
       }
 
-      if (unit.path.length === 0) return;
-
-      const bWp = unit.path[0];
-      const bWpx = bWp.x + 0.5;
-      const bWpy = bWp.y + 0.5;
-      const bSpeed = this.computeSpeed(unit, grid);
-      if (bSpeed === 0) return;
-
-      const bDx = bWpx - unit.position.x;
-      const bDy = bWpy - unit.position.y;
-      const bDist = Math.sqrt(bDx * bDx + bDy * bDy);
-      const bStep = bSpeed * deltaTime;
-
-      if (bDist <= bStep) {
-        unit.position.x = bWpx;
-        unit.position.y = bWpy;
-        unit.path.shift();
-      } else {
-        unit.position.x += (bDx / bDist) * bStep;
-        unit.position.y += (bDy / bDist) * bStep;
-      }
+      this.followPath(unit, deltaTime, grid);
       return;
     }
 
@@ -757,6 +730,11 @@ export class SimulationEngine {
       unit.path = Pathfinder.findPath(grid, startTile, { x: destTileX, y: destTileY });
     }
 
+    this.followPath(unit, deltaTime, grid);
+  }
+
+  // One step toward the centre of the path's next tile; the tile is dropped once reached.
+  private followPath(unit: IUnit, deltaTime: number, grid: TerrainType[][]): void {
     if (unit.path.length === 0) return;
 
     const waypoint = unit.path[0];

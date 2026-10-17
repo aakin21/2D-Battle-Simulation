@@ -26,7 +26,7 @@ import { JevController } from '../ai/JevController';
 import { isOpenRouterId, OPENROUTER_MODELS, TACTICAL_NAME } from '../ai/Models';
 import { Dropdown } from './Dropdown';
 import { LlmController } from '../ai/LlmController';
-import { AIController, MatchResult } from '../engine/SimulationEngine';
+import { AIController, MatchResult, SPEED_STEPS, SpeedStep } from '../engine/SimulationEngine';
 import { LoadingScreen } from './LoadingScreen';
 import { Hud } from './Hud';
 import { AiPanel } from './AiPanel';
@@ -852,8 +852,8 @@ export class UIController {
     const read = (key: string) => this.readSetting(key);
     const speed = read(LS_SPEED);
     if (speed) {
-      const parsed = parseFloat(speed) as 0.5 | 1 | 2 | 4;
-      if ([0.5, 1, 2, 4].includes(parsed)) {
+      const parsed = parseFloat(speed) as SpeedStep;
+      if (SPEED_STEPS.includes(parsed)) {
         this.engine.setSpeed(parsed);
         this.updateSpeedDisplay();
       }

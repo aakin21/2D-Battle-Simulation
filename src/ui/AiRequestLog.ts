@@ -2,7 +2,8 @@ import type { AiExchange } from '../ai/Exchange';
 import type { JevController } from '../ai/JevController';
 import type { LlmController } from '../ai/LlmController';
 import type { AiSides } from './MatchLog';
-import { escapeHtml } from './AiPanel';
+import type { Side } from '../engine/Sides';
+import { clock, escapeHtml } from './format';
 
 // The AI panel's request log: every request to Jev and the LLM with its answer, newest first.
 // The summary line gives the answer at a glance; opening an entry shows what was offered and
@@ -12,7 +13,6 @@ import { escapeHtml } from './AiPanel';
 
 const MAX_SHOWN = 80; // older entries stay in the match log
 
-type Side = 'west' | 'east';
 type Source =
   | { side: Side; layer: 'jev'; controller: JevController }
   | { side: Side; layer: 'llm'; controller: LlmController };
@@ -42,11 +42,6 @@ function runnerUp(probabilities: unknown, choice: unknown): string | null {
     .filter(([k, p]) => k !== choice && typeof p === 'number' && Number.isFinite(p))
     .sort((a, b) => (b[1] as number) - (a[1] as number));
   return ranked.length ? `${pretty(ranked[0][0])} ${percent(ranked[0][1])}` : null;
-}
-
-function clock(seconds: number): string {
-  const s = Math.max(0, Math.floor(seconds));
-  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
 
 function percent(v: unknown): string {

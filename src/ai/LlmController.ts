@@ -17,6 +17,7 @@ import {
   LlmModel,
 } from '../types/types';
 import { llmSystemPrompt } from './GameRules';
+import { LLM_TIMEOUT_MS } from './Limits';
 import {
   armyHp,
   exactPlace,
@@ -28,6 +29,7 @@ import {
 } from './Observations';
 import { strayClusters } from '../engine/Strays';
 import { enemyBase, pointCounts } from '../engine/Objectives';
+import { opponent, sideName } from '../engine/Sides';
 import {
   aiEndpoint,
   aiHeaders,
@@ -121,7 +123,7 @@ const DEFAULTS: LlmOptions = {
   jevAssessment: null,
   model: 'sonnet',
   tacticalName: 'Jev',
-  timeoutMs: 120_000,
+  timeoutMs: LLM_TIMEOUT_MS,
 };
 
 interface RawOrder {
@@ -173,7 +175,7 @@ export class LlmController {
     opts: Partial<LlmOptions> = {}
   ) {
     this.opts = { ...DEFAULTS, ...opts };
-    this.side = faction === Faction.FRIENDLY ? 'west' : 'east';
+    this.side = sideName(faction);
     this.system = llmSystemPrompt(
       this.side,
       this.opts.jevAssessment !== null,
@@ -474,7 +476,7 @@ export class LlmController {
     const mine = (f: Faction) => f === this.faction;
     const heroes = sm.getHeroes().filter((h) => h.hp > 0);
     const myGroups = groupStats(sm, this.faction);
-    const enemyFaction = this.faction === Faction.FRIENDLY ? Faction.ENEMY : Faction.FRIENDLY;
+    const enemyFaction = opponent(this.faction);
     const enemyGroups = groupStats(sm, enemyFaction);
 
     // Armies and sectors: [count, sum of HP share, sum of courage, fleeing]
@@ -657,7 +659,7 @@ export class LlmController {
           enemy_units_within_15_tiles: attackers,
         };
       };
-      const enemyF = mineF === Faction.FRIENDLY ? Faction.ENEMY : Faction.FRIENDLY;
+      const enemyF = opponent(mineF);
       return {
         mode: 'destroy the base',
         seconds_left: secondsLeft,

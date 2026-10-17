@@ -6,9 +6,17 @@ import {
   Position,
   BehaviorState,
   Faction,
-  GRID_SIZE,
+  INNER_MIN,
+  INNER_MAX,
 } from '../types/types';
-import { findNearestEnemyAnywhere, nearestReachableTile, tileOf } from './UnitHelpers';
+import {
+  distToTileCentre,
+  enemyPositionSum,
+  findNearestEnemyAnywhere,
+  nearestReachableTile,
+  NEAR_TILE_DISTANCE,
+  tileOf,
+} from './UnitHelpers';
 import { strayClusters, regroupTarget, regroupPoint, StrayCluster } from './Strays';
 import { enemyBase } from './Objectives';
 import { HERO_CRITICAL_HP_RATIO, RETREAT_SCAN, RETREAT_SECONDS } from './Rules';
@@ -129,7 +137,7 @@ export class HeroCommands {
   private atRetreatPoint(hero: IHero, retreat: HeroCommand): boolean {
     const to = retreat.type === 'retreat' ? retreat.to : undefined;
     if (!to) return false;
-    return Math.hypot(hero.position.x - (to.x + 0.5), hero.position.y - (to.y + 0.5)) <= 1.5;
+    return distToTileCentre(hero.position, to) <= NEAR_TILE_DISTANCE;
   }
 
   // Where a retreat order goes: as far as the hero walks in RETREAT_SECONDS, away from the
@@ -137,15 +145,7 @@ export class HeroCommands {
   // tile when there is no enemy.
   // It used to be the start position, often more than 100 tiles away.
   private retreatPoint(hero: IHero): Position {
-    let ex = 0;
-    let ey = 0;
-    let n = 0;
-    this.sm.forEachInRadius(hero.position.x, hero.position.y, RETREAT_SCAN, (u) => {
-      if (u.hp <= 0 || u.faction === hero.faction) return;
-      ex += u.position.x;
-      ey += u.position.y;
-      n++;
-    });
+    let { x: ex, y: ey, n } = enemyPositionSum(this.sm, hero, RETREAT_SCAN);
     if (n === 0) {
       const enemy = findNearestEnemyAnywhere(this.sm, hero);
       if (!enemy) return tileOf(hero.position);
@@ -158,8 +158,8 @@ export class HeroCommands {
     const len = Math.hypot(dx, dy) || 1;
     const step = hero.baseSpeed * RETREAT_SECONDS;
     const to = {
-      x: Math.max(1, Math.min(GRID_SIZE - 2, hero.position.x + (dx / len) * step)),
-      y: Math.max(1, Math.min(GRID_SIZE - 2, hero.position.y + (dy / len) * step)),
+      x: Math.max(INNER_MIN, Math.min(INNER_MAX, hero.position.x + (dx / len) * step)),
+      y: Math.max(INNER_MIN, Math.min(INNER_MAX, hero.position.y + (dy / len) * step)),
     };
     return nearestReachableTile(this.sm, to);
   }

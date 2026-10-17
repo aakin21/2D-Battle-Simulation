@@ -1,7 +1,8 @@
 import type { Plugin } from 'vite';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { query, type Query, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
-import { CLAUDE_MODELS, openRouterId, type ClaudeModel } from '../src/ai/Models';
+import { CLAUDE_MODELS, isLlmModel, openRouterId, type ClaudeModel } from '../src/ai/Models';
+import { LLM_SERVER_TIMEOUT_MS } from '../src/ai/Limits';
 
 // Layer 3 (D10): the strategic LLM runs in the dev server through the Claude Agent SDK,
 // using the developer's own Claude login. One persistent session per side, so a decision
@@ -56,6 +57,8 @@ interface Answer {
   meta: AnswerMeta;
 }
 
+const SESSION_CLOSED = 'the LLM session was closed';
+
 // retryable: the next request may well work (overloaded, rate limited, connection lost, a session
 // that ended or timed out). Plan or budget limits and login problems stay until someone acts.
 // fromResult: reported by the SDK in a result message; the session itself still works.
@@ -67,6 +70,11 @@ class LlmError extends Error {
   ) {
     super(message);
   }
+}
+
+// A fresh error each time, so its stack trace shows where the closed session was noticed
+function sessionClosed(): LlmError {
+  return new LlmError(SESSION_CLOSED, true);
 }
 
 const LASTING = [
@@ -230,8 +238,7 @@ class Session implements LlmSession {
     this.closed = true;
     this.wake?.();
     this.q.close();
-    for (const p of this.waiting.splice(0))
-      p.reject(new LlmError('the LLM session was closed', true));
+    for (const p of this.waiting.splice(0)) p.reject(sessionClosed());
   }
 }
 
@@ -270,7 +277,7 @@ class OpenRouterSession implements LlmSession {
   }
 
   private async send(prompt: string): Promise<Answer> {
-    if (this.closed) throw new LlmError('the LLM session was closed', true);
+    if (this.closed) throw sessionClosed();
     if (this.costSoFar >= MAX_BUDGET_USD)
       throw new LlmError(
         `this session spent its budget of $${MAX_BUDGET_USD} (LLM_MAX_BUDGET_USD)`,
@@ -296,7 +303,7 @@ class OpenRouterSession implements LlmSession {
       // A lost connection keeps the conversation: the next report tries again
       throw new LlmError(
         this.closed
-          ? 'the LLM session was closed'
+          ? SESSION_CLOSED
           : `OpenRouter could not be reached: ${err instanceof Error ? err.message : String(err)}`,
         true,
         true
@@ -358,9 +365,6 @@ const sessions = new Map<string, LlmSession>();
 
 // Reached through the tunnel too (D37), so requests are bounded: a report is ~10 KB.
 const MAX_BODY_BYTES = 1_000_000;
-// Below the browser's 120 s, so the browser gets the reason and the stuck session is closed
-// at once instead of after the browser has given up.
-const ANSWER_TIMEOUT_MS = 110_000;
 const SIDES = ['west', 'east'];
 
 class TooLarge extends Error {}
@@ -440,7 +444,7 @@ export function llmPlugin(env: Record<string, string> = {}): Plugin {
           // default, and an unknown one is refused so a typo never runs another model
           const model: string = requested === undefined ? DEFAULT_MODEL : String(requested);
           const routerId = openRouterId(model);
-          if (routerId === null && !(CLAUDE_MODELS as string[]).includes(model))
+          if (!isLlmModel(model))
             return send(res, 400, { error: `unknown model ${model.slice(0, 80)}` });
           if (routerId !== null && !openRouterKey)
             return send(res, 500, {
@@ -464,7 +468,7 @@ export function llmPlugin(env: Record<string, string> = {}): Plugin {
           const started = Date.now();
           let answer: Answer;
           try {
-            answer = await withTimeout(session.ask(prompt), ANSWER_TIMEOUT_MS);
+            answer = await withTimeout(session.ask(prompt), LLM_SERVER_TIMEOUT_MS);
           } catch (err) {
             // A session that hangs or ended is closed; the next request starts a fresh one. An
             // error reported in a result (overloaded, rate limited) leaves the session working,

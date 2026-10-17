@@ -16,6 +16,7 @@ import {
 import { EffectsManager } from './effects/EffectsManager';
 import { TerrainArt, ART_PX } from './TerrainArt';
 import { ObjectiveArt } from './ObjectiveArt';
+import { SIDE_HEX, SIDE_RGB } from './SideColors';
 // ATTACK_INTERVAL: attackCooldown is reset to it on each hit, which times the attack pose
 import { CONTROL_RADIUS, BASE_RADIUS, ATTACK_INTERVAL } from '../engine/Rules';
 import { UnitSprites, FRAME, COL_LEFT, COL_RIGHT, WALK_FRAMES, ROW_ATTACK } from './UnitSprites';
@@ -33,8 +34,15 @@ const ORDER_PING_TIME = 0.45;
 // Attack pose: the sprite leans this far toward its facing side, as a share of its size
 const ATTACK_LUNGE = 0.12;
 
+// Looked up once (it is read per hero per frame); its matches follows the setting live
+let reducedMotionQuery: MediaQueryList | null = null;
+
 function reducedMotion(): boolean {
-  return typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (!reducedMotionQuery) {
+    if (typeof matchMedia !== 'function') return false;
+    reducedMotionQuery = matchMedia('(prefers-reduced-motion: reduce)');
+  }
+  return reducedMotionQuery.matches;
 }
 
 // Sprite animation
@@ -43,8 +51,8 @@ const WALK_FPS = 8;
 const ATTACK_POSE_TIME = 0.25;
 const HERO_RING_COLORS = ['#FFD700', ENEMY_HERO_COLOR]; // by Faction
 // Order markers by Faction: west gold, east blue (as in the HUD)
-const SIDE_FILL = ['#ffd23f', '#6aa8ff'];
-const SIDE_LINE = ['rgba(255, 210, 63, 0.75)', 'rgba(106, 168, 255, 0.75)'];
+const SIDE_FILL = SIDE_HEX;
+const SIDE_LINE = SIDE_RGB.map((rgb) => `rgba(${rgb}, 0.75)`);
 
 export class Renderer {
   private canvas: HTMLCanvasElement;
@@ -630,12 +638,7 @@ export class Renderer {
   private drawObjectives(battlefield: IBattlefield): void {
     const o = battlefield.objective;
     const { x: camX, y: camY, zoom } = this.camera;
-    const sideColor = (f: Faction | null) =>
-      f === Faction.FRIENDLY
-        ? '255, 210, 63'
-        : f === Faction.ENEMY
-          ? '106, 168, 255'
-          : '220, 220, 220';
+    const sideColor = (f: Faction | null) => (f === null ? '220, 220, 220' : SIDE_RGB[f]);
 
     // With FX on: a flag on each point and a tower for each base (ObjectiveArt)
     const art = this.effects.isEnabled() && this.objectiveArt.isReady();

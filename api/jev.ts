@@ -4,6 +4,8 @@
 // (environment variable TYPESAFE_API_KEY).
 
 const TYPESAFE_URL = 'https://api.typesafe.ai/v1/systemone';
+// Literals, not imports: Vercel bundles this function on its own. Keep them in step with
+// src/ai/Limits.ts (JEV_MAX_REQUEST_SIZE, JEV_TIMEOUT_MS).
 const MAX_BODY_BYTES = 100_000; // a battle request is ~13 KB
 const UPSTREAM_TIMEOUT_MS = 25_000; // the browser gives up after 30 s
 
