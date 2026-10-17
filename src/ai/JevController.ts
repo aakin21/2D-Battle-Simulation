@@ -36,6 +36,8 @@ import {
   FAILURES_IN_A_ROW,
 } from './AiServer';
 import { AiExchange, finishExchange, startExchange } from './Exchange';
+import { TACTICAL_NAME, type TacticalModel } from './Models';
+import { SNAP_MAX_QUESTIONS, toSnapRequest } from './Snap';
 
 // Layer 2 (D6, D21, D26): Jev makes tactical decisions for each hero of one side every few
 // seconds. Jev has no memory, so every request carries the relevant rules (game_rules) and
@@ -62,6 +64,7 @@ export interface JevOptions {
   minConfidence: number; // below this the hero keeps its current command
   fallbackToRules: boolean; // on failure, hand heroes to the rule layer (when Jev is the only AI layer)
   withCommander: boolean; // an LLM commands the same side (changes Jev's role and goal)
+  model: TacticalModel; // Jev or SubQ Snap (D51): same options, same questions
   endpoint: string;
   fetchFn: typeof fetch;
   timeoutMs: number; // a request without an answer by then counts as a failure
@@ -72,6 +75,7 @@ const DEFAULTS: JevOptions = {
   minConfidence: 0.4,
   fallbackToRules: true,
   withCommander: false,
+  model: 'jev',
   endpoint: aiEndpoint('/api/jev'),
   fetchFn: (...args) => fetch(...args),
   timeoutMs: 30_000,
@@ -119,7 +123,22 @@ export class JevController {
     private faction: Faction,
     opts: Partial<JevOptions> = {}
   ) {
-    this.opts = { ...DEFAULTS, ...opts };
+    const model = opts.model ?? DEFAULTS.model;
+    this.opts = {
+      ...DEFAULTS,
+      endpoint: aiEndpoint(model === 'snap' ? '/api/snap' : '/api/jev'),
+      ...opts,
+      model,
+    };
+  }
+
+  // The decision model's name for the panels and the match log ("Jev" or "Snap", D51)
+  get name(): string {
+    return TACTICAL_NAME[this.opts.model];
+  }
+
+  get model(): TacticalModel {
+    return this.opts.model;
   }
 
   isWaiting(): boolean {
@@ -215,9 +234,19 @@ export class JevController {
       }
     }
 
-    const request = { model: 'jev-latest', state, questions };
+    // Snap gets the same state, options and questions in its own format (D51)
+    const request: Record<string, unknown> =
+      this.opts.model === 'snap'
+        ? toSnapRequest({ state, questions })
+        : { model: 'jev-latest', state, questions };
     const body = JSON.stringify(request);
     const exchange = startExchange(this.exchanges, time, request);
+    if (this.opts.model === 'snap' && Object.keys(questions).length > SNAP_MAX_QUESTIONS) {
+      const reason = `Snap takes at most ${SNAP_MAX_QUESTIONS} questions per request (${Object.keys(questions).length} asked)`;
+      finishExchange(exchange, 0, null, reason);
+      this.fail(reason, '');
+      return;
+    }
     // Far above a normal request (~13 KB); the deployed proxy refuses more (api/jev.ts)
     if (body.length > MAX_REQUEST_CHARS) {
       const reason = `request too large (${Math.round(body.length / 1024)} KB)`;
@@ -255,7 +284,7 @@ export class JevController {
           deniedByAiServer(res)
             ? AI_PASSWORD_HINT
             : res.status === 401 || res.status === 403
-              ? 'Set TYPESAFE_API_KEY in .env.local and restart the dev server.'
+              ? `Set ${this.opts.model === 'snap' ? 'SUBQ_API_KEY' : 'TYPESAFE_API_KEY'} in .env.local and restart the dev server.`
               : unreachableStatus(res.status)
                 ? unreachableHint()
                 : ''
@@ -339,7 +368,7 @@ export class JevController {
     this.failuresInARow++;
     this.lastError = reason;
     if (this.failuresInARow >= FAILURES_IN_A_ROW) return false;
-    console.warn(`Jev request failed (${reason}); asking again at the next decision.`);
+    console.warn(`${this.name} request failed (${reason}); asking again at the next decision.`);
     return true;
   }
 
@@ -353,7 +382,7 @@ export class JevController {
       : 'tactical layer stopped';
     // The hint says what to do; it is shown in the AI panel and kept in the match log
     this.failure = hint ? `${reason}; ${what}. ${hint}` : `${reason}; ${what}`;
-    console.warn(`Jev unavailable (${reason}); ${what}. ${hint}`);
+    console.warn(`${this.name} unavailable (${reason}); ${what}. ${hint}`);
   }
 
   // The options Jev can choose from for one hero (D20, D26), each with what it is for and
