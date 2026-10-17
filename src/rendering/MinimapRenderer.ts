@@ -10,14 +10,13 @@ import {
   GRID_SIZE,
 } from '../types/types';
 import { CONTROL_RADIUS, BASE_RADIUS } from '../engine/Rules';
+import { SIDE_HEX, SIDE_RGB } from './SideColors';
 
 // Minimap: terrain and units at one pixel per tile, drawn into a small layer that is scaled
 // up by whole pixels, with control points, bases, heroes and the main view's rectangle on top.
 
-// Marker colours by Faction (west gold, east blue), as in the unit sprites and the HUD
-const SIDE_RGB = ['255, 210, 63', '106, 168, 255'];
+// Marker colours by Faction: SIDE_RGB and SIDE_HEX (SideColors.ts); this one for no holder
 const NEUTRAL_RGB = '232, 224, 208';
-const HERO_COLORS = ['#ffd23f', '#6aa8ff'];
 const WHITE: [number, number, number] = [255, 255, 255];
 // Soldier pixel colours by unit type, parsed once
 const UNIT_RGB = new Map<UnitType, [number, number, number]>(
@@ -153,7 +152,7 @@ export class MinimapRenderer {
       const cy = hero.position.y * s;
       ctx.fillStyle = '#131b1b';
       ctx.fillRect(cx - heroSize / 2 - 1, cy - heroSize / 2 - 1, heroSize + 2, heroSize + 2);
-      ctx.fillStyle = HERO_COLORS[hero.faction === Faction.ENEMY ? 1 : 0];
+      ctx.fillStyle = SIDE_HEX[hero.faction === Faction.ENEMY ? 1 : 0];
       ctx.fillRect(cx - heroSize / 2, cy - heroSize / 2, heroSize, heroSize);
     }
 

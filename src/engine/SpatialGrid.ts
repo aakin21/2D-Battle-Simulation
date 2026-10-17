@@ -1,7 +1,7 @@
 import { IUnit, Position, GRID_SIZE } from '../types/types';
 
 const CELL_SIZE = 15;
-const CELL_COUNT = 10; // ceil(150 / 15)
+const CELL_COUNT = Math.ceil(GRID_SIZE / CELL_SIZE); // 10
 
 // Fine grid for the two per-unit, per-frame queries: counting allies and enemies in sight
 // (courage) and finding the nearest enemy (D31). Both return exactly what a scan over the
@@ -16,6 +16,24 @@ const OUTSIDE_MARGIN = 1 + 1e-9;
 // When the coarse cells around a query hold at most this many units, a plain scan is
 // cheaper than walking the fine cells (sparse areas); both give the same result
 const SPARSE_LIMIT = 48;
+
+// Range of coarse cells that a query of this radius around v touches along one axis
+function coarseMin(v: number, radius: number): number {
+  return Math.max(0, Math.floor((v - radius) / CELL_SIZE));
+}
+function coarseMax(v: number, radius: number): number {
+  return Math.min(CELL_COUNT - 1, Math.floor((v + radius) / CELL_SIZE));
+}
+
+// Removes the unit from the cell by moving the cell's last unit into its place. Returns
+// false when the unit is not in the cell.
+function swapRemove(cell: IUnit[], unit: IUnit): boolean {
+  const i = cell.indexOf(unit);
+  if (i === -1) return false;
+  cell[i] = cell[cell.length - 1];
+  cell.pop();
+  return true;
+}
 
 function fineCell(v: number): number {
   return Math.max(0, Math.min(FINE_COUNT - 1, Math.floor(v / FINE_SIZE)));
@@ -57,11 +75,7 @@ export class SpatialGrid {
   }
 
   private fineRemove(unit: IUnit, idx: number): void {
-    const cell = this.fine[idx];
-    const i = cell.indexOf(unit);
-    if (i === -1) return;
-    cell[i] = cell[cell.length - 1];
-    cell.pop();
+    if (!swapRemove(this.fine[idx], unit)) return;
     this.fineCounts[idx * 2 + unit.faction]--;
   }
 
@@ -91,11 +105,7 @@ export class SpatialGrid {
     const cx = this.toCell(unit.position.x);
     const cy = this.toCell(unit.position.y);
     const cell = this.cells.get(this.key(cx, cy));
-    if (!cell) return;
-    const idx = cell.indexOf(unit);
-    if (idx === -1) return;
-    cell[idx] = cell[cell.length - 1];
-    cell.pop();
+    if (cell) swapRemove(cell, unit);
   }
 
   move(unit: IUnit, oldPos: Position): void {
@@ -113,13 +123,7 @@ export class SpatialGrid {
     if (ocx === ncx && ocy === ncy) return;
 
     const oldCell = this.cells.get(this.key(ocx, ocy));
-    if (oldCell) {
-      const idx = oldCell.indexOf(unit);
-      if (idx !== -1) {
-        oldCell[idx] = oldCell[oldCell.length - 1];
-        oldCell.pop();
-      }
-    }
+    if (oldCell) swapRemove(oldCell, unit);
 
     const nk = this.key(ncx, ncy);
     let newCell = this.cells.get(nk);
@@ -133,10 +137,10 @@ export class SpatialGrid {
   // Calls cb for every unit within radius — no array allocation.
   forEach(cx: number, cy: number, radius: number, cb: (unit: IUnit) => void): void {
     const r2 = radius * radius;
-    const minCx = Math.max(0, Math.floor((cx - radius) / CELL_SIZE));
-    const maxCx = Math.min(CELL_COUNT - 1, Math.floor((cx + radius) / CELL_SIZE));
-    const minCy = Math.max(0, Math.floor((cy - radius) / CELL_SIZE));
-    const maxCy = Math.min(CELL_COUNT - 1, Math.floor((cy + radius) / CELL_SIZE));
+    const minCx = coarseMin(cx, radius);
+    const maxCx = coarseMax(cx, radius);
+    const minCy = coarseMin(cy, radius);
+    const maxCy = coarseMax(cy, radius);
 
     for (let gy = minCy; gy <= maxCy; gy++) {
       for (let gx = minCx; gx <= maxCx; gx++) {
@@ -273,10 +277,10 @@ export class SpatialGrid {
 
   // Units in the coarse cells that forEach() would scan for this query
   private coarseCount(cx: number, cy: number, radius: number): number {
-    const minCx = Math.max(0, Math.floor((cx - radius) / CELL_SIZE));
-    const maxCx = Math.min(CELL_COUNT - 1, Math.floor((cx + radius) / CELL_SIZE));
-    const minCy = Math.max(0, Math.floor((cy - radius) / CELL_SIZE));
-    const maxCy = Math.min(CELL_COUNT - 1, Math.floor((cy + radius) / CELL_SIZE));
+    const minCx = coarseMin(cx, radius);
+    const maxCx = coarseMax(cx, radius);
+    const minCy = coarseMin(cy, radius);
+    const maxCy = coarseMax(cy, radius);
     let n = 0;
     for (let gy = minCy; gy <= maxCy; gy++) {
       for (let gx = minCx; gx <= maxCx; gx++) n += this.cells.get(this.key(gx, gy))?.length ?? 0;

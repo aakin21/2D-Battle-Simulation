@@ -1,6 +1,7 @@
 import { UNIT_STATS, TERRAIN_SPEED, TERRAIN_SIGHT, GRID_SIZE, Objective } from '../types/types';
 import { SECTOR_SIZE, SECTORS_PER_SIDE } from '../engine/Sectors';
 import * as R from '../engine/Rules';
+import { LOCAL_RADIUS } from './Observations';
 
 // The rulebook given to the AI layers (D26). Built from the same constants the engine uses,
 // so the text cannot drift from the simulation. The LLM gets it once per match as its system
@@ -124,6 +125,6 @@ export function jevGameRules(withCommander: boolean, objective: Objective): Reco
     hero_reflex: REFLEX,
     breaking_off: BREAK_OFF,
     terrain: TERRAIN,
-    force_ratio: `force_ratio is the total HP of your units divided by the total HP of enemy units within 15 tiles of the hero. Above 1 you are stronger here; the trend compares it with ${JEV_INTERVAL_SEC} seconds ago.`,
+    force_ratio: `force_ratio is the total HP of your units divided by the total HP of enemy units within ${LOCAL_RADIUS} tiles of the hero. Above 1 you are stronger here; the trend compares it with ${JEV_INTERVAL_SEC} seconds ago.`,
   };
 }

@@ -3,34 +3,27 @@ import type { LlmController } from '../ai/LlmController';
 import { groupStats, GroupStats } from '../ai/Observations';
 import { sameCommand } from '../engine/HeroCommands';
 import { positionToSubsector } from '../engine/Sectors';
+import type { Side } from '../engine/Sides';
 import { BehaviorState, Faction, IHero, SimConfig } from '../types/types';
 import type { StateManager } from '../state/StateManager';
 import type { AiSides } from './MatchLog';
 import { AiRequestLog } from './AiRequestLog';
-import { describeCommand } from './Hud';
+import { describeCommand, escapeHtml, SIDE_NAME } from './format';
 import { modelLabel } from '../ai/Models';
 
 // The AI panels in the side panel, below Map, Armies and Area: one for each side with AI
 // layers, West and East side by side when both have them. Each shows when the LLM and Jev last
 // answered and when they ask next, the LLM's stance, plan and situation, then one block per
-// hero with a line for each layer: the order running now and whose it is (the LLM's, or Jev's,
-// which then overrides the LLM), the LLM's latest order with its reason (D41), Jev's latest
+// hero with a line for each layer: the order running now and whose it is (the LLM's, Jev agreeing,
+// or Jev overriding the LLM), the LLM's latest order with its reason (D41), Jev's latest
 // choice with its assessment, and the hero's state; below, that side's requests and answers.
 
-const SIDE_NAME = { west: 'West', east: 'East' } as const;
-type Side = 'west' | 'east';
 type JevDecision = JevController['decisions'][number];
 
 const STATS_EVERY_MS = 500; // followers are counted at most this often (every unit is visited)
 
-export function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
+// Kept here for code that imports it from the AI panel
+export { escapeHtml } from './format';
 
 function ago(now: number, then: number): string {
   return `${Math.max(0, Math.round(now - then))} s ago`;

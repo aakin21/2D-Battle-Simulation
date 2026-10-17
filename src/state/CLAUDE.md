@@ -2,7 +2,8 @@
 
 | File | Role |
 |---|---|
-| `StateManager.ts` | Owns the battlefield: terrain, units, heroes, spatial grid, unit lookup. Generates terrain, spawns units for classic, stress and battle modes, computes the map's main walkable region. |
+| `StateManager.ts` | Owns the battlefield: terrain, units, heroes, spatial grid, unit lookup. Spawns units for classic, stress and battle modes, computes the map's main walkable region (the largest of the pathfinder's regions). |
+| `TerrainGen.ts` | Random terrain (`generateTerrain`): forest, swamp and mountain blobs; `StateManager.initGrid` uses it. |
 | `MapStore.ts` | Encodes maps as compact text and saves/loads them in browser local storage (D5). |
 
 ## Conventions
