@@ -4,6 +4,7 @@ import type { JevController } from '../ai/JevController';
 import type { LlmController } from '../ai/LlmController';
 import type { AiExchange } from '../ai/Exchange';
 import { BehaviorState, Faction, SimConfig, UnitType } from '../types/types';
+import { wholePoints } from '../engine/Objectives';
 
 // Everything needed to study a battle afterwards (Q11): the settings, the result, a timeline
 // of both armies once per simulation second, every AI decision with its response time, and
@@ -67,8 +68,8 @@ export class MatchLog {
     }
     const o = bf.objective;
     if (o.mode === 'control') {
-      s[Faction.FRIENDLY].points = Math.floor(o.scores.friendly);
-      s[Faction.ENEMY].points = Math.floor(o.scores.enemy);
+      s[Faction.FRIENDLY].points = wholePoints(o.scores.friendly);
+      s[Faction.ENEMY].points = wholePoints(o.scores.enemy);
     }
     for (const b of o.bases) s[b.faction].baseHpPercent = Math.round((100 * b.hp) / b.maxHp);
     for (const x of s) x.hp = Math.round(x.hp);

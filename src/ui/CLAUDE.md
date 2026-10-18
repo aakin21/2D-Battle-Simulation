@@ -16,6 +16,7 @@
 | `icons.ts` | Pixel icons (8×8 grids shown as SVG) for the top-bar buttons |
 | `theme.css`, `layout.css` | Theme in the Ninja Adventure style (wooden 9-patch frames, buttons, pixel font; CC0, `src/assets/ui/`) and the page layout |
 | `InputHandler.ts` | Mouse and keyboard events (click, drag, scroll, shortcuts) |
+| (replays) | `UIController` records battle-mode matches (`src/replay/`) and shows a replay over the live run: Watch replay / Download replay on the match result, Replay next to Log in Armies, Watch a replay in the menu; while one is watched the top-bar pause, speed and restart act on it, right-click orders are off and selection, tooltip and area counts read the replay's units |
 | `LoadingScreen.ts` | "Building simulation" overlay after Start; the run stays paused behind it and shortcuts are ignored while it is shown |
 
 ## Conventions

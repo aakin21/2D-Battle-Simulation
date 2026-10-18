@@ -68,6 +68,12 @@ export function damageBases(sm: StateManager, units: IUnit[], dt: number): void 
   }
 }
 
+// Points as shown and as they decide the match: whole points earned so far, so a match never
+// goes to a side by a fraction of a point the scoreboard does not show
+export function wholePoints(score: number): number {
+  return Math.floor(score);
+}
+
 // Objective-based end of a match, or null if it goes on. Elimination is checked by the engine.
 export function objectiveEnd(
   sm: StateManager
@@ -80,14 +86,17 @@ export function objectiveEnd(
     if (fallen.length === 1) return { winner: opponent(fallen[0].faction), reason: 'base' };
   }
   if (o.timeLimit !== null && bf.elapsedTime >= o.timeLimit) {
-    // Time up: control is decided on points, every mode then on total HP left.
-    const reason: EndReason = o.mode === 'control' ? 'points' : 'time';
-    if (o.mode === 'control' && o.scores.friendly !== o.scores.enemy) {
+    // Time up: control is decided on points alone, equal points are a draw (D55); the other
+    // modes on total HP left.
+    if (o.mode === 'control') {
+      const friendly = wholePoints(o.scores.friendly);
+      const enemy = wholePoints(o.scores.enemy);
       return {
-        winner: o.scores.friendly > o.scores.enemy ? Faction.FRIENDLY : Faction.ENEMY,
-        reason,
+        winner: friendly > enemy ? Faction.FRIENDLY : enemy > friendly ? Faction.ENEMY : null,
+        reason: 'points',
       };
     }
+    const reason: EndReason = 'time';
     let fh = 0;
     let eh = 0;
     for (const u of bf.units) {

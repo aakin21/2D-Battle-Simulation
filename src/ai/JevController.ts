@@ -6,6 +6,7 @@ import {
   IHero,
   IUnit,
   HeroCommand,
+  Position,
   BehaviorState,
   TerrainType,
   GRID_SIZE,
@@ -22,8 +23,11 @@ import {
 } from './Observations';
 import type { JevAssessment } from './LlmController';
 import { strayClusters, regroupTarget } from '../engine/Strays';
+import { Pathfinder } from '../engine/Pathfinder';
+import { ATTACK_CHASE_TILES } from '../engine/Rules';
+import { hasAttackTarget, nearestReachableTile } from '../engine/UnitHelpers';
 import { sameCommand } from '../engine/HeroCommands';
-import { enemyBase } from '../engine/Objectives';
+import { enemyBase, wholePoints } from '../engine/Objectives';
 import { opponent, sideName } from '../engine/Sides';
 import { aiEndpoint, aiHeaders, fetchWithRetries, transientStatus } from './AiServer';
 import { AiLayer } from './AiLayer';
@@ -78,6 +82,7 @@ const MAP_CELL = 2; // local map: one character per 2×2 tiles
 const STEP_TILES = JEV_STEP_TILES; // length of a "step" move
 const HERO_SCAN = LOCAL_RADIUS * 2; // enemy heroes within this distance can be targeted
 const STRAY_REACH = 25; // stray groups within this distance are shown to Jev
+const TOGETHER_TILES = 8; // an allied hero this close is already with the hero (no approach option)
 
 interface Option {
   key: string;
@@ -109,6 +114,11 @@ export class JevController extends AiLayer {
       ...opts,
       model,
     };
+  }
+
+  // Below this confidence a choice is not applied (shown in the AI panel)
+  get minConfidence(): number {
+    return this.opts.minConfidence;
   }
 
   // The decision model's name for the panels and the match log ("Jev" or "Snap", D51)
@@ -161,7 +171,7 @@ export class JevController extends AiLayer {
       options.set(hero.heroIndex, opts);
       const force = localForce(this.stateManager, hero);
       forceNow.set(hero.heroIndex, force.ratio);
-      state[key] = this.describeHero(hero, time, force, groups.get(hero.id));
+      state[key] = this.describeHero(hero, time, force, groups);
 
       questions[key] = {
         type: 'choice',
@@ -203,7 +213,7 @@ export class JevController extends AiLayer {
       this.fail(reason, '');
       return;
     }
-    // Far above a normal request (~13 KB); the deployed proxy refuses more (api/jev.ts)
+    // Far above a normal request (~23 KB with three heroes); the deployed proxy refuses more (api/jev.ts)
     if (body.length > JEV_MAX_REQUEST_SIZE) {
       const reason = `request too large (${Math.round(body.length / 1024)} KB)`;
       finishExchange(exchange, 0, null, reason);
@@ -255,8 +265,11 @@ export class JevController extends AiLayer {
           // An option that does what the commander ordered (e.g. its own regroup while the
           // LLM's order is regroup) is following that order: it runs as "follow the LLM", so the
           // panel, the logs and the override counts show agreement, not an override (CASES 14.6)
+          // A retreat stays Jev's own: chosen again at its point it falls back further (D39),
+          // which following the LLM's retreat does not do
           const command =
             option.command.type !== 'continueLlm' &&
+            option.command.type !== 'retreat' &&
             hero.lastLlmCommand &&
             sameCommand(option.command, hero.lastLlmCommand)
               ? ({ type: 'continueLlm' } as const)
@@ -318,14 +331,25 @@ export class JevController extends AiLayer {
         what: `Fall back about ${RETREAT_ABOUT_TILES} tiles from the enemies near the hero (what it walks before the next decision; not to the start position) and stay there, to save the hero and its soldiers. Chosen again once the hero has arrived, it falls back further.`,
         notFor: 'When winning the local fight or when the enemy is weak.',
         command: { type: 'retreat' },
-      },
-      {
-        key: 'attack',
-        what: 'Advance on the nearest enemy unit.',
-        notFor: 'When the enemy is clearly stronger nearby or the soldiers are fleeing.',
-        command: { type: 'attack' },
       }
     );
+    // With no enemy to go for (none in sight, none chased) attack and lead keep the hero where
+    // it is, so they are not offered (D55)
+    if (hasAttackTarget(this.stateManager, hero))
+      opts.push(
+        {
+          key: 'attack',
+          what: `Advance on the nearest enemy unit in the hero's sight with the hero in front, fighting, and keep after it until it dies or is more than ${ATTACK_CHASE_TILES} tiles away.`,
+          notFor: 'When the enemy is clearly stronger nearby or the soldiers are fleeing.',
+          command: { type: 'attack' },
+        },
+        {
+          key: 'lead',
+          what: `Send the soldiers at the nearest enemy unit in the hero's sight; the hero follows behind them; they keep after it until it dies or is more than ${ATTACK_CHASE_TILES} tiles away.`,
+          notFor: 'When the hero has too few soldiers near it to stay behind.',
+          command: { type: 'lead' },
+        }
+      );
 
     for (const enemy of this.stateManager.getHeroes()) {
       if (enemy.faction === hero.faction || enemy.hp <= 0) continue;
@@ -336,6 +360,29 @@ export class JevController extends AiLayer {
         what: `Chase enemy hero ${enemy.heroIndex} (${Math.round(d)} tiles ${this.direction(hero, enemy)}, ${Math.round((100 * enemy.hp) / enemy.maxHp)}% HP); killing it takes away its soldiers' courage bonus.`,
         notFor: 'When that hero is protected by a stronger group, or our own hero is badly hurt.',
         command: { type: 'attackHero', heroIndex: enemy.heroIndex },
+      });
+    }
+
+    // A short step toward each allied hero that is not already with it: Jev brings the hero to
+    // an ally step by step, looking at its surroundings before each step. The step follows the
+    // path there (a straight line could end in a mountain, and the hero stopped at its near side);
+    // an ally the hero cannot reach (another walkable region) is not offered.
+    const grid = this.stateManager.getBattlefield().grid;
+    for (const ally of this.alliesOf(hero)) {
+      const d = Math.hypot(ally.position.x - hero.position.x, ally.position.y - hero.position.y);
+      if (d <= TOGETHER_TILES) continue;
+      const path = Pathfinder.findPath(
+        grid,
+        here,
+        nearestReachableTile(this.stateManager, ally.position)
+      );
+      if (path.length === 0) continue;
+      const step = alongPath(here, path, STEP_TILES);
+      opts.push({
+        key: `approach_hero_${ally.heroIndex}`,
+        what: `Move about ${Math.round(step.walked)} tiles toward our hero ${ally.heroIndex} (${Math.round(d)} tiles ${this.direction(hero, ally)}), to join or support it; chosen again, it closes in further.`,
+        notFor: 'When enemies block the way, or the hero is needed in the fight it is in.',
+        command: { type: 'move', target: step.point },
       });
     }
 
@@ -409,10 +456,9 @@ export class JevController extends AiLayer {
     hero: IHero,
     time: number,
     force: { allies: number; enemies: number; ratio: number },
-    group:
-      | { followers: number; avgHpPercent: number; avgCourage: number; fleeing: number }
-      | undefined
+    groups: ReturnType<typeof groupStats>
   ): Record<string, unknown> {
+    const group = groups.get(hero.id);
     let nearest: IUnit | null = null;
     let nearestD = Infinity;
     const enemyHeroes: string[] = [];
@@ -460,12 +506,33 @@ export class JevController extends AiLayer {
         ? `${Math.round(nearestD)} tiles ${this.direction(hero, nearest)}`
         : 'none in sight',
       enemy_heroes_nearby: enemyHeroes.length ? enemyHeroes : 'none',
+      allied_heroes: this.alliedHeroes(hero, groups),
       stray_soldiers_nearby: this.nearbyStrays(hero).map(
         (s) =>
           `${s.soldiers} stray soldiers, ${s.distance} tiles ${s.direction}, ${s.avgCourage} courage`
       ),
       local_map: this.localMap(hero),
     };
+  }
+
+  // The other heroes of this side, wherever they are, so that Jev can bring the hero to one of
+  // them step by step (e.g. when the commander's reason says to join or support it)
+  private alliedHeroes(hero: IHero, groups: ReturnType<typeof groupStats>): string[] | string {
+    const lines: string[] = [];
+    for (const ally of this.alliesOf(hero)) {
+      const d = Math.hypot(ally.position.x - hero.position.x, ally.position.y - hero.position.y);
+      const enemies = localForce(this.stateManager, ally).enemies;
+      lines.push(
+        `hero ${ally.heroIndex}, ${Math.round(d)} tiles ${this.direction(hero, ally)} in ${positionToSubsector(ally.position)}, ${Math.round((100 * ally.hp) / ally.maxHp)}% HP, ${groups.get(ally.id)?.followers ?? 0} soldiers, ${enemies > 0 ? `${enemies} enemies within ${LOCAL_RADIUS} tiles of it` : 'no enemies near it'}`
+      );
+    }
+    return lines.length ? lines : 'none (this is our last hero)';
+  }
+
+  private alliesOf(hero: IHero): IHero[] {
+    return this.stateManager
+      .getHeroes()
+      .filter((h) => h.faction === hero.faction && h.hp > 0 && h.id !== hero.id);
   }
 
   // A small text map centred on the hero, north at the top. Each character is a 2×2 tile
@@ -532,8 +599,8 @@ export class JevController extends AiLayer {
     if (o.mode === 'control') {
       return {
         mode: 'control points',
-        our_points: Math.round(mine === Faction.FRIENDLY ? o.scores.friendly : o.scores.enemy),
-        enemy_points: Math.round(mine === Faction.FRIENDLY ? o.scores.enemy : o.scores.friendly),
+        our_points: wholePoints(mine === Faction.FRIENDLY ? o.scores.friendly : o.scores.enemy),
+        enemy_points: wholePoints(mine === Faction.FRIENDLY ? o.scores.enemy : o.scores.friendly),
         seconds_left: secondsLeft,
         points: o.points.map(
           (p) =>
@@ -603,7 +670,9 @@ export class JevController extends AiLayer {
       case 'retreat':
         return 'retreat a short way from the enemies';
       case 'attack':
-        return 'attack the nearest enemy';
+        return 'attack the nearest enemy in sight';
+      case 'lead':
+        return 'lead the soldiers at the nearest enemy in sight';
       case 'attackHero':
         return `attack enemy hero ${c.heroIndex}`;
       case 'regroup':
@@ -643,4 +712,30 @@ function cellTerrain(grid: TerrainType[][], x: number, y: number): TerrainType {
   for (const t of [TerrainType.OPEN, TerrainType.FOREST, TerrainType.SWAMP])
     if (counts[t] > counts[best]) best = t;
   return best;
+}
+
+// The point about `tiles` along a path (tile coordinates, without the start tile), and how far
+// that is; the path's end when it is shorter
+function alongPath(
+  start: Position,
+  path: Position[],
+  tiles: number
+): { point: Position; walked: number } {
+  let prev = start;
+  let walked = 0;
+  for (const p of path) {
+    const seg = Math.hypot(p.x - prev.x, p.y - prev.y);
+    if (walked + seg >= tiles) {
+      // A smoothed path's segment can be long (open ground: one straight line to the end)
+      const f = (tiles - walked) / seg;
+      const point = {
+        x: Math.round(prev.x + (p.x - prev.x) * f),
+        y: Math.round(prev.y + (p.y - prev.y) * f),
+      };
+      return { point, walked: tiles };
+    }
+    walked += seg;
+    prev = p;
+  }
+  return { point: path[path.length - 1], walked };
 }

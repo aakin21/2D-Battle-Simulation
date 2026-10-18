@@ -69,7 +69,8 @@ export type HeroCommand = (
   | { type: 'move'; target: Position } // AI gives a sector, the user an exact point
   | { type: 'hold'; at: Position }
   | { type: 'retreat'; to?: Position } // fall back a short way from the enemies (set on issue)
-  | { type: 'attack' }
+  | { type: 'attack' } // the hero leads the charge and fights in front
+  | { type: 'lead' } // the soldiers charge the nearest enemy, the hero follows behind them (D48)
   | { type: 'attackHero'; heroIndex: number }
   | { type: 'regroup' } // collect stray soldiers of the hero's side, group after group (D28)
   | { type: 'attackBase' } // walk to the enemy base and attack it (base mode, D30)
@@ -97,6 +98,11 @@ export interface IHero extends IUnit {
   disengaging: boolean; // breaking off a fight: ignores enemies until clear of them (D27)
   reflexOverridden: boolean; // an order ended the survival reflex; off for a while (D18, D47)
   reflexOverriddenAt: number; // simulation time of that order
+  // D48: where the hero itself stands while enemies are near (behind its soldiers), the group
+  // still going to taskPoint; null when it walks to taskPoint itself
+  standPoint: Position | null;
+  standUntil: number; // simulation time until which the hero stays behind (enemies just left)
+  attackTargetId: string | null; // D55: the enemy its attack or lead order goes for
 }
 
 // D30: battle objectives. 'elimination': destroy every enemy unit. 'control': hold points
@@ -203,6 +209,7 @@ export interface SimConfig {
   friendlyAI?: SideAI; // battle only: AI layers for the west side (default 'none' = the user)
   enemyAI?: SideAI; // battle only: AI layers for the east side (default 'none' = rule-based)
   aiTiming?: AITiming; // battle only: does the simulation wait for AI answers (D4)
+  recordReplay?: boolean; // battle only: keep a replay of the match (UI only, default on)
   objective?: Objective; // battle only (D30), default 'elimination'
   friendlyModel?: LlmModel; // battle only: LLM model for each side (D29, D52)
   enemyModel?: LlmModel;

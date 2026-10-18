@@ -62,11 +62,14 @@ function heroState(h: IHero): string {
   }
 }
 
-// A free text written by the LLM, cut to a few lines; the whole text is in the tooltip
-function clamped(cls: string, text: string): string {
-  const t = escapeHtml(text);
-  return `<div class="ai-text ${cls}" title="${t}">${t}</div>`;
+// A labelled line: "LLM   move to F4-NW · 12 s ago"
+function line(label: string, value: string): string {
+  return `<div class="ai-kv"><span class="ai-k">${label}</span><span>${value}</span></div>`;
 }
+
+// Above this many characters a text written by the LLM is cut to two lines, with "more" to
+// open it in place (it stays open while the panel is redrawn)
+const LONG_TEXT = 90;
 
 const SOURCE_NAME: Record<string, string> = { llm: 'LLM', jev: 'Jev', rule: 'rules', user: 'user' };
 
@@ -82,18 +85,34 @@ export class AiPanel {
   private panels: Record<Side, Panel>;
   private stats = new Map<string, GroupStats>();
   private statsAt = 0;
+  private open = new Set<string>(); // long texts the viewer opened, by key
 
   constructor() {
     const panel = (side: Side): Panel => {
       const el = document.getElementById(`ai-col-${side}`)!;
-      return {
+      const p: Panel = {
         el,
         main: el.querySelector('.ai-col-main')!,
         log: new AiRequestLog(side, el),
         last: '',
       };
+      // "more" / "less" on a long text: open or close it, then draw again at once
+      p.main.addEventListener('click', (e) => {
+        const key = (e.target as HTMLElement).closest<HTMLElement>('[data-toggle]')?.dataset.toggle;
+        if (!key) return;
+        if (this.open.has(key)) this.open.delete(key);
+        else this.open.add(key);
+        p.last = '';
+      });
+      return p;
     };
     this.panels = { west: panel('west'), east: panel('east') };
+  }
+
+  // Draw both panels again at the next update (after a replay wrote its own HTML into them)
+  redraw(): void {
+    this.panels.west.last = '';
+    this.panels.east.last = '';
   }
 
   update(
@@ -139,14 +158,14 @@ export class AiPanel {
       `<span class="army-who">${escapeHtml(who)}</span></div>`;
     if (llm) html += this.statusHtml('LLM', llm, now);
     if (jev) html += this.statusHtml(jev.name, jev, now);
-    if (llm) html += this.strategyHtml(llm);
+    if (llm) html += this.strategyHtml(side, llm);
     const faction = side === 'west' ? Faction.FRIENDLY : Faction.ENEMY;
     const mine = heroes
       .filter((h) => h.faction === faction && h.controller === 'ai')
       .sort((a, b) => a.heroIndex - b.heroIndex);
     const latestJev = new Map<number, JevDecision>();
     for (const d of jev?.decisions ?? []) latestJev.set(d.heroIndex, d);
-    html += mine.map((h) => this.heroHtml(h, jev, latestJev.get(h.heroIndex), now)).join('');
+    html += mine.map((h) => this.heroHtml(side, h, jev, latestJev.get(h.heroIndex), now)).join('');
     return html + this.metaHtml(llm, jev);
   }
 
@@ -171,24 +190,34 @@ export class AiPanel {
     return `<div class="ai-status"><span class="ai-k">${name}</span><span>${text}</span></div>`;
   }
 
+  // A text written by the LLM; a long one is cut to two lines with "more" to open it
+  private text(key: string, cls: string, prefix: string, text: string): string {
+    const t = escapeHtml(text);
+    if (text.length <= LONG_TEXT) return `<div class="${cls}">${prefix}${t}</div>`;
+    const open = this.open.has(key);
+    const toggle = `<span class="ai-more" data-toggle="${key}">${open ? '▾ less' : '▸ more'}</span>`;
+    return `<div class="${cls}${open ? '' : ' ai-clamp'}">${prefix}${t}</div>${toggle}`;
+  }
+
   // The LLM's latest reading of the battle: stance and plan, the situation it read, rejected
-  // orders. Long texts are cut to a few lines; the whole text is in the tooltip and the log.
-  private strategyHtml(llm: LlmController): string {
+  // orders. Long texts open with "more".
+  private strategyHtml(side: Side, llm: LlmController): string {
     const d = llm.decisions[llm.decisions.length - 1];
     if (!d) return '';
     let html = '<div class="ai-strategy">';
     if (d.stance) html += `<span class="stance stance-${d.stance}">${d.stance}</span>`;
-    if (d.plan) html += clamped('ai-plan', d.plan);
-    if (d.situation) html += clamped('ai-situation', d.situation);
+    if (d.plan) html += this.text(`${side}-plan`, 'ai-plan', '', d.plan);
+    if (d.situation) html += this.text(`${side}-situation`, 'ai-situation', '', d.situation);
     if (d.rejected.length)
       html += `<div class="ai-fail">${d.rejected.map((o) => `rejected: ${escapeHtml(o)}`).join('<br>')}</div>`;
     return html + '</div>';
   }
 
-  // One card per hero: who it is and how it is doing; the order running now, whose it is and
-  // since when; the LLM's reason; what the tactical layer said. An order shows once: the LLM's
-  // when it runs (the tactical layer agreeing or not), the tactical layer's when it overrides it.
+  // One card per hero, a labelled line per layer: "now" is the order running and whose it is,
+  // "LLM" the LLM's latest order with its reason, then what the tactical layer chose and whether
+  // it was applied. A tactical order that differs from the LLM's overrides it (outlined).
   private heroHtml(
+    side: Side,
     h: IHero,
     jev: JevController | undefined,
     d: JevDecision | undefined,
@@ -208,8 +237,7 @@ export class AiPanel {
       .join(' · ');
     let html = `<div class="ai-hero-head">${name}<span class="faint">${vitals}</span></div>`;
 
-    // Jev's "follow the LLM" puts the LLM's order back in effect, so it counts as the LLM's; a
-    // tactical order that differs from the LLM's overrides it
+    // Jev's "follow the LLM" puts the LLM's order back in effect, so it counts as the LLM's
     const c = h.command;
     const resumes = c?.type === 'continueLlm';
     const effective = resumes ? h.lastLlmCommand : c;
@@ -226,28 +254,41 @@ export class AiPanel {
     const sourceName = source === 'jev' ? tactical : (SOURCE_NAME[source] ?? source);
     const since = source === 'llm' ? h.lastLlmTime : h.commandTime;
 
-    let order = `<span class="ai-src ai-src-${source}">${sourceName}</span> `;
-    order += effective
-      ? `<span class="ai-cmd">${escapeHtml(describeCommand(effective))}</span> <span class="faint">· ${ago(now, since)}</span>`
+    let running = `<span class="ai-src ai-src-${source}">${sourceName}</span> `;
+    running += effective
+      ? `${escapeHtml(describeCommand(effective))} <span class="faint">· ${ago(now, since)}</span>`
       : '<span class="faint">no order yet</span>';
-    if (agreed && d)
-      order += ` <span class="ai-agree">${tactical} agrees ${percent(d.confidence)}</span>`;
-    html += `<div class="ai-order">${order}</div>`;
-    if (overrides && llmOrder)
-      html += `<div class="ai-override">overrides the LLM's "${escapeHtml(describeCommand(llmOrder))}"</div>`;
-    if (llmOrder?.reason) html += clamped('ai-why', llmOrder.reason);
+    if (agreed) running += ` <span class="ai-agree">· ${tactical} agrees</span>`;
+    if (overrides) running += `<div class="ai-override">${tactical} overrides the LLM</div>`;
+    html += line('now', running);
 
-    if (jev && d) {
-      const a = jev.assessmentFor(h.heroIndex);
-      const notes = [
-        `${prettyChoice(d.choice)} ${percent(d.confidence)}${d.applied ? '' : ' (too unsure)'}`,
-        a.threat === undefined ? '' : `threat ${a.threat.toFixed(1)}/3`,
-        a.surrounded === undefined ? '' : `surrounded ${percent(a.surrounded)}`,
-        a.orderStillFits === undefined ? '' : `LLM order fits ${percent(a.orderStillFits)}`,
-        ago(now, d.time),
-      ].filter(Boolean);
-      const text = `${tactical}: ${notes.join(' · ')}`;
-      html += `<div class="ai-tac" title="${escapeHtml(text)}">${escapeHtml(text)}</div>`;
+    html += line(
+      'LLM',
+      llmOrder
+        ? `${escapeHtml(describeCommand(llmOrder))} <span class="faint">· ${ago(now, h.lastLlmTime)}</span>` +
+            (llmOrder.reason
+              ? this.text(`${side}-h${h.heroIndex}-why`, 'ai-why', 'why: ', llmOrder.reason)
+              : '')
+        : '<span class="faint">no order yet</span>'
+    );
+
+    if (jev) {
+      let said = '<span class="faint">nothing yet</span>';
+      if (d) {
+        const a = jev.assessmentFor(h.heroIndex);
+        const applied = d.applied
+          ? '<span class="ai-agree">applied</span>'
+          : `<span class="ai-warn">not applied: below ${percent(jev.minConfidence)}</span>`;
+        const notes = [
+          a.threat === undefined ? '' : `threat ${a.threat.toFixed(1)}/3`,
+          a.surrounded === undefined ? '' : `surrounded ${percent(a.surrounded)}`,
+          a.orderStillFits === undefined ? '' : `LLM order fits ${percent(a.orderStillFits)}`,
+        ].filter(Boolean);
+        said =
+          `${escapeHtml(prettyChoice(d.choice))} · ${percent(d.confidence)} sure · ${applied} <span class="faint">· ${ago(now, d.time)}</span>` +
+          (notes.length ? `<div class="faint">${notes.join(' · ')}</div>` : '');
+      }
+      html += line(tactical, said);
     }
     return `<div class="ai-hero${overrides ? ' override' : ''}">${html}</div>`;
   }

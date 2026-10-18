@@ -4,6 +4,7 @@ import { StateManager } from '../state/StateManager';
 import type { Renderer } from '../rendering/Renderer';
 import { IUnit, IHero, UnitType, Faction, BehaviorState, SimConfig, SideAI } from '../types/types';
 import { sideName } from '../engine/Sides';
+import { wholePoints } from '../engine/Objectives';
 import { clock, describeCommand, escapeHtml, SIDE_NAME } from './format';
 
 // What the player sees around the map: the match banner in the top bar, the armies in the
@@ -101,6 +102,12 @@ export class Hud {
     this.elResult.hidden = true;
   }
 
+  // Draw the banner and armies again at the next update (after a replay wrote its own HTML)
+  redraw(): void {
+    this.lastBanner = '';
+    this.lastArmies = '';
+  }
+
   update(config: SimConfig): void {
     const bf = this.stateManager.getBattlefield();
     // Sim time went back: a new run started (e.g. stress test restart)
@@ -157,8 +164,8 @@ export class Hud {
     let east = '';
     let mid = '';
     if (o.mode === 'control') {
-      west = String(Math.floor(o.scores.friendly));
-      east = String(Math.floor(o.scores.enemy));
+      west = String(wholePoints(o.scores.friendly));
+      east = String(wholePoints(o.scores.enemy));
       const flags = o.points
         .map((p) => {
           const cls = p.holder === null ? '' : ` ${sideName(p.holder)}`;
@@ -326,7 +333,13 @@ export class Hud {
   showResult(
     r: MatchResult,
     config: SimConfig,
-    actions: { restart(): void; menu(): void; log(): void }
+    actions: {
+      restart(): void;
+      menu(): void;
+      log(): void;
+      watch: (() => void) | null;
+      saveReplay: (() => void) | null;
+    }
   ): void {
     const bf = this.stateManager.getBattlefield();
     const winner = r.winner;
@@ -341,7 +354,9 @@ export class Hud {
       : winner === null
         ? r.reason === 'elimination'
           ? 'both sides destroyed at once'
-          : 'time up, both sides equal'
+          : r.reason === 'points'
+            ? 'time up, equal points'
+            : 'time up, both sides equal'
         : r.reason === 'base'
           ? 'base destroyed'
           : r.reason === 'points'
@@ -365,7 +380,7 @@ export class Hud {
     const o = bf.objective;
     let extra = '';
     if (o.mode === 'control') {
-      extra = row('Points', Math.floor(o.scores.friendly), Math.floor(o.scores.enemy));
+      extra = row('Points', wholePoints(o.scores.friendly), wholePoints(o.scores.enemy));
     } else if (o.mode === 'base') {
       const pct = (f: Faction) => {
         const b = o.bases.find((x) => x.faction === f);
@@ -390,10 +405,20 @@ export class Hud {
       extra +
       `</table>` +
       `<div class="actions"><button class="btn" data-act="restart">Restart</button><button class="btn btn-quiet" data-act="menu">Menu</button>` +
-      `<button class="btn btn-quiet" data-act="log" title="Settings, timeline and every AI decision as JSON">Download log</button></div>`;
+      `<button class="btn btn-quiet" data-act="log" title="Settings, timeline and every AI decision as JSON">Download log</button></div>` +
+      (actions.watch
+        ? `<div class="actions"><button class="btn" data-act="watch" title="Watch this match again from the start">Watch replay</button>` +
+          `<button class="btn btn-quiet" data-act="save-replay" title="Save the replay as a file, to open later from the menu">Download replay</button></div>`
+        : '');
     this.elResult.querySelector('[data-act="restart"]')!.addEventListener('click', actions.restart);
     this.elResult.querySelector('[data-act="menu"]')!.addEventListener('click', actions.menu);
     this.elResult.querySelector('[data-act="log"]')!.addEventListener('click', actions.log);
+    if (actions.watch)
+      this.elResult.querySelector('[data-act="watch"]')!.addEventListener('click', actions.watch);
+    if (actions.saveReplay)
+      this.elResult
+        .querySelector('[data-act="save-replay"]')!
+        .addEventListener('click', actions.saveReplay);
     this.elResult.hidden = false;
   }
 

@@ -136,7 +136,15 @@ export class Pathfinder {
     return false;
   }
 
-  static findPath(grid: TerrainType[][], start: Position, end: Position): Position[] {
+  // smooth: replace runs of tiles by straight lines where nothing blocks them. A straight line
+  // can still pass the corner where two blocked tiles meet; a unit that cannot take such a step
+  // (battle mode) asks for the unsmoothed path, tile by tile through tile edges
+  static findPath(
+    grid: TerrainType[][],
+    start: Position,
+    end: Position,
+    smooth = true
+  ): Position[] {
     const sx = Math.floor(start.x);
     const sy = Math.floor(start.y);
     const ex = Math.floor(end.x);
@@ -171,7 +179,7 @@ export class Pathfinder {
 
       if (cur.x === ex && cur.y === ey) {
         const raw = Pathfinder.rebuild(cur);
-        return Pathfinder.smoothPath(grid, { x: sx, y: sy }, raw);
+        return smooth ? Pathfinder.smoothPath(grid, { x: sx, y: sy }, raw) : raw;
       }
 
       for (const [dx, dy] of DIRS4) {

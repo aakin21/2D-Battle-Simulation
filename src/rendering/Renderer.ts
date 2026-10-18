@@ -32,6 +32,9 @@ const WALK_FPS = 8;
 // The attack frame is shown for this long after each hit
 const ATTACK_POSE_TIME = 0.25;
 const HERO_RING_COLORS = ['#FFD700', ENEMY_HERO_COLOR]; // by Faction
+// Units are drawn in two passes, soldiers first, so a hero stays visible (and clickable to the
+// eye) when its soldiers crowd around it
+const HEROES_LAST = [false, true];
 
 export class Renderer {
   private canvas: HTMLCanvasElement;
@@ -240,6 +243,12 @@ export class Renderer {
     this.view.centerOn(tileX, tileY, smooth);
   }
 
+  // Effects and order markers keep per-unit history; a replay that jumps back starts them over
+  resetHistory(): void {
+    this.orderMarkers.reset();
+    this.effects.reset();
+  }
+
   // Call on reset — clears terrain and returns camera to default
   clearTerrainCache(): void {
     this.offscreenTerrain = null;
@@ -330,27 +339,29 @@ export class Renderer {
     const now = performance.now();
     const anyFlash = this.effects.hasFlashes();
 
-    for (const unit of units) {
-      const sx = (unit.position.x - camX) * zoom - half;
-      const sy = (unit.position.y - camY) * zoom - half;
+    for (const heroes of HEROES_LAST)
+      for (const unit of units) {
+        if ((unit.unitType === UnitType.HERO) !== heroes) continue;
+        const sx = (unit.position.x - camX) * zoom - half;
+        const sy = (unit.position.y - camY) * zoom - half;
 
-      if (sx + size < 0 || sx > this.canvas.width) continue;
-      if (sy + size < 0 || sy > this.canvas.height) continue;
+        if (sx + size < 0 || sx > this.canvas.width) continue;
+        if (sy + size < 0 || sy > this.canvas.height) continue;
 
-      this.ctx.fillStyle =
-        anyFlash && this.effects.isFlashing(unit.id, now)
-          ? '#ffffff'
-          : unit.unitType === UnitType.HERO && unit.faction === Faction.ENEMY
-            ? ENEMY_HERO_COLOR
-            : (UNIT_COLORS[UnitType[unit.unitType]] ?? '#fff');
-      this.ctx.fillRect(sx, sy, size, size);
+        this.ctx.fillStyle =
+          anyFlash && this.effects.isFlashing(unit.id, now)
+            ? '#ffffff'
+            : unit.unitType === UnitType.HERO && unit.faction === Faction.ENEMY
+              ? ENEMY_HERO_COLOR
+              : (UNIT_COLORS[UnitType[unit.unitType]] ?? '#fff');
+        this.ctx.fillRect(sx, sy, size, size);
 
-      if (unit.unitType === UnitType.HERO) {
-        this.ctx.strokeStyle = '#ffffff';
-        this.ctx.lineWidth = 1;
-        this.ctx.strokeRect(sx, sy, size, size);
+        if (unit.unitType === UnitType.HERO) {
+          this.ctx.strokeStyle = '#ffffff';
+          this.ctx.lineWidth = 1;
+          this.ctx.strokeRect(sx, sy, size, size);
+        }
       }
-    }
   }
 
   private drawUnitSprites(units: IUnit[]): void {
@@ -362,42 +373,44 @@ export class Renderer {
     const simTime = this.effects.getSimTime();
     const ctx = this.ctx;
 
-    for (const unit of units) {
-      const sx = (unit.position.x - camX) * zoom - half;
-      const sy = (unit.position.y - camY) * zoom - half;
-      if (sx + size < 0 || sx > this.canvas.width) continue;
-      if (sy + size < 0 || sy > this.canvas.height) continue;
+    for (const heroes of HEROES_LAST)
+      for (const unit of units) {
+        if ((unit.unitType === UnitType.HERO) !== heroes) continue;
+        const sx = (unit.position.x - camX) * zoom - half;
+        const sy = (unit.position.y - camY) * zoom - half;
+        if (sx + size < 0 || sx > this.canvas.width) continue;
+        if (sy + size < 0 || sy > this.canvas.height) continue;
 
-      const anim = this.effects.getAnim(unit.id);
-      const col = anim.facing > 0 ? COL_RIGHT : COL_LEFT;
-      let row = 0; // idle
-      if (
-        unit.state === BehaviorState.ATTACK &&
-        unit.attackCooldown > ATTACK_INTERVAL - ATTACK_POSE_TIME
-      ) {
-        row = ROW_ATTACK;
-      } else if (anim.moving) {
-        row = Math.floor(simTime * WALK_FPS + anim.phase * WALK_FRAMES) % WALK_FRAMES;
+        const anim = this.effects.getAnim(unit.id);
+        const col = anim.facing > 0 ? COL_RIGHT : COL_LEFT;
+        let row = 0; // idle
+        if (
+          unit.state === BehaviorState.ATTACK &&
+          unit.attackCooldown > ATTACK_INTERVAL - ATTACK_POSE_TIME
+        ) {
+          row = ROW_ATTACK;
+        } else if (anim.moving) {
+          row = Math.floor(simTime * WALK_FPS + anim.phase * WALK_FRAMES) % WALK_FRAMES;
+        }
+
+        // Each hero of a side gets its own sprite (heroIndex is 1-based within the side)
+        const heroIndex = unit.unitType === UnitType.HERO ? (unit as IHero).heroIndex - 1 : 0;
+        const set = this.unitSprites.get(unit.unitType, unit.faction, heroIndex);
+
+        if (unit.unitType === UnitType.HERO) {
+          // Team-colored ring at the hero's feet
+          ctx.beginPath();
+          ctx.ellipse(sx + half, sy + size * 0.9, half * 0.8, half * 0.3, 0, 0, Math.PI * 2);
+          ctx.strokeStyle = HERO_RING_COLORS[unit.faction];
+          ctx.lineWidth = Math.max(1.5, zoom * 0.15);
+          ctx.stroke();
+        }
+
+        const sheet = anyFlash && this.effects.isFlashing(unit.id, now) ? set.flash : set.normal;
+        // The attack frame leans toward the facing side, so a hit reads as a lunge
+        const lunge = row === ROW_ATTACK ? anim.facing * size * ATTACK_LUNGE : 0;
+        ctx.drawImage(sheet, col * FRAME, row * FRAME, FRAME, FRAME, sx + lunge, sy, size, size);
       }
-
-      // Each hero of a side gets its own sprite (heroIndex is 1-based within the side)
-      const heroIndex = unit.unitType === UnitType.HERO ? (unit as IHero).heroIndex - 1 : 0;
-      const set = this.unitSprites.get(unit.unitType, unit.faction, heroIndex);
-
-      if (unit.unitType === UnitType.HERO) {
-        // Team-colored ring at the hero's feet
-        ctx.beginPath();
-        ctx.ellipse(sx + half, sy + size * 0.9, half * 0.8, half * 0.3, 0, 0, Math.PI * 2);
-        ctx.strokeStyle = HERO_RING_COLORS[unit.faction];
-        ctx.lineWidth = Math.max(1.5, zoom * 0.15);
-        ctx.stroke();
-      }
-
-      const sheet = anyFlash && this.effects.isFlashing(unit.id, now) ? set.flash : set.normal;
-      // The attack frame leans toward the facing side, so a hit reads as a lunge
-      const lunge = row === ROW_ATTACK ? anim.facing * size * ATTACK_LUNGE : 0;
-      ctx.drawImage(sheet, col * FRAME, row * FRAME, FRAME, FRAME, sx + lunge, sy, size, size);
-    }
   }
 
   // Draws HP bar above every unit. Units that use courage (warriors, and berserkers in
@@ -409,44 +422,46 @@ export class Renderer {
     const cH = Math.max(1, Math.floor(zoom * 0.25));
 
     const smart = this.barsMode === 'smart' && this.effects.isEnabled();
-    for (const unit of units) {
-      if (
-        smart &&
-        unit.hp >= unit.maxHp &&
-        unit.state === BehaviorState.IDLE &&
-        unit.unitType !== UnitType.HERO &&
-        unit.id !== this.selectedUnitId
-      )
-        continue;
-      const isWarrior =
-        unit.unitType === UnitType.WARRIOR ||
-        (this.battleMode && unit.unitType === UnitType.BERSERKER);
-      const totalH = isWarrior ? hpH + 1 + cH : hpH;
-      const yOff = -(zoom + totalH);
+    for (const heroes of HEROES_LAST)
+      for (const unit of units) {
+        if ((unit.unitType === UnitType.HERO) !== heroes) continue;
+        if (
+          smart &&
+          unit.hp >= unit.maxHp &&
+          unit.state === BehaviorState.IDLE &&
+          unit.unitType !== UnitType.HERO &&
+          unit.id !== this.selectedUnitId
+        )
+          continue;
+        const isWarrior =
+          unit.unitType === UnitType.WARRIOR ||
+          (this.battleMode && unit.unitType === UnitType.BERSERKER);
+        const totalH = isWarrior ? hpH + 1 + cH : hpH;
+        const yOff = -(zoom + totalH);
 
-      const sx = (unit.position.x - camX) * zoom - barW / 2;
-      const sy = (unit.position.y - camY) * zoom + yOff;
+        const sx = (unit.position.x - camX) * zoom - barW / 2;
+        const sy = (unit.position.y - camY) * zoom + yOff;
 
-      if (sx + barW < 0 || sx > this.canvas.width) continue;
-      if (sy + totalH < 0 || sy > this.canvas.height) continue;
+        if (sx + barW < 0 || sx > this.canvas.width) continue;
+        if (sy + totalH < 0 || sy > this.canvas.height) continue;
 
-      // HP bar
-      const hpRatio = unit.hp / unit.maxHp;
-      this.ctx.fillStyle = '#880000';
-      this.ctx.fillRect(sx, sy, barW, hpH);
-      this.ctx.fillStyle = '#00cc44';
-      this.ctx.fillRect(sx, sy, Math.max(0, barW * hpRatio), hpH);
+        // HP bar
+        const hpRatio = unit.hp / unit.maxHp;
+        this.ctx.fillStyle = '#880000';
+        this.ctx.fillRect(sx, sy, barW, hpH);
+        this.ctx.fillStyle = '#00cc44';
+        this.ctx.fillRect(sx, sy, Math.max(0, barW * hpRatio), hpH);
 
-      // Courage bar — warriors only
-      if (isWarrior) {
-        const cRatio = unit.courage / 100;
-        const cy = sy + hpH + 1;
-        this.ctx.fillStyle = '#333300';
-        this.ctx.fillRect(sx, cy, barW, cH);
-        this.ctx.fillStyle = '#ccaa00';
-        this.ctx.fillRect(sx, cy, Math.max(0, barW * cRatio), cH);
+        // Courage bar — warriors only
+        if (isWarrior) {
+          const cRatio = unit.courage / 100;
+          const cy = sy + hpH + 1;
+          this.ctx.fillStyle = '#333300';
+          this.ctx.fillRect(sx, cy, barW, cH);
+          this.ctx.fillStyle = '#ccaa00';
+          this.ctx.fillRect(sx, cy, Math.max(0, barW * cRatio), cH);
+        }
       }
-    }
   }
 
   private updateEffects(battlefield: IBattlefield): void {
