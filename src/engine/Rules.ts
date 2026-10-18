@@ -48,6 +48,18 @@ export const SEPARATION_RADIUS = 0.9; // tiles
 export const SEPARATION_SPEED = 2; // tiles/s, a soldier's walking speed
 export const SEPARATION_DEAD_ZONE = 0.15; // a smaller total overlap does not push
 
+// The hero behind its soldiers (D48, battle mode): with enemies in its sight and an order other
+// than attack, attack_hero, attack_base or retreat, the hero stands this far behind the middle of
+// its soldiers, on the side away from the enemies, and keeps doing so this long after the last
+// enemy left its sight; with fewer soldiers than this near it, it walks to its target itself
+export const HERO_BEHIND_TILES = 3.5;
+export const HERO_BEHIND_HOLD_SECONDS = 3;
+export const HERO_BEHIND_MIN_SOLDIERS = 3;
+// D55: attack and lead go for the nearest enemy in the hero's sight and keep after the enemy they
+// went for (out of sight too: behind its soldiers, in a forest, around a mountain) until it dies
+// or is farther than this
+export const ATTACK_CHASE_TILES = 30;
+
 // Breaking off a fight (D27): a hero that breaks off ignores enemies until none is this close
 export const DISENGAGE_CLEAR_RADIUS = 6;
 

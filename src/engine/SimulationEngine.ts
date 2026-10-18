@@ -2,7 +2,7 @@ import { StateManager } from '../state/StateManager';
 import { Renderer } from '../rendering/Renderer';
 import { MinimapRenderer } from '../rendering/MinimapRenderer';
 import { Pathfinder } from './Pathfinder';
-import { HeroCommands } from './HeroCommands';
+import { HeroCommands, runningCommand } from './HeroCommands';
 import {
   COMBAT_RANGE,
   ATTACK_INTERVAL,
@@ -23,9 +23,10 @@ import {
 } from './Rules';
 import { GroupPatrol } from './GroupPatrol';
 import { separateUnits } from './Separation';
+import { updateHeroStand } from './HeroPosition';
 import { updateWaves, updateBerserkerPath } from './ClassicWaves';
 import { updateRuleHeroes } from './RuleHeroes';
-import { updateControl, damageBases, objectiveEnd, EndReason } from './Objectives';
+import { updateControl, damageBases, objectiveEnd, EndReason, wholePoints } from './Objectives';
 import { updateHeroReflex, moveHeroRetreat } from './HeroReflex';
 import {
   distToTileCentre,
@@ -104,12 +105,25 @@ export class SimulationEngine {
   private lastConfig: SimConfig = DEFAULT_CONFIG;
   private lastTime: number = 0;
   private rafId: number = 0;
+  // UI-only hooks: an observer after each simulation step (the replay recorder) and another
+  // battlefield to draw instead of the live one (a replay being watched). Neither changes the run.
+  private onStep: (() => void) | null = null;
+  private viewSource: (() => IBattlefield) | null = null;
 
   constructor(stateManager: StateManager, renderer: Renderer, minimapRenderer: MinimapRenderer) {
     this.stateManager = stateManager;
     this.renderer = renderer;
     this.minimapRenderer = minimapRenderer;
     this.commands = new HeroCommands(stateManager);
+  }
+
+  setOnStep(fn: (() => void) | null): void {
+    this.onStep = fn;
+  }
+
+  // Draw this battlefield instead of the live one (null: the live one again)
+  setViewSource(fn: (() => IBattlefield) | null): void {
+    this.viewSource = fn;
   }
 
   start(): void {
@@ -235,6 +249,10 @@ export class SimulationEngine {
     for (const controller of this.controllers) controller.tick(elapsedTime);
     if (this.battleMode) updateRuleHeroes(this.stateManager, this.commands, this.patrol);
     this.commands.applyAll();
+    // D48: a hero with enemies near stands behind its soldiers (battle mode)
+    if (this.battleMode)
+      for (const hero of this.stateManager.getHeroes())
+        updateHeroStand(this.stateManager, hero, runningCommand(hero), elapsedTime);
 
     for (const unit of units) {
       this.updateCourage(unit);
@@ -369,8 +387,8 @@ export class SimulationEngine {
       ...(bf.objective.mode === 'control'
         ? {
             scores: {
-              friendly: Math.round(bf.objective.scores.friendly),
-              enemy: Math.round(bf.objective.scores.enemy),
+              friendly: wholePoints(bf.objective.scores.friendly),
+              enemy: wholePoints(bf.objective.scores.enemy),
             },
           }
         : {}),
@@ -597,7 +615,15 @@ export class SimulationEngine {
       return;
     }
 
-    if (this.isSoldier(unit) && unit.target === null && leader && leader.path.length === 0) {
+    // A soldier stops near its standing hero, but not while the hero only stands behind it: then
+    // the group goes on to the order's point (D48)
+    if (
+      this.isSoldier(unit) &&
+      unit.target === null &&
+      leader &&
+      leader.path.length === 0 &&
+      !leader.standPoint
+    ) {
       const dx = leader.position.x - unit.position.x;
       const dy = leader.position.y - unit.position.y;
       const arrive = this.arriveRadius(leader);
@@ -637,15 +663,51 @@ export class SimulationEngine {
     const dy = wpy - unit.position.y;
     const dist = Math.sqrt(dx * dx + dy * dy);
     const step = speed * deltaTime;
+    const reached = dist <= step;
+    let nx = reached ? wpx : unit.position.x + (dx / dist) * step;
+    let ny = reached ? wpy : unit.position.y + (dy / dist) * step;
 
-    if (dist <= step) {
-      unit.position.x = wpx;
-      unit.position.y = wpy;
-      unit.path.shift();
-    } else {
-      unit.position.x += (dx / dist) * step;
-      unit.position.y += (dy / dist) * step;
+    // Battle mode: a step never enters a mountain or a tile next to one. A path's straight
+    // segments are clear, but units pushed off them (D53) walked to the next waypoint through
+    // mountain corners, and in a narrow pass dozens ended up inside the mountains (CASES 16.x).
+    // The unit slides along the obstacle, or plans its path again from where it stands.
+    if (this.battleMode && !this.canStep(grid, unit.position.x, unit.position.y, nx, ny)) {
+      if (this.canStep(grid, unit.position.x, unit.position.y, nx, unit.position.y))
+        ny = unit.position.y;
+      else if (this.canStep(grid, unit.position.x, unit.position.y, unit.position.x, ny))
+        nx = unit.position.x;
+      else {
+        // The path's straight line cuts the corner where two blocked tiles meet: follow the
+        // unsmoothed path from here, tile by tile through tile edges, which every step can take
+        const end = unit.path[unit.path.length - 1];
+        unit.path = Pathfinder.findPath(
+          grid,
+          { x: Math.floor(unit.position.x), y: Math.floor(unit.position.y) },
+          end,
+          false
+        );
+        return;
+      }
+      unit.position.x = nx;
+      unit.position.y = ny;
+      return;
     }
+
+    unit.position.x = nx;
+    unit.position.y = ny;
+    if (reached) unit.path.shift();
+  }
+
+  // A step that stays on its tile, or ends on a tile the pathfinder can use in the same walkable
+  // region (not through the corner where two mountain buffers meet, into a pocket)
+  private canStep(grid: TerrainType[][], ox: number, oy: number, nx: number, ny: number): boolean {
+    const fx = Math.floor(ox);
+    const fy = Math.floor(oy);
+    const tx = Math.floor(nx);
+    const ty = Math.floor(ny);
+    if (tx === fx && ty === fy) return true;
+    if (Pathfinder.isBlocked(grid, tx, ty)) return false;
+    return Pathfinder.sameRegion(grid, fx, fy, tx, ty);
   }
 
   // leader: the hero this soldier follows (already checked to be within its sight).
@@ -667,7 +729,8 @@ export class SimulationEngine {
     }
 
     if (unit.unitType === UnitType.HERO) {
-      return (unit as IHero).taskPoint ?? null;
+      const hero = unit as IHero;
+      return hero.standPoint ?? hero.taskPoint ?? null;
     }
     // A soldier with no hero of its side within sight is a stray: it stays where it is (and
     // fights what comes close) until a hero comes to collect it (regroup order, D35). It also
@@ -699,11 +762,12 @@ export class SimulationEngine {
       } catch (err) {
         this.fail(err);
       }
+      if (!this.error) this.onStep?.();
     }
 
     // Drawing never changes the simulation, so a drawing error must not stop the run
     try {
-      const battlefield = this.stateManager.getBattlefield();
+      const battlefield = this.viewSource ? this.viewSource() : this.stateManager.getBattlefield();
       this.renderer.render(battlefield);
       this.minimapRenderer.render(
         battlefield,

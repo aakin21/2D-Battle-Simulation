@@ -2,7 +2,7 @@ import { StateManager } from '../state/StateManager';
 import { BehaviorState, IHero } from '../types/types';
 import { HeroCommands } from './HeroCommands';
 import { GroupPatrol } from './GroupPatrol';
-import { findNearestEnemy } from './UnitHelpers';
+import { attackTarget, findNearestEnemy } from './UnitHelpers';
 
 const ARRIVE_RADIUS = 2;
 
@@ -35,7 +35,9 @@ export function updateRuleHeroes(
     }
     if (hero.state === BehaviorState.REST) continue;
 
-    if (findNearestEnemy(sm, hero)) {
+    // An enemy in sight, or the one it is attacking stepped out of sight (D55: e.g. the hero
+    // walked into a forest); switching to a move then and back made it flip every frame
+    if (findNearestEnemy(sm, hero) || (hero.command?.type === 'attack' && attackTarget(sm, hero))) {
       if (hero.command?.type !== 'attack') commands.issue(hero, { type: 'attack' }, 'rule');
       continue;
     }

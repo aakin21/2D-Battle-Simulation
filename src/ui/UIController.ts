@@ -31,6 +31,9 @@ import {
   soundMuted,
 } from './Settings';
 import { icon } from './icons';
+import { ReplayRecorder } from '../replay/ReplayRecorder';
+import { ReplayPlayer } from '../replay/ReplayPlayer';
+import { decodeReplay, Replay } from '../replay/Replay';
 import heroWestUrl from '../assets/sprites/hero_knight_gold.png';
 import heroEastUrl from '../assets/sprites/hero_shaman_lion.png';
 import keySpaceUrl from '../assets/ui/keys/Space.png';
@@ -76,6 +79,10 @@ export class UIController {
   private runStarted: boolean = false;
   private pausedBeforeMenu: boolean = false;
   private shownPaused: boolean | null = null;
+  // The replay of the current battle-mode match being recorded, and a replay being watched
+  private recorder: ReplayRecorder | null = null;
+  private player: ReplayPlayer | null = null;
+  private resultShownBeforeReplay = false;
 
   private elBtnPause: HTMLButtonElement;
   private elBtnDebug: HTMLButtonElement;
@@ -123,6 +130,8 @@ export class UIController {
     this.menu = new MainMenu();
     this.wireMenuButtons();
     this.engine.setOnMatchEnd((r) => this.showMatchResult(r));
+    this.engine.setOnStep(() => this.recorder?.sample());
+    this.wireReplay();
     this.engine.setOnError((message) => this.showError(message));
     this.wireButtonEvents();
     this.wireInputEvents();
@@ -144,7 +153,7 @@ export class UIController {
   }
 
   private updatePauseButton(): void {
-    const paused = this.engine.isPaused();
+    const paused = this.player ? !this.player.isPlaying() : this.engine.isPaused();
     if (paused === this.shownPaused) return;
     this.shownPaused = paused;
     this.elBtnPause.innerHTML = icon(paused ? 'play' : 'pause');
@@ -215,6 +224,7 @@ export class UIController {
       if (this.loading.isActive()) return;
       const choice = this.menu.readStart();
       if (!choice) return;
+      if (this.player) this.exitReplay();
       this.resetView();
       this.closeMenu();
 
@@ -268,13 +278,16 @@ export class UIController {
     if (this.isMenuOpen()) return;
     this.pausedBeforeMenu = this.engine.isPaused();
     this.engine.pause();
-    document.getElementById('menu-continue')!.hidden = !this.runStarted;
+    this.player?.pause();
+    document.getElementById('menu-continue')!.hidden = !this.runStarted && !this.player;
     this.elMainMenu.style.display = 'flex';
   }
 
   // Back to the run; it resumes only if it was running when the menu opened.
   private closeMenu(): void {
     this.elMainMenu.style.display = 'none';
+    // A replay being watched keeps the live run paused behind it
+    if (this.player) return;
     if (this.runStarted && !this.pausedBeforeMenu && !this.engine.getResult()) {
       this.engine.resume();
     }
@@ -320,6 +333,10 @@ export class UIController {
   }
 
   private togglePause(): void {
+    if (this.player) {
+      this.player.togglePlay();
+      return;
+    }
     // A finished match stays stopped; restart or the menu starts a new one
     if (this.engine.getResult()) return;
     this.engine.togglePause();
@@ -327,6 +344,11 @@ export class UIController {
   }
 
   private changeSpeed(step: 1 | -1): void {
+    if (this.player) {
+      this.player.changeSpeed(step);
+      this.updateSpeedDisplay();
+      return;
+    }
     if (step > 0) this.engine.increaseSpeed();
     else this.engine.decreaseSpeed();
     this.updateSpeedDisplay();
@@ -359,7 +381,7 @@ export class UIController {
       if (key === 'Escape') {
         if (this.isHelpOpen()) this.elInstructions.style.display = 'none';
         else if (this.isMenuOpen()) {
-          if (this.runStarted) this.closeMenu();
+          if (this.runStarted || this.player) this.closeMenu();
         } else this.openMenu();
         return;
       }
@@ -425,10 +447,14 @@ export class UIController {
     const playerSide = (this.lastConfig.friendlyAI ?? 'none') === 'none' ? Faction.FRIENDLY : null;
     const won = r.winner !== null && (playerSide === null || r.winner === playerSide);
     this.sound.play(won ? 'victory' : 'defeat');
+    this.recorder?.finish(r);
+    const recorder = this.recorder;
     this.hud.showResult(r, this.lastConfig, {
       restart: () => this.doRestart(),
       menu: () => this.openMenu(),
       log: () => this.downloadLog(),
+      watch: recorder ? () => this.watchReplay(recorder.replay()) : null,
+      saveReplay: recorder ? () => void recorder.download() : null,
     });
     this.updatePauseButton();
   }
@@ -458,6 +484,11 @@ export class UIController {
     const battle = this.lastConfig.mode === 'battle' && !this.engine.isStressMode();
     this.matchLog = battle ? new MatchLog(this.lastConfig, this.mapChoice, this.aiSides) : null;
     document.getElementById('btn-log')!.hidden = !battle;
+    this.recorder =
+      battle && this.lastConfig.recordReplay !== false
+        ? new ReplayRecorder(this.lastConfig, this.mapChoice, this.stateManager.getBattlefield())
+        : null;
+    document.getElementById('btn-replay')!.hidden = !this.recorder;
     if (!battle) return;
 
     const controllers: AIController[] = [];
@@ -502,6 +533,73 @@ export class UIController {
     this.engine.setControllers(controllers);
   }
 
+  // --- Replays ---
+
+  private wireReplay(): void {
+    document.getElementById('btn-replay')!.addEventListener('click', () => {
+      void this.recorder?.download();
+    });
+    const file = document.getElementById('menu-replay-file') as HTMLInputElement;
+    document.getElementById('menu-replay')!.addEventListener('click', () => file.click());
+    file.addEventListener('change', async () => {
+      const chosen = file.files?.[0];
+      file.value = '';
+      if (!chosen) return;
+      let replay: Replay;
+      try {
+        replay = await decodeReplay(chosen);
+      } catch (err) {
+        window.alert(
+          `This replay could not be opened: ${err instanceof Error ? err.message : err}`
+        );
+        return;
+      }
+      this.closeMenu();
+      this.watchReplay(replay);
+    });
+    // "more" / "less" in a replayed AI panel
+    document.getElementById('side-panel')!.addEventListener('click', (e) => {
+      this.player?.toggleText(e.target as HTMLElement);
+    });
+  }
+
+  // Watch a replay over the live run, which stays paused behind it
+  private watchReplay(replay: Replay): void {
+    if (this.loading.isActive()) return;
+    if (this.player) this.exitReplay();
+    else this.resultShownBeforeReplay = !document.getElementById('match-result')!.hidden;
+    this.engine.pause();
+    this.hud.hideResult();
+    this.resetView();
+    this.player = new ReplayPlayer(replay, {
+      exit: () => this.exitReplay(),
+      seekReset: () => this.renderer.resetHistory(),
+    });
+    const player = this.player;
+    this.engine.setViewSource(() => player.battlefield());
+    this.canvas.setReplayUnits(() => player.units());
+    this.renderer.setBattleMode(true);
+    document.body.classList.add('replaying');
+    this.updatePauseButton();
+    this.updateSpeedDisplay();
+  }
+
+  private exitReplay(): void {
+    if (!this.player) return;
+    this.player.dispose();
+    this.player = null;
+    this.engine.setViewSource(null);
+    this.canvas.setReplayUnits(null);
+    document.body.classList.remove('replaying');
+    this.resetView();
+    this.renderer.setBattleMode(this.engine.isBattleMode());
+    this.hud.redraw();
+    this.aiPanel.redraw();
+    if (this.resultShownBeforeReplay) document.getElementById('match-result')!.hidden = false;
+    this.updatePauseButton();
+    this.updateSpeedDisplay();
+  }
+
   // --- Restart ---
 
   // Clears the selection and the terrain drawn for the old map, before a new run.
@@ -513,6 +611,11 @@ export class UIController {
 
   private doRestart(): void {
     if (this.loading.isActive()) return;
+    // In a replay: back to its start
+    if (this.player) {
+      this.player.seek(0);
+      return;
+    }
     this.resetView();
     // Restarting a stress test runs the stress test again (it used to restart as Default)
     if (this.engine.isStressMode()) this.engine.restartStressTest();
@@ -527,11 +630,18 @@ export class UIController {
   }
 
   private updateSpeedDisplay(): void {
-    this.elSpeedDisplay.textContent = `${this.engine.getSpeed()}x`;
+    this.elSpeedDisplay.textContent = `${this.player ? this.player.getSpeed() : this.engine.getSpeed()}x`;
   }
 
   private startUIRefresh(): void {
     setInterval(() => {
+      if (this.player) {
+        // A replay puts back the panels it recorded; the live run waits behind it
+        this.player.applyPanels();
+        this.updatePauseButton();
+        this.canvas.refreshSelection();
+        return;
+      }
       this.hud.update(this.lastConfig);
       this.matchLog?.sample(this.stateManager);
       this.aiPanel.update(
@@ -541,6 +651,7 @@ export class UIController {
         this.stateManager.getHeroes(),
         this.stateManager
       );
+      this.recorder?.samplePanels();
       this.updatePauseButton();
       this.canvas.refreshSelection();
     }, 100);
