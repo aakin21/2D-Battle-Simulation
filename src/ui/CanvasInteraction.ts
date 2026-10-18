@@ -11,6 +11,9 @@ import { IUnit, IHero, UnitType, Faction, BehaviorState, GRID_SIZE } from '../ty
 // is selected.
 export class CanvasInteraction {
   private selectedUnitId: string | null = null;
+  // While a replay is watched: its units (selection, tooltip and area counts read them; hero
+  // orders are off)
+  private replayUnits: (() => IUnit[]) | null = null;
 
   // Throttle tooltip updates — only recalculate when cursor moves significantly
   private lastTooltipX: number = -999;
@@ -46,7 +49,8 @@ export class CanvasInteraction {
     // Left click → clear task point + select the nearest unit
     this.inputHandler.onLeftClick((cx, cy) => {
       const hero = this.stateManager.getHero();
-      if (hero && !this.engine.isBattleMode()) this.engine.issueCommand(hero, null, 'user');
+      if (hero && !this.engine.isBattleMode() && !this.replayUnits)
+        this.engine.issueCommand(hero, null, 'user');
       const grid = this.renderer.canvasToGrid(cx, cy);
       const clicked = this.nearestUnit(grid.x, grid.y, 2);
       this.selectedUnitId = clicked?.id ?? null;
@@ -56,6 +60,7 @@ export class CanvasInteraction {
 
     // Right click → task point for the selected friendly hero, or the first one
     this.inputHandler.onRightClick((cx, cy) => {
+      if (this.replayUnits) return; // a replay takes no orders
       const grid = this.renderer.canvasToGrid(cx, cy);
       // Orders outside the map would send the hero to an unreachable point
       if (grid.x < 0 || grid.y < 0 || grid.x >= GRID_SIZE || grid.y >= GRID_SIZE) return;
@@ -102,6 +107,16 @@ export class CanvasInteraction {
     });
   }
 
+  setReplayUnits(fn: (() => IUnit[]) | null): void {
+    this.replayUnits = fn;
+    this.clearSelection();
+  }
+
+  // The units on the battlefield shown: the live ones, or a replay's
+  private shownUnits(): IUnit[] {
+    return this.replayUnits ? this.replayUnits() : this.stateManager.getBattlefield().units;
+  }
+
   clearSelection(): void {
     this.selectedUnitId = null;
     this.renderer.setSelectedUnit(null);
@@ -111,7 +126,10 @@ export class CanvasInteraction {
   // Refreshes the selected unit's card; a unit that is gone is no longer selected.
   refreshSelection(): void {
     if (!this.selectedUnitId) return;
-    const unit = this.stateManager.getUnitById(this.selectedUnitId);
+    const id = this.selectedUnitId;
+    const unit = this.replayUnits
+      ? this.replayUnits().find((u) => u.id === id)
+      : this.stateManager.getUnitById(id);
     this.hud.showUnit(unit ?? null);
     if (!unit) {
       this.selectedUnitId = null;
@@ -119,20 +137,33 @@ export class CanvasInteraction {
     }
   }
 
-  // The unit within `radius` tiles closest to a grid point; on a tie, the first one found.
+  // The unit within `radius` tiles closest to a grid point; on a tie, the first one found. A hero
+  // within that radius comes first, so a hero surrounded by its soldiers can still be picked.
   private nearestUnit(x: number, y: number, radius: number): IUnit | null {
     let closest: IUnit | null = null;
+    let closestHero: IUnit | null = null;
     let minD2 = Infinity;
-    for (const u of this.stateManager.getUnitsInRadius(x, y, radius)) {
+    let heroD2 = Infinity;
+    const near = this.replayUnits
+      ? this.replayUnits().filter(
+          (u) => Math.abs(u.position.x - x) <= radius && Math.abs(u.position.y - y) <= radius
+        )
+      : this.stateManager.getUnitsInRadius(x, y, radius);
+    for (const u of near) {
       const dx = u.position.x - x;
       const dy = u.position.y - y;
       const d2 = dx * dx + dy * dy;
+      if (d2 > radius * radius) continue;
       if (d2 < minD2) {
         minD2 = d2;
         closest = u;
       }
+      if (u.unitType === UnitType.HERO && d2 < heroD2) {
+        heroD2 = d2;
+        closestHero = u;
+      }
     }
-    return closest;
+    return closestHero ?? closest;
   }
 
   // --- Tooltip ---
@@ -209,7 +240,7 @@ export class CanvasInteraction {
     const g1 = this.renderer.canvasToGrid(Math.min(x1, x2), Math.min(y1, y2));
     const g2 = this.renderer.canvasToGrid(Math.max(x1, x2), Math.max(y1, y2));
     const inside: IUnit[] = [];
-    for (const u of this.stateManager.getBattlefield().units) {
+    for (const u of this.shownUnits()) {
       if (u.position.x < g1.x || u.position.x > g2.x) continue;
       if (u.position.y < g1.y || u.position.y > g2.y) continue;
       inside.push(u);

@@ -28,7 +28,7 @@ import {
   wayToObjectives,
 } from './Observations';
 import { strayClusters } from '../engine/Strays';
-import { enemyBase, pointCounts } from '../engine/Objectives';
+import { enemyBase, pointCounts, wholePoints } from '../engine/Objectives';
 import { opponent, sideName } from '../engine/Sides';
 import { aiEndpoint, aiHeaders, deniedByAiServer, transientStatus } from './AiServer';
 import { AiLayer } from './AiLayer';
@@ -366,6 +366,8 @@ export class LlmController extends AiLayer {
         return { type: 'retreat' };
       case 'attack':
         return { type: 'attack' };
+      case 'lead':
+        return { type: 'lead' };
       case 'regroup':
         return { type: 'regroup' };
       case 'attack_base':
@@ -546,8 +548,8 @@ export class LlmController extends AiLayer {
       const theirs = mineF === Faction.FRIENDLY ? o.scores.enemy : o.scores.friendly;
       return {
         mode: 'control points',
-        your_points: Math.round(yours),
-        enemy_points: Math.round(theirs),
+        your_points: wholePoints(yours),
+        enemy_points: wholePoints(theirs),
         seconds_left: secondsLeft,
         points: o.points.map((p) => {
           const c = pointCounts(this.stateManager, p);
@@ -651,7 +653,9 @@ export class LlmController extends AiLayer {
       case 'retreat':
         return 'retreat a short way from the enemies';
       case 'attack':
-        return 'attack nearest enemy';
+        return 'attack nearest enemy in sight';
+      case 'lead':
+        return 'lead the soldiers at the nearest enemy in sight';
       case 'attackHero':
         return `attack enemy hero ${c.heroIndex}`;
       case 'regroup':

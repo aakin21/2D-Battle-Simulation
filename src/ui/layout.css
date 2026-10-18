@@ -311,18 +311,22 @@
   margin-bottom: 3px;
 }
 
-/* Free texts written by the LLM (plan, situation, reasons): a readable font, cut to a few
-   lines; the pixel font stays for labels and numbers */
-.ai-text {
-  font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
-  font-size: 12px;
-  line-height: 1.35;
+/* A long text written by the LLM, cut to two lines until "more" opens it */
+.ai-clamp {
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   line-clamp: 2;
   overflow: hidden;
-  overflow-wrap: anywhere;
+}
+
+.ai-more {
+  color: var(--wood-light);
+  cursor: pointer;
+}
+
+.ai-more:hover {
+  color: var(--text);
 }
 
 .ai-situation {
@@ -409,8 +413,7 @@
 
 .ai-plan {
   color: var(--text);
-  -webkit-line-clamp: 3;
-  line-clamp: 3;
+  margin-top: 2px;
 }
 
 /* The order running now: one line, whose it is, since when, the tactical layer agreeing */
@@ -1130,4 +1133,49 @@
 
 .router-id::placeholder {
   color: var(--text-faint);
+}
+
+/* Buttons in a side section's heading (Replay, Log) */
+.h3-actions {
+  display: flex;
+  gap: 4px;
+}
+
+#match-result .actions + .actions {
+  margin-top: 6px;
+}
+
+/* Replay bar: over the top of the battlefield while a replay is watched */
+#replay-bar {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: min(640px, calc(100% - 20px));
+}
+
+#replay-bar .replay-tag {
+  color: var(--wood-light);
+  text-shadow: 2px 2px 0 var(--ink);
+}
+
+#replay-bar input[type='range'] {
+  flex: 1;
+  min-width: 80px;
+  accent-color: var(--wood-light);
+}
+
+#replay-bar .replay-time {
+  min-width: 92px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* While a replay is watched the request lists are not shown (they belong to the live match) */
+body.replaying .ai-log {
+  display: none;
 }

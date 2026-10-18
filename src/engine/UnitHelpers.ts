@@ -1,6 +1,7 @@
 import { Pathfinder } from './Pathfinder';
 import { StateManager } from '../state/StateManager';
 import {
+  IHero,
   IUnit,
   Position,
   TerrainType,
@@ -10,7 +11,7 @@ import {
   INNER_MIN,
   INNER_MAX,
 } from '../types/types';
-import { FLEE_SPEED_MULT } from './Rules';
+import { ATTACK_CHASE_TILES, FLEE_SPEED_MULT } from './Rules';
 
 // Small queries and movement helpers shared by the engine and its hero modules.
 
@@ -61,6 +62,35 @@ export function findNearestEnemy(sm: StateManager, unit: IUnit): IUnit | null {
   });
 
   return nearest;
+}
+
+// D55: the enemy an attack or lead order goes for: the nearest enemy in the hero's sight, or,
+// with none in sight, the one it went for last while that one lives and is within
+// ATTACK_CHASE_TILES (it stepped out of sight: the hero fell back behind its soldiers, walked into
+// a forest or around a mountain). null: the hero stays where it is.
+export function attackTarget(sm: StateManager, hero: IHero): IUnit | null {
+  const seen = findNearestEnemy(sm, hero);
+  if (seen) {
+    hero.attackTargetId = seen.id;
+    return seen;
+  }
+  const last = chasedEnemy(sm, hero);
+  if (!last) hero.attackTargetId = null;
+  return last;
+}
+
+// Whether an attack or lead order would have an enemy to go for now (reads only)
+export function hasAttackTarget(sm: StateManager, hero: IHero): boolean {
+  return findNearestEnemy(sm, hero) !== null || chasedEnemy(sm, hero) !== null;
+}
+
+// The enemy the hero went for last, while it lives and is within ATTACK_CHASE_TILES
+function chasedEnemy(sm: StateManager, hero: IHero): IUnit | null {
+  if (hero.attackTargetId === null) return null;
+  const last = sm.getUnitById(hero.attackTargetId);
+  if (!last || last.hp <= 0) return null;
+  const d = Math.hypot(last.position.x - hero.position.x, last.position.y - hero.position.y);
+  return d <= ATTACK_CHASE_TILES ? last : null;
 }
 
 // Nearest living enemy anywhere on the map.

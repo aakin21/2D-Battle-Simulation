@@ -21,13 +21,15 @@ export const JEV_STEP_TILES = 10;
 export const RETREAT_ABOUT_TILES = Math.round(R.RETREAT_SECONDS * W.speed);
 
 // Battle-mode heroes move at their soldiers' speed (D18).
-const UNITS = `Both sides are identical. Soldier: ${W.hp} HP, ${perSecond(W.damage)} damage per second, moves ${W.speed} tiles/s, sees ${W.sight} tiles. Hero: ${H.hp} HP, ${perSecond(H.damage)} damage per second, moves ${W.speed} tiles/s (same as its soldiers), sees ${H.sight} tiles. Units fight any enemy within ${R.COMBAT_RANGE} tiles automatically; damage is the same from every direction. Units take up room: units closer than ${R.SEPARATION_RADIUS} tiles push each other apart, so a crowd spreads out over the ground instead of standing on one spot.`;
+const UNITS = `Both sides are identical. Soldier: ${W.hp} HP, ${perSecond(W.damage)} damage per second, moves ${W.speed} tiles/s, sees ${W.sight} tiles. Hero: ${H.hp} HP, ${perSecond(H.damage)} damage per second, moves ${W.speed} tiles/s (same as its soldiers), sees ${H.sight} tiles. Units fight any enemy within ${R.COMBAT_RANGE} tiles automatically; damage is the same from every direction. A bigger force does not always win a fight: soldiers whose courage falls flee and stop fighting (COURAGE), so wounds, being outnumbered where they stand and losing their hero's charisma can break a larger group. Units take up room: units closer than ${R.SEPARATION_RADIUS} tiles push each other apart, so a crowd spreads out over the ground instead of standing on one spot.`;
 
-const FOLLOWING = `A soldier follows the nearest hero of its side if that hero is within ${H.sight} tiles: it walks to where its hero is going. Whenever an enemy is within a soldier's sight (${W.sight} tiles, less in forest and swamp), the soldier leaves its hero's way on its own, walks to the nearest enemy and fights it; it follows its hero again only when no enemy is in its sight. A hero does not do this: whatever its order, it keeps walking to its target and fights only enemies within ${R.COMBAT_RANGE} tiles, so it can walk on past its fighting soldiers into the enemy. A soldier with no hero of its side that close is a stray: it stays where it is and only fights enemies that come into its sight, until a hero comes within ${H.sight} tiles of it again (use regroup to collect strays); strays also miss the charisma bonus. Soldiers stay where they are also when their side has no heroes left. A hero that runs too far ahead leaves its soldiers behind as strays.`;
+const FOLLOWING = `A soldier follows the nearest hero of its side if that hero is within ${H.sight} tiles: it walks to where its hero is going. Whenever an enemy is within a soldier's sight (${W.sight} tiles, less in forest and swamp), the soldier leaves its hero's way on its own, walks to the nearest enemy and fights it; it follows its hero again only when no enemy is in its sight. A hero does not do this: it fights only enemies within ${R.COMBAT_RANGE} tiles; where it walks depends on its order (HERO BEHIND ITS SOLDIERS). A soldier with no hero of its side that close is a stray: it stays where it is and only fights enemies that come into its sight, until a hero comes within ${H.sight} tiles of it again (use regroup to collect strays); strays also miss the charisma bonus. Soldiers stay where they are also when their side has no heroes left. A hero that runs too far ahead leaves its soldiers behind as strays.`;
 
 const COURAGE = `Courage (soldiers only, recalculated all the time) = ${W.courage}, minus ${R.WOUND_PENALTY} for every ${pct(R.WOUND_STEP)} of HP lost, plus ${R.ALLY_SHARE_HIGH_BONUS} if more than ${pct(R.ALLY_SHARE_HIGH)} of the units it sees are allies, minus ${R.ALLY_SHARE_LOW_PENALTY} if fewer than ${pct(R.ALLY_SHARE_LOW)} are allies (minus ${R.ALLY_SHARE_VERY_LOW_PENALTY} if fewer than ${pct(R.ALLY_SHARE_VERY_LOW)}), plus ${R.CHARISMA_BONUS} if one of its heroes is within ${R.CHARISMA_RADIUS} tiles. A soldier with courage ${R.FLEE_THRESHOLD} or less flees from enemies at ${R.FLEE_SPEED_MULT}x speed and cannot be ordered back. Orders never change courage.`;
 
 const CHARISMA = `A hero's charisma gives +${R.CHARISMA_BONUS} COURAGE (not damage) to its soldiers within ${R.CHARISMA_RADIUS} tiles. When a hero dies its soldiers lose this bonus and may start to flee.`;
+
+const HERO_BEHIND = `While enemies are in a hero's sight, a hero with any order except attack, attack_hero, attack_base and retreat stands ${R.HERO_BEHIND_TILES} tiles behind the middle of its soldiers, on the side away from the enemies, and its soldiers go on to the order's place; it keeps there for ${R.HERO_BEHIND_HOLD_SECONDS} seconds after the last enemy left its sight, and walks to the place itself when fewer than ${R.HERO_BEHIND_MIN_SOLDIERS} of its soldiers are near it. With attack, attack_hero and attack_base the hero walks to its target in front of its soldiers and fights there; with retreat it falls back.`;
 
 const REST = `A soldier below ${R.REST_TRIGGER_HP} HP with no enemy in sight stops to rest and heals ${R.REST_HEAL_PER_SEC} HP/s until it is healed or an enemy comes into its sight. A hero below ${R.HERO_REST_TRIGGER_HP} HP heals the same way whenever it stands still with no enemy in its sight, and stops resting as soon as an order sends it somewhere.`;
 
@@ -40,13 +42,21 @@ const TERRAIN = `Terrain: forest slows movement to ${pct(TERRAIN_SPEED.FOREST)} 
 const MAP = `The map is ${GRID_SIZE}x${GRID_SIZE} tiles, split into ${SECTORS_PER_SIDE}x${SECTORS_PER_SIDE} sectors of ${SECTOR_SIZE}x${SECTOR_SIZE} tiles. Columns A-J run west to east, rows 1-10 north to south. Each sector is split 3x3 into sub-sectors of 5x5 tiles named NW, N, NE, W, C, E, SW, S, SE, e.g. "D4-NE" is the north-east corner of D4; "D4" alone means its centre. Exact places are also given as tiles (x, y): x counts from 0 at the west edge to ${GRID_SIZE - 1} at the east edge, y from 0 at the north edge to ${GRID_SIZE - 1} at the south edge.`;
 
 const jevForLlm = (name: string) =>
-  `A fast tactical system (${name}) watches each of your heroes and decides every ${JEV_INTERVAL_SEC} seconds, using only what is around that hero. It can briefly override your order to handle the local situation (hold, retreat, attack, attack a nearby enemy hero, collect nearby strays, go to a control point or attack the enemy base when the mode has them, or step about ${JEV_STEP_TILES} tiles in some direction), and returns to your order when the situation allows. The report shows ${name}'s recent decisions and its assessment of each hero (surrounded, threat level, whether your order still fits). You set the plan; ${name} handles the moment.`;
+  `A fast tactical system (${name}) watches each of your heroes and decides every ${JEV_INTERVAL_SEC} seconds, using only what is around that hero. It can briefly override your order to handle the local situation (hold, retreat, attack, attack a nearby enemy hero, collect nearby strays, step toward one of your other heroes, go to a control point or attack the enemy base when the mode has them, or step about ${JEV_STEP_TILES} tiles in some direction), and returns to your order when the situation allows. The report shows ${name}'s recent decisions and its assessment of each hero (surrounded, threat level, whether your order still fits). You set the plan; ${name} handles the moment.`;
+
+// Only the result counts, in every mode: there is no score for losing by less
+const RESULT_ONLY =
+  'Only the result counts: a win, a draw or a loss. A loss by a small margin is the same loss as one by a large margin.';
 
 // D30: what wins the match, per objective.
 export function goalText(objective: Objective): string {
+  return `${objectiveGoal(objective)} ${RESULT_ONLY}`;
+}
+
+function objectiveGoal(objective: Objective): string {
   switch (objective) {
     case 'control':
-      return `Control points A and B. At every moment, the side with more units (not counting fleeing ones) within ${R.CONTROL_RADIUS} tiles of a point scores ${R.CONTROL_POINTS_PER_SEC} point per second for it. The match lasts ${R.CONTROL_TIME_LIMIT} seconds; then the side with more points wins (equal points: more total HP left). Destroying every enemy unit also wins at once. Points are only scored while you hold them, so waiting away from the points loses.`;
+      return `Control points A and B. At every moment, the side with more units (not counting fleeing ones) within ${R.CONTROL_RADIUS} tiles of a point scores ${R.CONTROL_POINTS_PER_SEC} point per second for it. The match lasts ${R.CONTROL_TIME_LIMIT} seconds; then the side with more points wins, and equal points are a draw. Only points decide the match: the units, HP and heroes left at the end do not change the result. Destroying every enemy unit also wins at once. Points are only scored while you hold them, so waiting away from the points loses.`;
     case 'base':
       return `Destroy the enemy base. Each side has a base (${R.BASE_HP} HP) at its start area. Units within ${R.BASE_RADIUS + R.COMBAT_RANGE} tiles of the enemy base hit it with their normal damage when they are not fighting a unit; bases do not fight back. The side whose base is destroyed loses. Destroying every enemy unit also wins. The match lasts at most ${R.MATCH_TIME_LIMIT} seconds; if no base has fallen by then, the side with more total HP left wins.`;
     default:
@@ -78,6 +88,7 @@ MAP: ${MAP}
 UNITS: ${UNITS}
 
 FOLLOWING: ${FOLLOWING}
+HERO BEHIND ITS SOLDIERS: ${HERO_BEHIND}
 
 COURAGE: ${COURAGE}
 CHARISMA: ${CHARISMA}
@@ -88,10 +99,11 @@ ${REFLEX}
 ${TERRAIN}
 ${withJev ? `\n${jevForLlm(tacticalName)}\n` : ''}
 ORDERS:
-- move <place>: walk to that sector or sub-sector ("D4" or "D4-NE") and stay there.
-- hold: stay at the current position and fight what comes.
+- move <place>: walk to that sector or sub-sector ("D4" or "D4-NE") and stay there. Its soldiers fight the enemies they meet on the way and at the place by themselves (FOLLOWING); taking or holding a place needs no attack order.
+- hold: stay at the current position and fight what comes; its soldiers fight the enemies that come into their sight by themselves.
 - retreat: fall back from the enemies near the hero as far as it walks in ${R.RETREAT_SECONDS} seconds (about ${RETREAT_ABOUT_TILES} tiles; not to its start position), then stay there. Enemies that follow catch up and the fight goes on there; retreat given again after the hero has arrived falls back further (given again while it is still on its way, it changes nothing).
-- attack: walk toward the nearest enemy unit, wherever it is.
+- attack: the hero walks toward the nearest enemy unit within its sight (${H.sight} tiles, less in forest and swamp), in front of its soldiers, and fights, and keeps after that enemy until it dies or is more than ${R.ATTACK_CHASE_TILES} tiles away, also when it steps out of sight; with no such enemy it stays where it is.
+- lead: the soldiers walk toward the nearest enemy unit within the hero's sight and fight it; the hero follows behind them (see HERO BEHIND ITS SOLDIERS); like attack, the group keeps after that enemy until it dies or is more than ${R.ATTACK_CHASE_TILES} tiles away; with no such enemy it stays where it is.
 - attack_hero <n>: walk toward enemy hero n's current position and keep following it as it moves. Your hero and its soldiers still fight every enemy they meet on the way. Killing a hero removes its +${R.CHARISMA_BONUS} courage bonus from its soldiers.
 - regroup: collect your stray soldiers: the hero walks to one group after another (nearer and bigger groups first) until none is left, then stays; strays follow the hero again once it is within ${H.sight} tiles and regain the courage bonus near it. If you have no strays, the hero stays where it is.${objectiveOrders(objective)}
 Give every order a short "reason": what it is for and what would make it pointless (e.g. "take A before the enemy arrives; pointless if A is already ours"). The reason is logged, and a tactical layer, if you have one, uses it to judge whether the order still fits.
@@ -119,6 +131,7 @@ export function jevGameRules(withCommander: boolean, objective: Objective): Reco
     map: MAP,
     units: UNITS,
     following: FOLLOWING,
+    hero_behind_soldiers: HERO_BEHIND,
     courage: COURAGE,
     charisma: CHARISMA,
     rest: REST,

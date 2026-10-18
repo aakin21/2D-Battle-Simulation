@@ -22,7 +22,7 @@ AI layers that command the heroes of one side. Each extends `AiLayer`, which imp
 - Only command heroes with `controller === 'ai'` of the controller's own faction.
 - Apply decisions only through `engine.issueCommand(hero, command, 'jev' | 'llm')`.
 - Jev may only return options we define; the LLM's free-form reply must be validated (hero exists, sector valid, target alive). Invalid orders are logged and skipped, never guessed.
-- Keep inputs small and within scope (D16): Jev sees one hero's surroundings, the LLM the whole map.
+- Keep inputs small and within scope (D16): Jev sees one hero's surroundings, the LLM the whole map. Jev also sees where the other heroes of its side are (distance, direction, HP, soldiers, enemies near them) and can bring a hero to one of them step by step (`approach_hero_<n>`, a short move toward its current place, offered when it is more than 8 tiles away), e.g. when the LLM's reason says to join or support it.
 - Code computes, the AI judges (R5): pass computed values (force ratios, group stats, recent losses), never raw unit lists or screenshots.
 - The rulebook states the game's mechanics only, never strategy advice (D43): the experiments measure the AI's own judgement.
 - Jev has no memory: every request carries `game_rules`. The LLM gets the rulebook once per match as its system prompt.

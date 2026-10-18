@@ -32,6 +32,8 @@ export function describeCommand(c: HeroCommand): string {
       return 'retreat a short way';
     case 'attack':
       return 'attack nearest enemy';
+    case 'lead':
+      return 'lead soldiers at nearest enemy';
     case 'attackHero':
       return `attack enemy hero ${c.heroIndex}`;
     case 'regroup':

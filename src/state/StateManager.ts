@@ -146,6 +146,9 @@ export class StateManager {
       disengaging: false,
       reflexOverridden: false,
       reflexOverriddenAt: 0,
+      standPoint: null,
+      standUntil: 0,
+      attackTargetId: null,
     };
   }
 

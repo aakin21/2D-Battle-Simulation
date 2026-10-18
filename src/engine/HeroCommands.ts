@@ -12,6 +12,7 @@ import {
 import {
   distToTileCentre,
   enemyPositionSum,
+  attackTarget,
   findNearestEnemyAnywhere,
   nearestReachableTile,
   NEAR_TILE_DISTANCE,
@@ -114,6 +115,7 @@ export class HeroCommands {
     }
 
     hero.command = command;
+    hero.attackTargetId = null; // a new order starts without the last attack's target (D55)
     hero.commandSource = command ? source : null;
     hero.commandTime = this.sm.getBattlefield().elapsedTime;
     if (source === 'llm' && command) {
@@ -130,7 +132,7 @@ export class HeroCommands {
 
   // The order a command runs: Jev's "follow the LLM" runs the LLM's latest order
   private running(hero: IHero, command: HeroCommand | null): HeroCommand | null {
-    return command?.type === 'continueLlm' ? hero.lastLlmCommand : command;
+    return runningCommand(hero, command);
   }
 
   // The hero stands at (or next to) the point of the retreat order it runs
@@ -197,15 +199,18 @@ export class HeroCommands {
         return command.at;
       case 'retreat':
         return command.to ?? hero.home;
-      case 'attack': {
-        const enemy = findNearestEnemyAnywhere(this.sm, hero);
+      case 'attack':
+      case 'lead': {
+        // The enemy in the hero's sight it goes for (D55); none: the hero stays where it is.
+        // lead: the same target for the group, the hero itself stays behind it (D48)
+        const enemy = attackTarget(this.sm, hero);
         return enemy ? nearestReachableTile(this.sm, enemy.position) : null;
       }
       case 'attackHero': {
         const target = this.sm
           .getHeroes()
           .find((h) => h.faction !== hero.faction && h.heroIndex === command.heroIndex && h.hp > 0);
-        const enemy = target ?? findNearestEnemyAnywhere(this.sm, hero); // target dead: nearest enemy
+        const enemy = target ?? attackTarget(this.sm, hero); // target dead: as attack
         return enemy ? nearestReachableTile(this.sm, enemy.position) : null;
       }
       case 'regroup': {
@@ -223,9 +228,14 @@ export class HeroCommands {
 }
 
 // Two orders are the same if they would send the hero to the same place in the same way.
-// A repeated hold keeps the original hold position.
+// A hold restated where the hero holds (within HOLD_SAME_TILES, it is pushed around by its
+// neighbours) keeps the original hold position; a hold elsewhere is a new order, so a hold "here"
+// is not taken for an earlier hold somewhere else (the hero walked back to it).
 export function sameCommand(a: HeroCommand, b: HeroCommand): boolean {
   if (a.type !== b.type) return false;
+  if (a.type === 'hold' && b.type === 'hold') {
+    return Math.hypot(a.at.x - b.at.x, a.at.y - b.at.y) <= HOLD_SAME_TILES;
+  }
   if (a.type === 'move' && b.type === 'move') {
     return a.target.x === b.target.x && a.target.y === b.target.y;
   }
@@ -233,7 +243,14 @@ export function sameCommand(a: HeroCommand, b: HeroCommand): boolean {
   return true;
 }
 
+const HOLD_SAME_TILES = 2;
+
 function finitePoint(command: HeroCommand): boolean {
   const p = command.type === 'move' ? command.target : command.type === 'hold' ? command.at : null;
   return !p || (Number.isFinite(p.x) && Number.isFinite(p.y));
+}
+
+// The order a command runs: Jev's "follow the LLM" runs the LLM's latest order
+export function runningCommand(hero: IHero, command = hero.command): HeroCommand | null {
+  return command?.type === 'continueLlm' ? hero.lastLlmCommand : command;
 }

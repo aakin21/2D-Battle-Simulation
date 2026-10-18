@@ -16,6 +16,7 @@ Browser app (TypeScript + Vite + Canvas). The main folders have their own `CLAUD
 | `src/types/` | Shared types and constants |
 | `src/maps/` | The fixed map (D5) |
 | `src/assets/` | Unit sprite sheets (CC0, D25) |
+| `src/replay/` | Match replays: record a battle, watch it again, save and open `.replay` files (UI only) |
 | `server/` | Dev-server only: the LLM endpoint (`/api/llm`) and the access guard for `/api/*` (D37) |
 | `api/` | Vercel functions for the deployed site: the Jev proxy (`/api/jev`, D8) |
 
