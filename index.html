@@ -4,8 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>2D Battle Simulation</title>
-  <script type="module" crossorigin src="./assets/index-B9FpBuvb.js"></script>
-  <link rel="stylesheet" crossorigin href="./assets/index-B59tYpS3.css">
+  <script type="module" crossorigin src="./assets/index-DUfg72pu.js"></script>
+  <link rel="stylesheet" crossorigin href="./assets/index-DLNzwliS.css">
 </head>
 <body>
 
@@ -60,7 +60,7 @@
           <canvas id="minimapCanvas" width="300" height="300"></canvas>
         </section>
         <section class="side-section panel sp-armies">
-          <h3><span id="armies-title">Armies</span><button id="btn-log" class="btn btn-small" hidden title="Download the match log: settings, timeline and every AI decision">Log</button></h3>
+          <h3><span id="armies-title">Armies</span><span class="h3-actions"><button id="btn-replay" class="btn btn-small" hidden title="Download the replay of this match so far">Replay</button><button id="btn-log" class="btn btn-small" hidden title="Download the match log: settings, timeline and every AI decision">Log</button></span></h3>
           <div id="armies-body"></div>
         </section>
         <section class="side-section panel sp-area">
@@ -218,6 +218,13 @@
               <button data-val="paused">Paused</button>
             </div>
           </div>
+          <div class="cfg-row">
+            <label>Replay</label>
+            <div class="seg" id="cfg-replay">
+              <button data-val="on" class="active" title="Keep a replay of the match to watch again or download at the end">Record</button>
+              <button data-val="off" title="No replay (saves memory in very long or large matches)">Off</button>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -225,6 +232,8 @@
         <button id="menu-continue" class="btn" hidden title="Back to the current run (Esc)">Continue</button>
         <button id="menu-start" class="btn btn-primary">Start</button>
         <button id="menu-instructions" class="btn btn-quiet">Controls</button>
+        <button id="menu-replay" class="btn btn-quiet" title="Open a replay file (.replay) and watch it">Watch a replay</button>
+        <input id="menu-replay-file" type="file" accept=".replay" hidden>
       </div>
     </div>
   </div>
