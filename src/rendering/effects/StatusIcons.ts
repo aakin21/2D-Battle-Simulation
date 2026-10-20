@@ -66,7 +66,7 @@ export class StatusIcons {
 
   draw(
     ctx: CanvasRenderingContext2D,
-    units: IUnit[],
+    units: readonly IUnit[],
     camera: Camera,
     width: number,
     height: number,
@@ -80,19 +80,22 @@ export class StatusIcons {
     // Glyphs are smooth text; emotes are pixel art and stay sharp
     ctx.imageSmoothingEnabled = !(this.flee instanceof HTMLImageElement);
 
-    for (const unit of units) {
+    for (let i = 0; i < units.length; i++) {
+      const unit = units[i];
       const state = unit.state;
       if (state !== BehaviorState.FLEE && state !== BehaviorState.REST) continue;
 
       const cx = (unit.position.x - camX) * zoom;
       const cy = (unit.position.y - camY) * zoom;
-      if (cx + icon < 0 || cx - icon > width || cy + zoom + icon * 2 < 0 || cy > height) continue;
-
-      // Bars sit at zoom + barH above the unit center (see Renderer.drawBars); the icon
+      // Bars sit at zoom + barH above the unit center (see UnitLayer.drawBars); the icon
       // goes just above them. Soldiers may have a courage bar (warriors always, berserkers
       // in battle mode), so they get room for it; heroes only have an HP bar.
       const barsH = unit.unitType === UnitType.HERO ? zoom * 0.4 : zoom * 0.65 + 1;
       const top = cy - zoom - barsH - icon - 2;
+      // The icon moves at most half its size up and 0.3 of it right of (cx - icon / 2, top).
+      // A unit below the view's bottom edge (cy > height) shows no icon, even when the icon
+      // itself would reach into the view.
+      if (cx + icon < 0 || cx - icon > width || top + icon < 0 || cy > height) continue;
       // Per-unit phase from position, so neighbours do not move in lockstep
       const phase = unit.position.x * 1.7 + unit.position.y;
 

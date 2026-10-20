@@ -10,7 +10,7 @@ export type LlmModel = ClaudeModel | `openrouter:${string}`;
 
 export const CLAUDE_MODELS: ClaudeModel[] = ['haiku', 'sonnet', 'opus'];
 
-export interface OpenRouterModel {
+interface OpenRouterModel {
   id: string; // OpenRouter's model id
   label: string;
   company: string;

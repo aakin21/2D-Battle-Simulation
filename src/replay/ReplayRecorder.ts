@@ -1,7 +1,9 @@
 import type { MatchResult } from '../engine/SimulationEngine';
 import { IBattlefield, IHero, SimConfig, UnitType } from '../types/types';
+import { downloadFile, matchFileName } from '../ui/download';
 import {
   encodeReplay,
+  PANEL_SELECTORS,
   PanelSnapshot,
   POS_SCALE,
   Replay,
@@ -16,14 +18,6 @@ import {
 // whenever their HTML changes (the UI's 100 ms refresh).
 
 const FRAMES_PER_SECOND = 3;
-// The page elements whose HTML is kept, by key
-const PANELS: Record<string, string> = {
-  banner: '#match-banner',
-  armies: '#armies-body',
-  armiesTitle: '#armies-title',
-  west: '#ai-col-west .ai-col-main',
-  east: '#ai-col-east .ai-col-main',
-};
 
 export class ReplayRecorder {
   private units: ReplayUnit[] = [];
@@ -61,7 +55,7 @@ export class ReplayRecorder {
   samplePanels(): void {
     if (this.result) return;
     const t = this.bf.elapsedTime;
-    for (const [key, selector] of Object.entries(PANELS)) {
+    for (const [key, selector] of Object.entries(PANEL_SELECTORS)) {
       const el = document.querySelector(selector);
       this.keep(t, key, el ? el.innerHTML : '');
     }
@@ -120,17 +114,7 @@ export class ReplayRecorder {
 
   async download(): Promise<void> {
     const blob = await encodeReplay(this.replay());
-    const c = this.config;
-    const stamp = this.started.slice(0, 19).replace(/[-:]/g, '').replace('T', '-');
-    const name = `match-${c.objective ?? 'elimination'}-${c.friendlyAI ?? 'none'}-vs-${c.enemyAI ?? 'none'}-${stamp}.replay`;
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = name.replace(/\+/g, '');
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    downloadFile(blob, matchFileName(this.config, this.started, 'replay'));
   }
 
   private keep(t: number, key: string, html: string): void {
@@ -141,8 +125,8 @@ export class ReplayRecorder {
 
   private frame(): ReplayFrame {
     const bf = this.bf;
-    const living = bf.units.filter((u) => u.hp > 0);
-    const n = living.length;
+    let n = 0;
+    for (const u of bf.units) if (u.hp > 0) n++;
     const f: ReplayFrame = {
       t: bf.elapsedTime,
       idx: new Uint16Array(n),
@@ -158,7 +142,9 @@ export class ReplayRecorder {
         baseHp: bf.objective.bases.map((b) => b.hp),
       },
     };
-    living.forEach((u, k) => {
+    let k = 0;
+    for (const u of bf.units) {
+      if (u.hp <= 0) continue;
       let i = this.unitIndex.get(u.id);
       if (i === undefined) {
         i = this.units.length;
@@ -188,7 +174,8 @@ export class ReplayRecorder {
           commandTime: h.commandTime,
         });
       }
-    });
+      k++;
+    }
     return f;
   }
 }

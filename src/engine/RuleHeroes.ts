@@ -10,7 +10,8 @@ const ARRIVE_RADIUS = 2;
 const fled = new WeakSet<IHero>();
 
 // Rule-controlled heroes (battle mode, no AI): attack when an enemy is in sight, otherwise take a
-// control point or attack the enemy base (D30), otherwise patrol like a berserker group. Orders go through the command interface like any other.
+// control point or attack the enemy base (D30), otherwise patrol like a berserker group. Orders go
+// through the command interface like any other (D20).
 export function updateRuleHeroes(
   sm: StateManager,
   commands: HeroCommands,

@@ -32,7 +32,7 @@ interface UnitSnapshot {
 }
 
 // Animation info for sprite drawing (read-only view of a snapshot)
-export interface UnitAnim {
+interface UnitAnim {
   readonly facing: 1 | -1;
   readonly moving: boolean;
   readonly phase: number;
@@ -57,6 +57,17 @@ export interface DeathEvent {
   heroIndex: number;
   facing: 1 | -1;
 }
+
+const newHit = (): HitEvent => ({ id: '', x: 0, y: 0, damage: 0, unitType: UnitType.WARRIOR });
+const newDeath = (): DeathEvent => ({
+  id: '',
+  x: 0,
+  y: 0,
+  unitType: UnitType.WARRIOR,
+  faction: Faction.FRIENDLY,
+  heroIndex: 0,
+  facing: 1,
+});
 
 // Ignore sub-pixel jitter when deciding facing
 const FACING_EPSILON = 0.001;
@@ -84,9 +95,12 @@ export class EffectsManager {
   // Unit id → real time (ms) at which its hit flash ends
   private flashes = new Map<string, number>();
 
-  // Events detected in the most recent update. Arrays are reused across frames.
+  // Events detected in the most recent update. The arrays and the event objects in them are
+  // reused across frames (valid until the next update).
   readonly hits: HitEvent[] = [];
   readonly deaths: DeathEvent[] = [];
+  private hitStore: HitEvent[] = [];
+  private deathStore: DeathEvent[] = [];
 
   // Simulation seconds elapsed since the previous update (0 while paused)
   private dt: number = 0;
@@ -99,7 +113,7 @@ export class EffectsManager {
     this.statusIcons.prepare(warmTarget);
   }
 
-  // Lets corpses use the unit sprites' dead frame when zoomed in
+  // Lets corpses use the unit sprites' dead frame (FX on, sprites loaded)
   setUnitSprites(sprites: UnitSprites): void {
     this.corpses.setUnitSprites(sprites);
   }
@@ -133,14 +147,6 @@ export class EffectsManager {
     this.dt = 0;
   }
 
-  getDeltaTime(): number {
-    return this.dt;
-  }
-
-  getFacing(id: string): 1 | -1 {
-    return this.snapshots.get(id)?.facing ?? 1;
-  }
-
   getAnim(id: string): UnitAnim {
     return this.snapshots.get(id) ?? DEFAULT_ANIM;
   }
@@ -164,7 +170,7 @@ export class EffectsManager {
     return false;
   }
 
-  update(units: IUnit[], simTime: number, now: number = performance.now()): void {
+  update(units: readonly IUnit[], simTime: number, now: number = performance.now()): void {
     this.hits.length = 0;
     this.deaths.length = 0;
     if (!this.enabled) return;
@@ -179,14 +185,18 @@ export class EffectsManager {
     // Paused: units cannot change, skip the diff
     if (!firstFrame && this.dt === 0) return;
 
-    // Drop expired flashes, including those of off-screen units that are never drawn
-    for (const [id, until] of this.flashes) {
-      if (now >= until) this.flashes.delete(id);
+    // Drop expired flashes, including those of off-screen units that are never drawn.
+    // Map.forEach, not for-of: destructured entries allocate per entry in a hot loop.
+    if (this.flashes.size > 0) {
+      this.flashes.forEach((until, id) => {
+        if (now >= until) this.flashes.delete(id);
+      });
     }
 
     const stamp = ++this.stamp;
 
-    for (const unit of units) {
+    for (let i = 0; i < units.length; i++) {
+      const unit = units[i];
       const snap = this.snapshots.get(unit.id);
       if (!snap) {
         // New unit (spawn or first frame) — no event
@@ -206,13 +216,14 @@ export class EffectsManager {
       }
 
       if (unit.hp < snap.hp) {
-        this.hits.push({
-          id: unit.id,
-          x: unit.position.x,
-          y: unit.position.y,
-          damage: snap.hp - unit.hp,
-          unitType: unit.unitType,
-        });
+        const h = this.hitStore[this.hits.length] ?? newHit();
+        this.hitStore[this.hits.length] = h;
+        h.id = unit.id;
+        h.x = unit.position.x;
+        h.y = unit.position.y;
+        h.damage = snap.hp - unit.hp;
+        h.unitType = unit.unitType;
+        this.hits.push(h);
         this.flashes.set(unit.id, now + FLASH_MS);
       }
 
@@ -229,28 +240,29 @@ export class EffectsManager {
     }
 
     // Units not seen this frame were removed by the engine → death
-    for (const [id, snap] of this.snapshots) {
-      if (snap.stamp === stamp) continue;
-      this.deaths.push({
-        id,
-        x: snap.x,
-        y: snap.y,
-        unitType: snap.unitType,
-        faction: snap.faction,
-        heroIndex: snap.heroIndex,
-        facing: snap.facing,
-      });
+    this.snapshots.forEach((snap, id) => {
+      if (snap.stamp === stamp) return;
+      const d = this.deathStore[this.deaths.length] ?? newDeath();
+      this.deathStore[this.deaths.length] = d;
+      d.id = id;
+      d.x = snap.x;
+      d.y = snap.y;
+      d.unitType = snap.unitType;
+      d.faction = snap.faction;
+      d.heroIndex = snap.heroIndex;
+      d.facing = snap.facing;
+      this.deaths.push(d);
       this.snapshots.delete(id);
       this.flashes.delete(id);
-    }
+    });
 
     this.corpses.update(this.dt);
     this.blood.update(this.dt);
     this.bursts.update(this.dt);
-    for (const h of this.hits) this.blood.spawnHit(h);
-    for (const d of this.deaths) {
-      this.corpses.spawn(d);
-      this.blood.spawnPool(d, simTime);
+    for (let i = 0; i < this.hits.length; i++) this.blood.spawnHit(this.hits[i]);
+    for (let i = 0; i < this.deaths.length; i++) {
+      this.corpses.spawn(this.deaths[i]);
+      this.blood.spawnPool(this.deaths[i], simTime);
     }
     // Slashes and smoke, capped per frame so crowded battles stay cheap
     const slashes = Math.min(this.hits.length, MAX_SLASHES_PER_FRAME);
@@ -262,10 +274,11 @@ export class EffectsManager {
     for (let i = 0; i < puffs; i++) this.bursts.spawnSmoke(this.deaths[i].x, this.deaths[i].y);
   }
 
-  // Effects that lie on the ground, drawn after terrain and before units
+  // Effects that lie on the ground, drawn after terrain and before units; heroes: this
+  // frame's heroes, for their auras
   drawUnderUnits(
     ctx: CanvasRenderingContext2D,
-    units: IUnit[],
+    heroes: readonly IUnit[],
     camera: Camera,
     width: number,
     height: number
@@ -275,7 +288,7 @@ export class EffectsManager {
     // Blood pools first so corpses lie on top of them; the aura glows over both
     this.blood.drawPools(ctx, camera, width, height, simTime);
     this.corpses.draw(ctx, camera, width, height);
-    this.heroAura.draw(ctx, units, camera, width, height, simTime);
+    this.heroAura.draw(ctx, heroes, camera, width, height, simTime);
   }
 
   // Effects in the air, drawn after units
@@ -293,7 +306,7 @@ export class EffectsManager {
   // UI-like markers drawn last, above units and their HP bars
   drawOverlay(
     ctx: CanvasRenderingContext2D,
-    units: IUnit[],
+    units: readonly IUnit[],
     camera: Camera,
     width: number,
     height: number
@@ -303,16 +316,8 @@ export class EffectsManager {
   }
 
   // Debug counters for the overlay
-  getTrackedCount(): number {
-    return this.snapshots.size;
-  }
-
   getCorpseCount(): number {
     return this.corpses.size;
-  }
-
-  getDropCount(): number {
-    return this.blood.dropCount;
   }
 
   getBloodPoolCount(): number {

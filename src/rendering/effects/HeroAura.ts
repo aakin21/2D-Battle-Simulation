@@ -14,20 +14,22 @@ const RIPPLE_ALPHA = 0.7;
 const RIPPLE_START = 0.55; // ripple starts at this fraction of the radius
 // By Faction: friendly orange-gold; enemy cyan, matching the battle-mode enemy hero color
 const COLORS = ['255, 160, 0', '0, 229, 255'];
+const EDGE_COLORS = COLORS.map((c) => `rgba(${c}, ${EDGE_ALPHA})`);
 
 export class HeroAura {
+  // heroes: this frame's heroes (other units are skipped)
   draw(
     ctx: CanvasRenderingContext2D,
-    units: IUnit[],
+    heroes: readonly IUnit[],
     camera: Camera,
     width: number,
     height: number,
     simTime: number
   ): void {
     const phase = (simTime % PULSE_PERIOD) / PULSE_PERIOD; // 0..1, shared by all heroes
-    for (const unit of units) {
-      if (unit.unitType !== UnitType.HERO) continue;
-      this.drawOne(ctx, unit as IHero, camera, width, height, phase);
+    for (let i = 0; i < heroes.length; i++) {
+      if (heroes[i].unitType !== UnitType.HERO) continue;
+      this.drawOne(ctx, heroes[i] as IHero, camera, width, height, phase);
     }
   }
 
@@ -45,7 +47,8 @@ export class HeroAura {
     const r = hero.charismaRadius * zoom;
     if (cx + r < 0 || cx - r > width || cy + r < 0 || cy - r > height) return;
 
-    const color = COLORS[hero.faction === Faction.ENEMY ? 1 : 0];
+    const side = hero.faction === Faction.ENEMY ? 1 : 0;
+    const color = COLORS[side];
     const line = Math.max(1.5, zoom * 0.15);
 
     // Breathing glow over the whole radius
@@ -56,7 +59,7 @@ export class HeroAura {
 
     // Steady edge marking the exact radius
     ctx.lineWidth = line;
-    ctx.strokeStyle = `rgba(${color}, ${EDGE_ALPHA})`;
+    ctx.strokeStyle = EDGE_COLORS[side];
     ctx.stroke();
 
     // Ripple: expands from RIPPLE_START·r to r while fading out

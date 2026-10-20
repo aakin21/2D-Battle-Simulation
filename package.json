@@ -8,7 +8,8 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.node.json",
     "lint": "eslint src server api vite.config.ts",
-    "format": "prettier --write src"
+    "format": "prettier --write src server api vite.config.ts",
+    "format:check": "prettier --check src server api vite.config.ts"
   },
   "devDependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.286",

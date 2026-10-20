@@ -139,13 +139,14 @@ export class Bursts {
     const { x: camX, y: camY, zoom } = camera;
     const size = tiles * zoom;
     const half = size / 2;
-    pool.forEach((b) => {
+    for (let i = 0; i < pool.size; i++) {
+      const b = pool.at(i);
       const sx = (b.x - camX) * zoom;
       const sy = (b.y - camY) * zoom;
-      if (sx + half < 0 || sx - half > width || sy + half < 0 || sy - half > height) return;
+      if (sx + half < 0 || sx - half > width || sy + half < 0 || sy - half > height) continue;
       const frame = Math.min(frames - 1, Math.floor((b.age / life) * frames));
       const sheet = b.flip ? flipped : img;
       ctx.drawImage(sheet, frame * FRAME, 0, FRAME, FRAME, sx - half, sy - half, size, size);
-    });
+    }
   }
 }

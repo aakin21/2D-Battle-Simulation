@@ -1,4 +1,4 @@
-// D37: where the AI endpoints (/api/jev, /api/llm) are. With `npm run dev` they are on this
+// D37: where the AI endpoints (/api/jev, /api/snap, /api/llm) are. With `npm run dev` they are on this
 // site. The online demo is a static site without them; it reaches the author's computer
 // through a tunnel. The tunnel address and the AI password are given once in the demo's link,
 // `?ai=https://xyz.trycloudflare.com&key=PASSWORD`, and this browser remembers them

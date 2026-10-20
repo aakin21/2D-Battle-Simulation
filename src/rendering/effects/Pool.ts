@@ -31,8 +31,9 @@ export class Pool<T> {
     }
   }
 
-  forEach(fn: (item: T) => void): void {
-    for (let i = 0; i < this.active; i++) fn(this.items[i]);
+  // The i-th active item, for 0 <= i < size (a plain loop needs no callback per frame)
+  at(i: number): T {
+    return this.items[i];
   }
 
   clear(): void {
@@ -67,12 +68,6 @@ export class RingBuffer<T> {
   get(i: number): T {
     const cap = this.items.length;
     return this.items[(this.head - this.count + i + cap * 2) % cap];
-  }
-
-  forEach(fn: (item: T) => void): void {
-    const cap = this.items.length;
-    const start = (this.head - this.count + cap) % cap;
-    for (let i = 0; i < this.count; i++) fn(this.items[(start + i) % cap]);
   }
 
   clear(): void {

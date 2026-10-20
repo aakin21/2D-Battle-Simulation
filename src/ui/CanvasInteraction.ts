@@ -86,7 +86,7 @@ export class CanvasInteraction {
       this.lastTooltipX = this.lastTooltipY = -999;
     });
 
-    // Drag at full zoom → show selection rectangle
+    // Drag while zoomed out → show the selection rectangle
     this.inputHandler.onSelectDrag((x1, y1, x2, y2) => {
       this.showSelectOverlay(x1, y1, x2, y2);
     });

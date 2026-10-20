@@ -1,0 +1,2 @@
+# Markdown documents are written by hand (aligned tables, the thesis record); Prettier formats code only
+*.md

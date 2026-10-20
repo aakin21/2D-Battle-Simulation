@@ -3,38 +3,22 @@ import {
   IUnit,
   IHero,
   UnitType,
-  Faction,
-  BehaviorState,
   TerrainType,
   Camera,
   TERRAIN_COLORS,
-  UNIT_COLORS,
   GRID_SIZE,
   TILE_SIZE,
   Position,
 } from '../types/types';
-import { EffectsManager } from './effects/EffectsManager';
+import { EffectsManager, HitEvent, DeathEvent } from './effects/EffectsManager';
 import { TerrainArt, ART_PX } from './TerrainArt';
 import { ObjectiveArt } from './ObjectiveArt';
-import { ENEMY_HERO_COLOR } from './SideColors';
-// ATTACK_INTERVAL: attackCooldown is reset to it on each hit, which times the attack pose
-import { ATTACK_INTERVAL } from '../engine/Rules';
-import { UnitSprites, FRAME, COL_LEFT, COL_RIGHT, WALK_FRAMES, ROW_ATTACK } from './UnitSprites';
+import { UnitSprites, FRAME } from './UnitSprites';
 import { CameraController } from './CameraController';
 import { OrderMarkers } from './OrderMarkers';
 import { drawObjectives } from './ObjectiveOverlay';
-
-// Attack pose: the sprite leans this far toward its facing side, as a share of its size
-const ATTACK_LUNGE = 0.12;
-
-// Sprite animation
-const WALK_FPS = 8;
-// The attack frame is shown for this long after each hit
-const ATTACK_POSE_TIME = 0.25;
-const HERO_RING_COLORS = ['#FFD700', ENEMY_HERO_COLOR]; // by Faction
-// Units are drawn in two passes, soldiers first, so a hero stays visible (and clickable to the
-// eye) when its soldiers crowd around it
-const HEROES_LAST = [false, true];
+import { UnitLayer } from './UnitLayer';
+import { DebugOverlay } from './DebugOverlay';
 
 export class Renderer {
   private canvas: HTMLCanvasElement;
@@ -60,16 +44,11 @@ export class Renderer {
 
   private effects = new EffectsManager();
   private unitSprites = new UnitSprites();
-  // Whether units (and corpses) are drawn as sprites this frame
-  private spriteMode: boolean = false;
-  // Cumulative event counts since the last reset — shown in the debug overlay
-  private fxHitCount: number = 0;
-  private fxDeathCount: number = 0;
+  // Units and their bars, soldiers first and heroes last (UnitLayer.ts)
+  private unitLayer = new UnitLayer(this.effects, this.unitSprites);
 
   private debugMode: boolean = false;
-  private fps: number = 0;
-  private fpsFrameCount: number = 0;
-  private fpsLastTime: number = 0;
+  private debugOverlay = new DebugOverlay();
 
   constructor(canvasId: string) {
     this.canvas = document.getElementById(canvasId) as HTMLCanvasElement;
@@ -92,57 +71,60 @@ export class Renderer {
     return this.view.state;
   }
 
+  // Draws one frame. The order is the layering: ground, objectives, ground effects (blood,
+  // corpses, hero auras), the selected hero's sight, units, effects in the air, bars, status
+  // icons, order markers, debug box.
   render(battlefield: IBattlefield): void {
     this.view.step(performance.now());
     if (!this.offscreenTerrain) {
       this.buildTerrainCanvas(battlefield.grid);
     }
-    if (!this.artCanvas && this.effects.isEnabled() && this.terrainArt.isReady()) {
+    const fx = this.effects.isEnabled();
+    if (!this.artCanvas && fx && this.terrainArt.isReady()) {
       this.artCanvas = this.terrainArt.build(battlefield.grid);
     }
-    this.updateFps();
+    this.debugOverlay.tick();
     this.updateEffects(battlefield);
-    this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+
+    const ctx = this.ctx;
+    const camera = this.camera;
+    const { width, height } = this.canvas;
+    const units = battlefield.units;
+    this.unitLayer.collectHeroes(units);
+    const heroes = this.unitLayer.heroes;
+
+    ctx.clearRect(0, 0, width, height);
     this.drawTerrain();
     drawObjectives(
-      this.ctx,
+      ctx,
       battlefield.objective,
-      this.camera,
-      this.canvas.width,
-      this.canvas.height,
-      this.effects.isEnabled() && this.objectiveArt.isReady() ? this.objectiveArt : null,
+      camera,
+      width,
+      height,
+      fx && this.objectiveArt.isReady() ? this.objectiveArt : null,
       this.effects.getSimTime()
     );
-    this.spriteMode = this.decideSpriteMode();
-    this.effects.setSpriteMode(this.spriteMode);
-    this.effects.drawUnderUnits(
-      this.ctx,
-      battlefield.units,
-      this.camera,
-      this.canvas.width,
-      this.canvas.height
+    // Sprites are part of the effects layer: FX off shows the original Phase 1 squares.
+    // Corpses follow the units' choice.
+    const spriteMode = fx && this.unitSprites.isReady();
+    this.effects.setSpriteMode(spriteMode);
+    this.effects.drawUnderUnits(ctx, heroes, camera, width, height);
+    this.drawHeroSight(heroes);
+    this.unitLayer.drawUnits(ctx, units, camera, width, height, spriteMode);
+    this.effects.drawOverUnits(ctx, camera, width, height);
+    this.unitLayer.drawBars(
+      ctx,
+      units,
+      camera,
+      width,
+      height,
+      this.barsMode === 'smart' && fx,
+      this.selectedUnitId,
+      this.battleMode
     );
-    this.drawHeroSight(battlefield.units);
-    this.drawUnits(battlefield.units);
-    this.effects.drawOverUnits(this.ctx, this.camera, this.canvas.width, this.canvas.height);
-    this.drawBars(battlefield.units);
-    this.effects.drawOverlay(
-      this.ctx,
-      battlefield.units,
-      this.camera,
-      this.canvas.width,
-      this.canvas.height
-    );
-    this.orderMarkers.draw(
-      this.ctx,
-      battlefield.units,
-      this.camera,
-      this.canvas.width,
-      this.canvas.height,
-      this.effects.isEnabled(),
-      this.selectedUnitId
-    );
-    if (this.debugMode) this.drawDebugInfo(battlefield);
+    this.effects.drawOverlay(ctx, units, camera, width, height);
+    this.orderMarkers.draw(ctx, heroes, camera, width, height, fx, this.selectedUnitId);
+    if (this.debugMode) this.debugOverlay.draw(ctx, battlefield, this.effects);
   }
 
   // Battle mode: enemy soldiers use courage too, and there are heroes on both sides.
@@ -160,8 +142,7 @@ export class Renderer {
 
   setEffectsEnabled(on: boolean): void {
     this.effects.setEnabled(on);
-    this.fxHitCount = 0;
-    this.fxDeathCount = 0;
+    this.debugOverlay.resetCounts();
   }
 
   isEffectsEnabled(): boolean {
@@ -257,8 +238,7 @@ export class Renderer {
     this.view.reset();
     this.selectedUnitId = null;
     this.effects.reset();
-    this.fxHitCount = 0;
-    this.fxDeathCount = 0;
+    this.debugOverlay.resetCounts();
   }
 
   // --- Private helpers ---
@@ -319,215 +299,45 @@ export class Renderer {
     if (smooth) this.ctx.imageSmoothingEnabled = false;
   }
 
-  // Sprites are part of the effects layer: FX off shows the original Phase 1 squares.
-  // With FX on, units are sprites at every zoom and with no limit on how many are in view.
-  // A sprite costs ~1 µs vs ~0.3 µs for a square, so stress mode runs ~16% slower than
-  // with squares (see UI_PLAN.md, step 6.2).
-  private decideSpriteMode(): boolean {
-    return this.effects.isEnabled() && this.unitSprites.isReady();
-  }
-
-  private drawUnits(units: IUnit[]): void {
-    if (this.spriteMode) {
-      this.drawUnitSprites(units);
-      return;
-    }
-
-    const { x: camX, y: camY, zoom } = this.camera;
-    const size = Math.max(3, zoom * 2);
-    const half = size / 2;
-    const now = performance.now();
-    const anyFlash = this.effects.hasFlashes();
-
-    for (const heroes of HEROES_LAST)
-      for (const unit of units) {
-        if ((unit.unitType === UnitType.HERO) !== heroes) continue;
-        const sx = (unit.position.x - camX) * zoom - half;
-        const sy = (unit.position.y - camY) * zoom - half;
-
-        if (sx + size < 0 || sx > this.canvas.width) continue;
-        if (sy + size < 0 || sy > this.canvas.height) continue;
-
-        this.ctx.fillStyle =
-          anyFlash && this.effects.isFlashing(unit.id, now)
-            ? '#ffffff'
-            : unit.unitType === UnitType.HERO && unit.faction === Faction.ENEMY
-              ? ENEMY_HERO_COLOR
-              : (UNIT_COLORS[UnitType[unit.unitType]] ?? '#fff');
-        this.ctx.fillRect(sx, sy, size, size);
-
-        if (unit.unitType === UnitType.HERO) {
-          this.ctx.strokeStyle = '#ffffff';
-          this.ctx.lineWidth = 1;
-          this.ctx.strokeRect(sx, sy, size, size);
-        }
-      }
-  }
-
-  private drawUnitSprites(units: IUnit[]): void {
-    const { x: camX, y: camY, zoom } = this.camera;
-    const size = zoom * 2;
-    const half = size / 2;
-    const now = performance.now();
-    const anyFlash = this.effects.hasFlashes();
-    const simTime = this.effects.getSimTime();
-    const ctx = this.ctx;
-
-    for (const heroes of HEROES_LAST)
-      for (const unit of units) {
-        if ((unit.unitType === UnitType.HERO) !== heroes) continue;
-        const sx = (unit.position.x - camX) * zoom - half;
-        const sy = (unit.position.y - camY) * zoom - half;
-        if (sx + size < 0 || sx > this.canvas.width) continue;
-        if (sy + size < 0 || sy > this.canvas.height) continue;
-
-        const anim = this.effects.getAnim(unit.id);
-        const col = anim.facing > 0 ? COL_RIGHT : COL_LEFT;
-        let row = 0; // idle
-        if (
-          unit.state === BehaviorState.ATTACK &&
-          unit.attackCooldown > ATTACK_INTERVAL - ATTACK_POSE_TIME
-        ) {
-          row = ROW_ATTACK;
-        } else if (anim.moving) {
-          row = Math.floor(simTime * WALK_FPS + anim.phase * WALK_FRAMES) % WALK_FRAMES;
-        }
-
-        // Each hero of a side gets its own sprite (heroIndex is 1-based within the side)
-        const heroIndex = unit.unitType === UnitType.HERO ? (unit as IHero).heroIndex - 1 : 0;
-        const set = this.unitSprites.get(unit.unitType, unit.faction, heroIndex);
-
-        if (unit.unitType === UnitType.HERO) {
-          // Team-colored ring at the hero's feet
-          ctx.beginPath();
-          ctx.ellipse(sx + half, sy + size * 0.9, half * 0.8, half * 0.3, 0, 0, Math.PI * 2);
-          ctx.strokeStyle = HERO_RING_COLORS[unit.faction];
-          ctx.lineWidth = Math.max(1.5, zoom * 0.15);
-          ctx.stroke();
-        }
-
-        const sheet = anyFlash && this.effects.isFlashing(unit.id, now) ? set.flash : set.normal;
-        // The attack frame leans toward the facing side, so a hit reads as a lunge
-        const lunge = row === ROW_ATTACK ? anim.facing * size * ATTACK_LUNGE : 0;
-        ctx.drawImage(sheet, col * FRAME, row * FRAME, FRAME, FRAME, sx + lunge, sy, size, size);
-      }
-  }
-
-  // Draws HP bar above every unit. Units that use courage (warriors, and berserkers in
-  // battle mode) also get a courage bar below the HP bar.
-  private drawBars(units: IUnit[]): void {
-    const { x: camX, y: camY, zoom } = this.camera;
-    const barW = Math.max(6, zoom * 2);
-    const hpH = Math.max(1, Math.floor(zoom * 0.4));
-    const cH = Math.max(1, Math.floor(zoom * 0.25));
-
-    const smart = this.barsMode === 'smart' && this.effects.isEnabled();
-    for (const heroes of HEROES_LAST)
-      for (const unit of units) {
-        if ((unit.unitType === UnitType.HERO) !== heroes) continue;
-        if (
-          smart &&
-          unit.hp >= unit.maxHp &&
-          unit.state === BehaviorState.IDLE &&
-          unit.unitType !== UnitType.HERO &&
-          unit.id !== this.selectedUnitId
-        )
-          continue;
-        const isWarrior =
-          unit.unitType === UnitType.WARRIOR ||
-          (this.battleMode && unit.unitType === UnitType.BERSERKER);
-        const totalH = isWarrior ? hpH + 1 + cH : hpH;
-        const yOff = -(zoom + totalH);
-
-        const sx = (unit.position.x - camX) * zoom - barW / 2;
-        const sy = (unit.position.y - camY) * zoom + yOff;
-
-        if (sx + barW < 0 || sx > this.canvas.width) continue;
-        if (sy + totalH < 0 || sy > this.canvas.height) continue;
-
-        // HP bar
-        const hpRatio = unit.hp / unit.maxHp;
-        this.ctx.fillStyle = '#880000';
-        this.ctx.fillRect(sx, sy, barW, hpH);
-        this.ctx.fillStyle = '#00cc44';
-        this.ctx.fillRect(sx, sy, Math.max(0, barW * hpRatio), hpH);
-
-        // Courage bar — warriors only
-        if (isWarrior) {
-          const cRatio = unit.courage / 100;
-          const cy = sy + hpH + 1;
-          this.ctx.fillStyle = '#333300';
-          this.ctx.fillRect(sx, cy, barW, cH);
-          this.ctx.fillStyle = '#ccaa00';
-          this.ctx.fillRect(sx, cy, Math.max(0, barW * cRatio), cH);
-        }
-      }
-  }
-
+  // Finds this frame's hits and deaths (effects) and plays the ones in view (battle sound)
   private updateEffects(battlefield: IBattlefield): void {
+    const { hits, deaths } = this.effects;
     this.effects.update(battlefield.units, battlefield.elapsedTime);
-    this.fxHitCount += this.effects.hits.length;
-    this.fxDeathCount += this.effects.deaths.length;
-    if (this.battleSound && (this.effects.hits.length || this.effects.deaths.length)) {
-      const { x, y, zoom } = this.camera;
-      const x1 = x + this.canvas.width / zoom;
-      const y1 = y + this.canvas.height / zoom;
-      const seen = (e: { x: number; y: number }) => e.x >= x && e.x <= x1 && e.y >= y && e.y <= y1;
-      let hits = 0;
-      let deaths = 0;
-      for (const h of this.effects.hits) if (seen(h)) hits++;
-      for (const d of this.effects.deaths) if (seen(d)) deaths++;
+    this.debugOverlay.countEvents(hits.length, deaths.length);
+    if (this.battleSound && (hits.length || deaths.length)) {
+      const { zoom } = this.camera;
+      const seenHits = this.countInView(hits);
+      const seenDeaths = this.countInView(deaths);
       // Closer views are louder: 0.35 at the full map, 1 from about 20 px per tile
       const loudness = Math.min(
         1,
         0.35 + (0.65 * (zoom - this.view.zoomMin)) / Math.max(1, 20 - this.view.zoomMin)
       );
-      if (hits || deaths) this.battleSound(hits, deaths, loudness);
+      if (seenHits || seenDeaths) this.battleSound(seenHits, seenDeaths, loudness);
     }
   }
 
-  private updateFps(): void {
-    this.fpsFrameCount++;
-    const now = performance.now();
-    if (this.fpsLastTime === 0) {
-      this.fpsLastTime = now;
-      return;
+  // How many of the events lie in the main view
+  private countInView(events: readonly (HitEvent | DeathEvent)[]): number {
+    const { x, y, zoom } = this.camera;
+    const x1 = x + this.canvas.width / zoom;
+    const y1 = y + this.canvas.height / zoom;
+    let n = 0;
+    for (let i = 0; i < events.length; i++) {
+      const e = events[i];
+      if (e.x >= x && e.x <= x1 && e.y >= y && e.y <= y1) n++;
     }
-    if (now - this.fpsLastTime >= 1000) {
-      this.fps = Math.round((this.fpsFrameCount * 1000) / (now - this.fpsLastTime));
-      this.fpsFrameCount = 0;
-      this.fpsLastTime = now;
-    }
+    return n;
   }
 
-  private drawDebugInfo(battlefield: IBattlefield): void {
-    this.ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
-    this.ctx.fillRect(4, 4, 190, 96);
-    this.ctx.fillStyle = '#00ff88';
-    this.ctx.font = '11px monospace';
-    this.ctx.fillText(`FPS: ${this.fps}`, 10, 19);
-    this.ctx.fillText(`Units: ${battlefield.units.length}`, 10, 33);
-    this.ctx.fillText(`T: ${Math.floor(battlefield.elapsedTime)}s`, 10, 47);
-    if (this.effects.isEnabled()) {
-      this.ctx.fillText(`FX hits: ${this.fxHitCount}`, 10, 61);
-      this.ctx.fillText(`FX deaths: ${this.fxDeathCount}`, 10, 75);
-      this.ctx.fillText(
-        `corpses ${this.effects.getCorpseCount()} pools ${this.effects.getBloodPoolCount()}`,
-        10,
-        89
-      );
-    } else {
-      this.ctx.fillText('FX: off', 10, 61);
-    }
-  }
-
-  // Draws a transparent circle showing the hero's sight range (15 tiles). The charisma
-  // radius (influence area) is shown by the hero aura. Only visible while the hero is selected.
-  private drawHeroSight(units: IUnit[]): void {
+  // Draws a transparent circle showing the selected hero's sight range (hero.sight tiles). The
+  // charisma radius (influence area) is shown by the hero aura.
+  private drawHeroSight(heroes: readonly IUnit[]): void {
     if (!this.selectedUnitId) return;
-    const hero = units.find((u) => u.unitType === UnitType.HERO && u.id === this.selectedUnitId) as
-      | IHero
-      | undefined;
+    let hero: IUnit | undefined;
+    for (let i = 0; i < heroes.length && !hero; i++) {
+      if (heroes[i].id === this.selectedUnitId) hero = heroes[i];
+    }
     if (!hero) return;
 
     const { x: camX, y: camY, zoom } = this.camera;

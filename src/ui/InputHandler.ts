@@ -42,16 +42,36 @@ export class InputHandler {
     this.setupKeyListener();
   }
 
-  onLeftClick(cb: ClickCallback): void { this.clickCallbacks.push(cb); }
-  onRightClick(cb: ClickCallback): void { this.rightClickCallbacks.push(cb); }
-  onDrag(cb: DragCallback): void { this.dragCallbacks.push(cb); }
-  onScroll(cb: ScrollCallback): void { this.scrollCallbacks.push(cb); }
-  onKeyDown(cb: KeyCallback): void { this.keyCallbacks.push(cb); }
-  onHover(cb: HoverCallback): void { this.hoverCallbacks.push(cb); }
-  onCanvasLeave(cb: () => void): void { this.leaveCallbacks.push(cb); }
-  onSelectDrag(cb: SelectDragCallback): void { this.selectDragCallbacks.push(cb); }
-  onSelectDragEnd(cb: SelectDragCallback): void { this.selectDragEndCallbacks.push(cb); }
-  setZoomChecker(fn: () => boolean): void { this.zoomChecker = fn; }
+  onLeftClick(cb: ClickCallback): void {
+    this.clickCallbacks.push(cb);
+  }
+  onRightClick(cb: ClickCallback): void {
+    this.rightClickCallbacks.push(cb);
+  }
+  onDrag(cb: DragCallback): void {
+    this.dragCallbacks.push(cb);
+  }
+  onScroll(cb: ScrollCallback): void {
+    this.scrollCallbacks.push(cb);
+  }
+  onKeyDown(cb: KeyCallback): void {
+    this.keyCallbacks.push(cb);
+  }
+  onHover(cb: HoverCallback): void {
+    this.hoverCallbacks.push(cb);
+  }
+  onCanvasLeave(cb: () => void): void {
+    this.leaveCallbacks.push(cb);
+  }
+  onSelectDrag(cb: SelectDragCallback): void {
+    this.selectDragCallbacks.push(cb);
+  }
+  onSelectDragEnd(cb: SelectDragCallback): void {
+    this.selectDragEndCallbacks.push(cb);
+  }
+  setZoomChecker(fn: () => boolean): void {
+    this.zoomChecker = fn;
+  }
 
   private rect(): DOMRect {
     return this.canvas.getBoundingClientRect();
@@ -93,9 +113,7 @@ export class InputHandler {
 
       if (this.mouse.dragged) {
         if (this.mouse.selectMode) {
-          this.selectDragCallbacks.forEach((cb) =>
-            cb(this.mouse.startX, this.mouse.startY, x, y)
-          );
+          this.selectDragCallbacks.forEach((cb) => cb(this.mouse.startX, this.mouse.startY, x, y));
         } else {
           this.dragCallbacks.forEach((cb) => cb(dx, dy));
         }
