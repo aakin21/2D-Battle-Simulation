@@ -15,6 +15,11 @@ export function escapeHtml(text: string): string {
     .replace(/'/g, '&#39;');
 }
 
+// An AI option key as text: "step_north_east" → "step north-east"
+export function prettyKey(key: string): string {
+  return key.replace(/_/g, ' ').replace(/(north|south) (east|west)/, '$1-$2');
+}
+
 // Seconds as m:ss
 export function clock(seconds: number): string {
   const s = Math.max(0, Math.floor(seconds));

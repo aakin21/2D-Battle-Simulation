@@ -3,7 +3,8 @@ import { Faction, IHero, IUnit, BehaviorState, UnitType, Position } from '../typ
 import { positionToSubsector } from '../engine/Sectors';
 import { enemyBase, ownBase } from '../engine/Objectives';
 
-// Values computed by code for the AI layers (R5: code computes, the AI judges).
+// Values computed by code for the AI layers (R5: code computes, the AI judges), and the small
+// measures both layers word the same way (distance, direction, HP, places, time left).
 
 export const LOCAL_RADIUS = 15; // tiles around a hero for local counts and force ratio
 
@@ -25,9 +26,39 @@ export function compass(from: Position, to: Position): string {
   return COMPASS[Math.round(((angle + 2 * Math.PI) % (2 * Math.PI)) / (Math.PI / 4)) % 8];
 }
 
+// The way from one position to another as the layers read it: "to the north-east".
+export function towards(from: Position, to: Position): string {
+  return `to the ${compass(from, to)}`;
+}
+
+// Straight-line distance in tiles.
+export function distance(from: Position, to: Position): number {
+  return Math.hypot(to.x - from.x, to.y - from.y);
+}
+
+// Remaining HP of a hero or a base in whole percent.
+export function hpPercent(x: { hp: number; maxHp: number }): number {
+  return Math.round((100 * x.hp) / x.maxHp);
+}
+
 // An exact place: its sub-sector and its tile, e.g. "H4-NE (tile 112, 51)".
 export function exactPlace(p: Position): string {
   return `${positionToSubsector(p)} (tile ${Math.floor(p.x)}, ${Math.floor(p.y)})`;
+}
+
+// Seconds until the match's time limit (D30), 'n/a' when it has none.
+export function secondsLeft(sm: StateManager): number | 'n/a' {
+  const bf = sm.getBattlefield();
+  const limit = bf.objective.timeLimit;
+  return limit === null ? 'n/a' : Math.max(0, Math.round(limit - bf.elapsedTime));
+}
+
+// Control-point scores (D30) from one side's point of view.
+export function sideScores(sm: StateManager, faction: Faction): { ours: number; theirs: number } {
+  const { friendly, enemy } = sm.getBattlefield().objective.scores;
+  return faction === Faction.FRIENDLY
+    ? { ours: friendly, theirs: enemy }
+    : { ours: enemy, theirs: friendly };
 }
 
 // Where the objectives are (D30): control points, or the two bases (a destroyed base is left
@@ -54,10 +85,10 @@ export function wayToObjectives(
   hero: IUnit,
   places: Array<{ name: string; position: Position }>
 ): string[] {
-  return places.map((p) => {
-    const d = Math.hypot(p.position.x - hero.position.x, p.position.y - hero.position.y);
-    return `${p.name}: ${Math.round(d)} tiles to the ${compass(hero.position, p.position)}`;
-  });
+  return places.map(
+    (p) =>
+      `${p.name}: ${Math.round(distance(hero.position, p.position))} tiles ${towards(hero.position, p.position)}`
+  );
 }
 
 export interface GroupStats {

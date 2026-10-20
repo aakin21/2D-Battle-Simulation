@@ -1,62 +1,27 @@
 import { StateManager } from '../state/StateManager';
 import { Renderer } from '../rendering/Renderer';
 import { MinimapRenderer } from '../rendering/MinimapRenderer';
-import { Pathfinder } from './Pathfinder';
 import { HeroCommands, runningCommand } from './HeroCommands';
-import {
-  COMBAT_RANGE,
-  ATTACK_INTERVAL,
-  FLEE_THRESHOLD,
-  RALLY_COURAGE,
-  WOUND_STEP,
-  WOUND_PENALTY,
-  ALLY_SHARE_HIGH,
-  ALLY_SHARE_HIGH_BONUS,
-  ALLY_SHARE_LOW,
-  ALLY_SHARE_LOW_PENALTY,
-  ALLY_SHARE_VERY_LOW,
-  ALLY_SHARE_VERY_LOW_PENALTY,
-  REST_TRIGGER_HP,
-  REST_HEAL_PER_SEC,
-  HERO_REST_TRIGGER_HP,
-  DISENGAGE_CLEAR_RADIUS,
-  SEPARATION_RADIUS,
-} from './Rules';
 import { GroupPatrol } from './GroupPatrol';
 import { separateUnits } from './Separation';
 import { updateHeroStand } from './HeroPosition';
-import { updateWaves, updateBerserkerPath } from './ClassicWaves';
+import { updateWaves } from './ClassicWaves';
 import { updateRuleHeroes } from './RuleHeroes';
 import { updateControl, damageBases, objectiveEnd, EndReason, wholePoints } from './Objectives';
-import { updateHeroReflex, moveHeroRetreat } from './HeroReflex';
+import { Followers, updateCourage } from './Soldiers';
+import { updateBehavior } from './Behavior';
+import { moveUnit } from './Movement';
+import { processCombat, processRest, removeDeadUnits } from './Combat';
 import {
-  distToTileCentre,
-  effectiveSight,
-  findNearestEnemy,
-  NEAR_TILE_DISTANCE,
-  nearestReachableTile,
-  stepToward,
-  terrainSpeed,
-  fleeWayOpen,
-} from './UnitHelpers';
-import {
-  IUnit,
   IHero,
   IBattlefield,
-  UnitType,
   Faction,
-  BehaviorState,
-  TerrainType,
-  UNIT_STATS,
-  Position,
   HeroCommand,
   CommandSource,
   AITiming,
   SimConfig,
   DEFAULT_CONFIG,
 } from '../types/types';
-
-const WARRIOR_ARRIVE_RADIUS = 2;
 
 // Simulation speeds the user can choose
 export const SPEED_STEPS = [0.5, 1, 2, 4] as const;
@@ -89,6 +54,7 @@ export class SimulationEngine {
   private patrol = new GroupPatrol();
   private commands: HeroCommands;
 
+  private followers = new Followers();
   // Reused buffer for courage counts: [friendly, enemy]
   private factionCounts = new Int32Array(2);
   private paused: boolean = false;
@@ -213,8 +179,9 @@ export class SimulationEngine {
     this.controllers = controllers;
   }
 
-  // Single entry point for hero orders (D20): user clicks, rule heroes, Jev and the LLM
-  // all come through here, so a hero behaves the same whoever gave the order.
+  // Entry point for hero orders from outside the frame (D20): user clicks, Jev and the LLM. Rule
+  // heroes give theirs inside the frame through the same HeroCommands.issue (without breaking
+  // off a fight, D27), so a hero behaves the same whoever gave the order.
   issueCommand(hero: IHero, command: HeroCommand | null, source: CommandSource): void {
     this.commands.issue(hero, command, source, this.battleMode);
   }
@@ -245,122 +212,50 @@ export class SimulationEngine {
     this.start();
   }
 
+  // One simulation step. The order matters: AI ticks and orders come before behavior and
+  // movement, combat after movement, deaths after combat.
   private update(deltaTime: number): void {
-    const { units, grid, elapsedTime } = this.stateManager.getBattlefield();
+    const sm = this.stateManager;
+    const battleMode = this.battleMode;
+    const { units, grid, elapsedTime } = sm.getBattlefield();
 
     for (const controller of this.controllers) controller.tick(elapsedTime);
-    if (this.battleMode) updateRuleHeroes(this.stateManager, this.commands, this.patrol);
+    if (battleMode) updateRuleHeroes(sm, this.commands, this.patrol);
     this.commands.applyAll();
     // D48: a hero with enemies near stands behind its soldiers (battle mode)
-    if (this.battleMode)
-      for (const hero of this.stateManager.getHeroes())
-        updateHeroStand(this.stateManager, hero, runningCommand(hero), elapsedTime);
+    if (battleMode)
+      for (const hero of sm.getHeroes())
+        updateHeroStand(sm, hero, runningCommand(hero), elapsedTime);
 
-    for (const unit of units) {
-      this.updateCourage(unit);
-    }
+    for (const unit of units) updateCourage(sm, unit, battleMode, this.factionCounts);
+    for (const unit of units) updateBehavior(sm, unit, battleMode);
+    if (battleMode) this.followers.count(sm, units);
 
-    for (const unit of units) {
-      this.updateBehavior(unit);
-    }
-
-    if (this.battleMode) this.countFollowers(units);
-
-    // Save position before move so spatial grid can be synced after.
+    // The spatial grid is synced after each move, from the position before it
     for (const unit of units) {
       const oldX = unit.position.x;
       const oldY = unit.position.y;
-      this.moveUnit(unit, deltaTime, grid);
-      this.stateManager.syncPosition(unit, oldX, oldY);
+      moveUnit(sm, unit, deltaTime, grid, battleMode, this.patrol, this.followers);
+      sm.syncPosition(unit, oldX, oldY);
     }
     // Battle mode: units take up room and push each other apart (classic keeps Phase 1, D19)
-    if (this.battleMode) separateUnits(this.stateManager, units, deltaTime, grid);
+    if (battleMode) separateUnits(sm, units, deltaTime, grid);
 
-    this.processRest(units, deltaTime);
-    this.processCombat(units, deltaTime);
-    if (this.battleMode) {
-      const mode = this.stateManager.getBattlefield().objective.mode;
-      if (mode === 'control') updateControl(this.stateManager, deltaTime);
-      if (mode === 'base') damageBases(this.stateManager, units, deltaTime);
+    processRest(units, deltaTime);
+    processCombat(sm, units, deltaTime);
+    if (battleMode) {
+      const mode = sm.getBattlefield().objective.mode;
+      if (mode === 'control') updateControl(sm, deltaTime);
+      if (mode === 'base') damageBases(sm, units, deltaTime);
     }
-    this.removeDeadUnits();
-    if (this.battleMode) this.checkMatchEnd();
-    this.updateWaveSpawner(this.stateManager.getBattlefield());
+    removeDeadUnits(sm);
+    if (battleMode) this.checkMatchEnd();
+    // Classic berserker waves (ClassicWaves.ts); the stress test has none
+    if (!this.stressMode) updateWaves(sm, sm.getBattlefield(), this.waveMultiplier);
   }
 
-  // Rest (D45): in battle mode a hero rests below HERO_REST_TRIGGER_HP whenever it stands still
-  // with no enemy in sight; other units, and heroes in classic mode, below REST_TRIGGER_HP.
-  private restBelow(unit: IUnit): number {
-    return this.battleMode && unit.unitType === UnitType.HERO
-      ? HERO_REST_TRIGGER_HP
-      : REST_TRIGGER_HP;
-  }
-
-  // A battle-mode hero with somewhere to go: a task point more than a tile and a half away
-  private onTheWay(unit: IUnit): boolean {
-    if (!this.battleMode || unit.unitType !== UnitType.HERO) return false;
-    const p = (unit as IHero).taskPoint;
-    if (!p) return false;
-    return distToTileCentre(unit.position, p) > NEAR_TILE_DISTANCE;
-  }
-
-  // A resting hero of the user, Jev or the LLM stops as soon as an order sends it somewhere, so
-  // orders never wait for a rest (D45). Rule heroes keep resting until healed after a flight (D18).
-  private calledAway(unit: IUnit): boolean {
-    return (unit as IHero).controller !== 'rule' && this.onTheWay(unit);
-  }
-
-  // Soldiers following each hero, counted once per frame (battle mode)
-  private followers = new Map<string, number>();
-
-  private countFollowers(units: IUnit[]): void {
-    this.followers.clear();
-    for (const unit of units) {
-      if (!this.isSoldier(unit) || unit.hp <= 0) continue;
-      const leader = this.findLeader(unit);
-      if (leader) this.followers.set(leader.id, (this.followers.get(leader.id) ?? 0) + 1);
-    }
-  }
-
-  // How close to its standing hero a soldier stops. Units take up room in battle mode, so a big
-  // group cannot all reach the hero: the radius grows with the ground the group covers, or the
-  // outer soldiers keep walking in while the push of their neighbours sends them back, and the
-  // whole group shakes (CASES 14.x). Classic keeps Phase 1 (D19).
-  private arriveRadius(leader: IHero): number {
-    if (!this.battleMode) return WARRIOR_ARRIVE_RADIUS;
-    const n = this.followers.get(leader.id) ?? 0;
-    const spread = SEPARATION_RADIUS * Math.sqrt((0.87 * n) / Math.PI) * 1.15 + 1;
-    return Math.max(WARRIOR_ARRIVE_RADIUS, spread);
-  }
-
-  // Soldiers follow heroes and use courage. In battle mode berserkers are soldiers too.
-  private isSoldier(unit: IUnit): boolean {
-    return (
-      unit.unitType === UnitType.WARRIOR ||
-      (this.battleMode && unit.unitType === UnitType.BERSERKER)
-    );
-  }
-
-  // Nearest living hero of the unit's own side within maxDist (or within the hero's
-  // sight when maxDist is not given). In classic mode this is the single hero.
-  private findLeader(unit: IUnit, maxDist?: (hero: IHero) => number): IHero | undefined {
-    let best: IHero | undefined;
-    let bestD2 = Infinity;
-    for (const hero of this.stateManager.getHeroes()) {
-      if (hero.faction !== unit.faction || hero.hp <= 0 || hero.id === unit.id) continue;
-      const dx = hero.position.x - unit.position.x;
-      const dy = hero.position.y - unit.position.y;
-      const d2 = dx * dx + dy * dy;
-      const r = maxDist ? maxDist(hero) : hero.sight;
-      if (d2 <= r * r && d2 < bestD2) {
-        bestD2 = d2;
-        best = hero;
-      }
-    }
-    return best;
-  }
-
-  // Ends the match when one side has no units left, then freezes the simulation.
+  // Ends the match when one side has no units left or on its objective or time limit (D30),
+  // then freezes the simulation.
   private checkMatchEnd(): void {
     if (this.result) return;
     let friendly = 0;
@@ -397,375 +292,6 @@ export class SimulationEngine {
     };
     this.paused = true;
     this.onMatchEnd?.(this.result);
-  }
-
-  private enemyWithin(unit: IUnit, radius: number): boolean {
-    let found = false;
-    this.stateManager.forEachInRadius(unit.position.x, unit.position.y, radius, (other) => {
-      if (!found && other.hp > 0 && other.faction !== unit.faction) found = true;
-    });
-    return found;
-  }
-
-  private updateCourage(unit: IUnit): void {
-    if (!this.isSoldier(unit)) return;
-
-    // Soldiers are warriors in classic mode; in battle mode both sides use warrior stats
-    // (D19), courage included.
-    const base = UNIT_STATS.WARRIOR.courage;
-
-    const hpLostFraction = 1 - unit.hp / unit.maxHp;
-    const woundedPenalty = -Math.floor(hpLostFraction / WOUND_STEP) * WOUND_PENALTY;
-
-    // Living units in sight per faction, the unit itself included (D31: same counts as a
-    // full scan, computed from per-cell counters)
-    const sight = effectiveSight(this.stateManager, unit);
-    const counts = this.factionCounts;
-    this.stateManager.countByFactionInRadius(unit.position.x, unit.position.y, sight, counts);
-    const allies = counts[unit.faction];
-    const enemies = counts[0] + counts[1] - allies;
-
-    let ratioModifier = 0;
-    const total = allies + enemies;
-    if (total > 0) {
-      const ratio = allies / total;
-      if (ratio > ALLY_SHARE_HIGH) ratioModifier = ALLY_SHARE_HIGH_BONUS;
-      else if (ratio < ALLY_SHARE_VERY_LOW) ratioModifier = -ALLY_SHARE_VERY_LOW_PENALTY;
-      else if (ratio < ALLY_SHARE_LOW) ratioModifier = -ALLY_SHARE_LOW_PENALTY;
-    }
-
-    const charismaHero = this.findLeader(unit, (h) => h.charismaRadius);
-    const heroBonus = charismaHero ? charismaHero.charismaBonus : 0;
-
-    unit.courage = Math.max(0, Math.min(100, base + woundedPenalty + ratioModifier + heroBonus));
-  }
-
-  private updateBehavior(unit: IUnit): void {
-    if (
-      this.battleMode &&
-      unit.unitType === UnitType.HERO &&
-      updateHeroReflex(this.stateManager, unit as IHero)
-    )
-      return;
-
-    if (unit.unitType === UnitType.BERSERKER && !this.battleMode) {
-      this.attackOrIdle(unit, findNearestEnemy(this.stateManager, unit), true);
-      return;
-    }
-
-    const enemy = findNearestEnemy(this.stateManager, unit);
-
-    if (unit.state === BehaviorState.FLEE) {
-      // Battle mode (D57, a rout): a flight lasts until no enemy is in sight, or until one of the
-      // soldier's heroes is near and its courage is back to RALLY_COURAGE; it used to end as soon as
-      // courage rose above the threshold, a step back into its own ranks, and the soldier flipped
-      // between fleeing and fighting many times a second. Classic mode keeps that rule (D19).
-      const over =
-        this.battleMode && this.isSoldier(unit)
-          ? !enemy ||
-            (unit.courage >= RALLY_COURAGE &&
-              this.findLeader(unit, (h) => h.charismaRadius) !== undefined)
-          : !enemy || unit.courage > FLEE_THRESHOLD;
-      if (over) {
-        unit.state = BehaviorState.IDLE;
-        unit.target = null;
-        unit.path = [];
-      }
-      return;
-    }
-
-    if (unit.state === BehaviorState.REST) {
-      if (enemy || unit.hp >= unit.maxHp || this.calledAway(unit)) {
-        unit.state = BehaviorState.IDLE;
-        unit.target = null;
-      }
-      return;
-    }
-
-    if (this.isSoldier(unit) && enemy && unit.courage <= FLEE_THRESHOLD) {
-      unit.state = BehaviorState.FLEE;
-      unit.target = null;
-      unit.path = [];
-      return;
-    }
-
-    if (
-      (this.isSoldier(unit) || unit.unitType === UnitType.HERO) &&
-      unit.hp < this.restBelow(unit) &&
-      !enemy &&
-      !this.onTheWay(unit)
-    ) {
-      unit.state = BehaviorState.REST;
-      unit.target = null;
-      unit.path = [];
-      return;
-    }
-
-    if (unit.unitType === UnitType.HERO) {
-      // D27: a hero breaking off a fight walks on without engaging until it is clear of
-      // enemies, then behaves normally again (so it does not march into the next group).
-      const hero = unit as IHero;
-      // Breaking off means walking on without fighting; a hero that has reached its point has
-      // nowhere to walk on to, so it fights there (a retreat: "the fight goes on there")
-      if (hero.disengaging && !this.onTheWay(hero)) hero.disengaging = false;
-      if (hero.disengaging) {
-        if (this.enemyWithin(hero, DISENGAGE_CLEAR_RADIUS)) {
-          hero.state = BehaviorState.IDLE;
-          hero.target = null;
-          return;
-        }
-        hero.disengaging = false;
-      }
-      this.attackOrIdle(unit, enemy, false);
-      return;
-    }
-
-    this.attackOrIdle(unit, enemy, true);
-  }
-
-  // Attack the enemy if it is within COMBAT_RANGE, otherwise stay IDLE. keepTarget: an enemy
-  // out of range stays the target, so the unit moves toward it (heroes follow their task point).
-  private attackOrIdle(unit: IUnit, enemy: IUnit | null, keepTarget: boolean): void {
-    if (enemy) {
-      const dx = enemy.position.x - unit.position.x;
-      const dy = enemy.position.y - unit.position.y;
-      if (dx * dx + dy * dy <= COMBAT_RANGE * COMBAT_RANGE) {
-        unit.state = BehaviorState.ATTACK;
-        unit.target = enemy.id;
-        unit.path = [];
-        return;
-      }
-    }
-    unit.state = BehaviorState.IDLE;
-    unit.target = enemy && keepTarget ? enemy.id : null;
-  }
-
-  private moveFlee(unit: IUnit, deltaTime: number, grid: TerrainType[][]): void {
-    const enemy = findNearestEnemy(this.stateManager, unit);
-    if (!enemy) return;
-
-    const dx = unit.position.x - enemy.position.x;
-    const dy = unit.position.y - enemy.position.y;
-    const dist = Math.sqrt(dx * dx + dy * dy);
-    if (dist === 0) return;
-
-    const away = Math.atan2(dy, dx);
-    // Battle mode (D57): with its way away blocked (a mountain, the map's edge), even turning up to
-    // FLEE_MAX_TURN_DEGREES, a soldier stops fleeing and fights the nearest enemy; it used to stand
-    // there and be cut down. While its courage stays low it tries to flee again every frame.
-    if (this.battleMode && this.isSoldier(unit) && !fleeWayOpen(unit, away, deltaTime, grid)) {
-      this.attackOrIdle(unit, enemy, true);
-      return;
-    }
-    stepToward(this.stateManager, unit, away, deltaTime, grid, this.battleMode);
-  }
-
-  // Classic berserker waves (ClassicWaves.ts); the stress test has none
-  private updateWaveSpawner(bf: IBattlefield): void {
-    if (this.stressMode) return;
-    updateWaves(this.stateManager, bf, this.waveMultiplier);
-  }
-
-  private processRest(units: IUnit[], deltaTime: number): void {
-    for (const unit of units) {
-      if (unit.state !== BehaviorState.REST) continue;
-      unit.hp = Math.min(unit.maxHp, unit.hp + REST_HEAL_PER_SEC * deltaTime);
-    }
-  }
-
-  private processCombat(units: IUnit[], deltaTime: number): void {
-    const pendingDamage = new Map<string, number>();
-
-    for (const unit of units) {
-      if (unit.state !== BehaviorState.ATTACK || unit.target === null) continue;
-
-      unit.attackCooldown -= deltaTime;
-      if (unit.attackCooldown > 0) continue;
-
-      const target = this.stateManager.getUnitById(unit.target);
-      if (!target || target.hp <= 0) {
-        unit.target = null;
-        unit.state = BehaviorState.IDLE;
-        continue;
-      }
-
-      pendingDamage.set(target.id, (pendingDamage.get(target.id) ?? 0) + unit.damage);
-      unit.attackCooldown = ATTACK_INTERVAL;
-    }
-
-    for (const [id, damage] of pendingDamage) {
-      const target = this.stateManager.getUnitById(id);
-      if (target) target.hp = Math.max(0, target.hp - damage);
-    }
-  }
-
-  private removeDeadUnits(): void {
-    const dead: string[] = [];
-    for (const unit of this.stateManager.getBattlefield().units) {
-      if (unit.hp <= 0) dead.push(unit.id);
-    }
-    for (const id of dead) {
-      this.stateManager.removeUnit(id);
-    }
-  }
-
-  private moveUnit(unit: IUnit, deltaTime: number, grid: TerrainType[][]): void {
-    if (unit.state === BehaviorState.FLEE) {
-      if (unit.unitType === UnitType.HERO)
-        moveHeroRetreat(this.stateManager, unit as IHero, deltaTime, grid);
-      else this.moveFlee(unit, deltaTime, grid);
-      return;
-    }
-
-    // Classic wave berserker: chase its target or patrol with its group (ClassicWaves.ts)
-    if (unit.unitType === UnitType.BERSERKER && !this.battleMode) {
-      if (unit.state !== BehaviorState.IDLE) return;
-
-      updateBerserkerPath(this.stateManager, this.patrol, unit, grid);
-      this.followPath(unit, deltaTime, grid);
-      return;
-    }
-
-    if (unit.state !== BehaviorState.IDLE) return;
-
-    const leader = this.isSoldier(unit) ? this.findLeader(unit) : undefined;
-    const dest = this.getDestination(unit, leader);
-    if (!dest) {
-      unit.path = [];
-      return;
-    }
-
-    // A soldier stops near its standing hero, but not while the hero only stands behind it: then
-    // the group goes on to the order's point (D48)
-    if (
-      this.isSoldier(unit) &&
-      unit.target === null &&
-      leader &&
-      leader.path.length === 0 &&
-      !leader.standPoint
-    ) {
-      const dx = leader.position.x - unit.position.x;
-      const dy = leader.position.y - unit.position.y;
-      const arrive = this.arriveRadius(leader);
-      if (dx * dx + dy * dy <= arrive * arrive) {
-        unit.path = [];
-        return;
-      }
-    }
-
-    const destTileX = Math.floor(dest.x);
-    const destTileY = Math.floor(dest.y);
-    const pathEnd = unit.path.length > 0 ? unit.path[unit.path.length - 1] : null;
-
-    if (!pathEnd || pathEnd.x !== destTileX || pathEnd.y !== destTileY) {
-      const startTile: Position = {
-        x: Math.floor(unit.position.x),
-        y: Math.floor(unit.position.y),
-      };
-      unit.path = Pathfinder.findPath(grid, startTile, { x: destTileX, y: destTileY });
-    }
-
-    this.followPath(unit, deltaTime, grid);
-  }
-
-  // One step toward the centre of the path's next tile; the tile is dropped once reached.
-  private followPath(unit: IUnit, deltaTime: number, grid: TerrainType[][]): void {
-    if (unit.path.length === 0) return;
-
-    const waypoint = unit.path[0];
-    const wpx = waypoint.x + 0.5;
-    const wpy = waypoint.y + 0.5;
-
-    const speed = this.computeSpeed(unit, grid);
-    if (speed === 0) return;
-
-    const dx = wpx - unit.position.x;
-    const dy = wpy - unit.position.y;
-    const dist = Math.sqrt(dx * dx + dy * dy);
-    const step = speed * deltaTime;
-    const reached = dist <= step;
-    let nx = reached ? wpx : unit.position.x + (dx / dist) * step;
-    let ny = reached ? wpy : unit.position.y + (dy / dist) * step;
-
-    // Battle mode: a step never enters a mountain or a tile next to one. A path's straight
-    // segments are clear, but units pushed off them (D53) walked to the next waypoint through
-    // mountain corners, and in a narrow pass dozens ended up inside the mountains (CASES 16.x).
-    // The unit slides along the obstacle, or plans its path again from where it stands.
-    if (this.battleMode && !this.canStep(grid, unit.position.x, unit.position.y, nx, ny)) {
-      if (this.canStep(grid, unit.position.x, unit.position.y, nx, unit.position.y))
-        ny = unit.position.y;
-      else if (this.canStep(grid, unit.position.x, unit.position.y, unit.position.x, ny))
-        nx = unit.position.x;
-      else {
-        // The path's straight line cuts the corner where two blocked tiles meet: follow the
-        // unsmoothed path from here, tile by tile through tile edges, which every step can take
-        const end = unit.path[unit.path.length - 1];
-        unit.path = Pathfinder.findPath(
-          grid,
-          { x: Math.floor(unit.position.x), y: Math.floor(unit.position.y) },
-          end,
-          false
-        );
-        return;
-      }
-      unit.position.x = nx;
-      unit.position.y = ny;
-      return;
-    }
-
-    unit.position.x = nx;
-    unit.position.y = ny;
-    if (reached) unit.path.shift();
-  }
-
-  // A step that stays on its tile, or ends on a tile the pathfinder can use in the same walkable
-  // region (not through the corner where two mountain buffers meet, into a pocket)
-  private canStep(grid: TerrainType[][], ox: number, oy: number, nx: number, ny: number): boolean {
-    const fx = Math.floor(ox);
-    const fy = Math.floor(oy);
-    const tx = Math.floor(nx);
-    const ty = Math.floor(ny);
-    if (tx === fx && ty === fy) return true;
-    if (Pathfinder.isBlocked(grid, tx, ty)) return false;
-    return Pathfinder.sameRegion(grid, fx, fy, tx, ty);
-  }
-
-  // leader: the hero this soldier follows (already checked to be within its sight).
-  private getDestination(unit: IUnit, leader: IHero | undefined): Position | null {
-    if (unit.target !== null) {
-      const target = this.stateManager.getUnitById(unit.target);
-      if (target && target.hp > 0) {
-        // Battle mode: a target standing on a tile the pathfinder treats as blocked (next to a
-        // mountain) is approached on the nearest reachable tile, within reach of a blow; walking
-        // to its own tile found no path, and the attacker stood still (CASES 14.x)
-        if (!this.battleMode) return target.position;
-        const tx = Math.floor(target.position.x);
-        const ty = Math.floor(target.position.y);
-        if (!Pathfinder.isBlocked(this.stateManager.getBattlefield().grid, tx, ty))
-          return target.position;
-        const t = nearestReachableTile(this.stateManager, target.position);
-        return { x: t.x + 0.5, y: t.y + 0.5 };
-      }
-    }
-
-    if (unit.unitType === UnitType.HERO) {
-      const hero = unit as IHero;
-      return hero.standPoint ?? hero.taskPoint ?? null;
-    }
-    // A soldier with no hero of its side within sight is a stray: it stays where it is (and
-    // fights what comes close) until a hero comes to collect it (regroup order, D35). It also
-    // stays when its side has no heroes left; the time limit ends the match (D33, D42).
-    if (this.isSoldier(unit) && leader) return leader.taskPoint ?? null;
-    return null;
-  }
-
-  private computeSpeed(unit: IUnit, grid: TerrainType[][]): number {
-    const xi = Math.floor(unit.position.x);
-    const yi = Math.floor(unit.position.y);
-    const terrain = grid[yi]?.[xi] ?? TerrainType.MOUNTAIN;
-    const terrainMult = terrainSpeed(terrain);
-    const hpMult = 0.5 + 0.5 * (unit.hp / unit.maxHp);
-    return unit.baseSpeed * hpMult * terrainMult;
   }
 
   private loop(timestamp: number): void {

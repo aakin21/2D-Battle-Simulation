@@ -1,264 +1,386 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>2D Battle Simulation</title>
-</head>
-<body>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>2D Battle Simulation</title>
+  </head>
+  <body>
+    <div id="app">
+      <!-- Top bar: run controls, match banner, view toggles -->
+      <header id="topbar">
+        <div class="tb-group">
+          <button id="btn-pause" class="icon-btn" title="Pause / resume (Space)"></button>
+          <button id="btn-slower" class="icon-btn" title="Slower (−)"></button>
+          <span id="speed-display" class="speed well">1x</span>
+          <button id="btn-faster" class="icon-btn" title="Faster (+)"></button>
+          <button id="btn-restart" class="icon-btn" title="Restart (R)"></button>
+          <button id="btn-menu" class="btn" title="Back to the menu (Esc)">Menu</button>
+        </div>
+        <div id="match-banner"></div>
+        <div class="tb-group">
+          <button
+            id="btn-effects"
+            class="btn toggle"
+            title="Visual effects and sprites (off: original squares)"
+          >
+            FX
+          </button>
+          <button id="btn-bars" class="btn toggle" title="Bars over units">Bars</button>
+          <button id="btn-sound" class="icon-btn" title="Sound"></button>
+          <button
+            id="btn-debug"
+            class="btn toggle"
+            title="Debug overlay: FPS, units, effect counters"
+          >
+            Debug
+          </button>
+          <button id="btn-save-map" class="icon-btn" title="Save this map"></button>
+          <button id="btn-help" class="icon-btn" title="Controls"></button>
+        </div>
+      </header>
 
-  <div id="app">
-    <!-- Top bar: run controls, match banner, view toggles -->
-    <header id="topbar">
-      <div class="tb-group">
-        <button id="btn-pause" class="icon-btn" title="Pause / resume (Space)"></button>
-        <button id="btn-slower" class="icon-btn" title="Slower (−)"></button>
-        <span id="speed-display" class="speed well">1x</span>
-        <button id="btn-faster" class="icon-btn" title="Faster (+)"></button>
-        <button id="btn-restart" class="icon-btn" title="Restart (R)"></button>
-        <button id="btn-menu" class="btn" title="Back to the menu (Esc)">Menu</button>
-      </div>
-      <div id="match-banner"></div>
-      <div class="tb-group">
-        <button id="btn-effects" class="btn toggle" title="Visual effects and sprites (off: original squares)">FX</button>
-        <button id="btn-bars" class="btn toggle" title="Bars over units">Bars</button>
-        <button id="btn-sound" class="icon-btn" title="Sound"></button>
-        <button id="btn-debug" class="btn toggle" title="Debug overlay: FPS, units, effect counters">Debug</button>
-        <button id="btn-save-map" class="icon-btn" title="Save this map"></button>
-        <button id="btn-help" class="icon-btn" title="Controls"></button>
-      </div>
-    </header>
+      <main id="stage">
+        <div id="canvas-area">
+          <canvas id="battleCanvas" width="750" height="750"></canvas>
+          <div id="tooltip" class="panel-sm"></div>
+          <div id="select-overlay"></div>
+          <div id="waiting-ai" class="panel-sm" hidden>Waiting for AI…</div>
 
-    <main id="stage">
-      <div id="canvas-area">
-        <canvas id="battleCanvas" width="750" height="750"></canvas>
-        <div id="tooltip" class="panel-sm"></div>
-        <div id="select-overlay"></div>
-        <div id="waiting-ai" class="panel-sm" hidden>Waiting for AI…</div>
+          <!-- Selected unit -->
+          <div id="unit-card" class="panel-sm" hidden>
+            <canvas id="unit-portrait" width="48" height="48"></canvas>
+            <div class="uc-body">
+              <div id="unit-type" class="uc-title">—</div>
+              <div class="uc-row">
+                <span class="uc-label">HP</span>
+                <div class="bar"><i id="unit-hp-bar"></i></div>
+                <span id="unit-hp" class="uc-val">—</span>
+              </div>
+              <div class="uc-row" id="unit-courage-row">
+                <span class="uc-label">Courage</span>
+                <div class="bar courage"><i id="unit-courage-bar"></i></div>
+                <span id="unit-courage" class="uc-val">—</span>
+              </div>
+              <div class="uc-line">
+                <span class="uc-label">State</span> <span id="unit-state">—</span>
+              </div>
+              <div class="uc-line" id="unit-order-row">
+                <span class="uc-label">Order</span> <span id="unit-order">—</span>
+              </div>
+            </div>
+          </div>
 
-        <!-- Selected unit -->
-        <div id="unit-card" class="panel-sm" hidden>
-          <canvas id="unit-portrait" width="48" height="48"></canvas>
-          <div class="uc-body">
-            <div id="unit-type" class="uc-title">—</div>
-            <div class="uc-row"><span class="uc-label">HP</span><div class="bar"><i id="unit-hp-bar"></i></div><span id="unit-hp" class="uc-val">—</span></div>
-            <div class="uc-row" id="unit-courage-row"><span class="uc-label">Courage</span><div class="bar courage"><i id="unit-courage-bar"></i></div><span id="unit-courage" class="uc-val">—</span></div>
-            <div class="uc-line"><span class="uc-label">State</span> <span id="unit-state">—</span></div>
-            <div class="uc-line" id="unit-order-row"><span class="uc-label">Order</span> <span id="unit-order">—</span></div>
+          <!-- Battle result -->
+          <div id="match-result" class="panel" hidden></div>
+        </div>
+
+        <aside id="side-panel">
+          <section class="side-section panel sp-map">
+            <h3>Map</h3>
+            <canvas id="minimapCanvas" width="300" height="300"></canvas>
+          </section>
+          <section class="side-section panel sp-armies">
+            <h3>
+              <span id="armies-title">Armies</span
+              ><span class="h3-actions"
+                ><button
+                  id="btn-replay"
+                  class="btn btn-small"
+                  hidden
+                  title="Download the replay of this match so far"
+                >
+                  Replay</button
+                ><button
+                  id="btn-log"
+                  class="btn btn-small"
+                  hidden
+                  title="Download the match log: settings, timeline and every AI decision"
+                >
+                  Log
+                </button></span
+              >
+            </h3>
+            <div id="armies-body"></div>
+          </section>
+          <section class="side-section panel sp-area">
+            <h3>Area</h3>
+            <div id="stat-content" class="faint">Drag on the map to count the units in an area</div>
+          </section>
+          <!-- What each side's AI layers decided, West and East side by side below -->
+          <section id="ai-col-west" class="side-section panel ai-col" hidden>
+            <div class="ai-col-main"></div>
+            <details class="ai-log">
+              <summary>Requests and answers <span class="ai-log-count faint">0</span></summary>
+              <div class="ai-log-list"></div>
+            </details>
+          </section>
+          <section id="ai-col-east" class="side-section panel ai-col" hidden>
+            <div class="ai-col-main"></div>
+            <details class="ai-log">
+              <summary>Requests and answers <span class="ai-log-count faint">0</span></summary>
+              <div class="ai-log-list"></div>
+            </details>
+          </section>
+        </aside>
+      </main>
+    </div>
+
+    <!-- Main menu -->
+    <div id="main-menu" class="overlay">
+      <div class="menu-card panel">
+        <div class="menu-title">
+          <div class="title-unit" id="title-west"></div>
+          <h1>2D Battle Simulation</h1>
+          <div class="title-unit" id="title-east"></div>
+        </div>
+
+        <div id="menu-tabs" class="seg tabs">
+          <button id="tab-default" class="active">Default</button>
+          <button id="tab-custom">Custom</button>
+          <button id="tab-stress">Stress</button>
+          <button id="tab-battle">Battle</button>
+        </div>
+
+        <div class="menu-body">
+          <div class="menu-section well" id="menu-map">
+            <h4>Map</h4>
+            <div class="cfg-row">
+              <div class="seg" id="cfg-map">
+                <button data-val="random" class="active">Random</button>
+                <button data-val="fixed">Fixed</button>
+                <button data-val="saved">Saved</button>
+              </div>
+              <select id="cfg-map-saved" hidden></select>
+            </div>
+          </div>
+
+          <div class="menu-section well locked" id="menu-config">
+            <h4 id="cfg-army-title">Army</h4>
+            <div class="cfg-row">
+              <label id="cfg-warriors-label" for="cfg-warriors">Warriors</label>
+              <input type="range" id="cfg-warriors" min="0" max="2000" step="1" value="300" />
+              <input type="number" id="cfg-warriors-num" min="0" max="2000" value="300" />
+            </div>
+            <div class="cfg-row" id="cfg-wave-row">
+              <label for="cfg-wave-slider">Waves</label>
+              <input type="range" id="cfg-wave-slider" min="0.5" max="10" step="0.5" value="1" />
+              <span class="cfg-val" id="cfg-wave-val">1×</span>
+            </div>
+            <div class="cfg-row">
+              <label>Terrain</label>
+              <div class="seg" id="cfg-terrain">
+                <button data-val="light">Light</button>
+                <button data-val="normal" class="active">Normal</button>
+                <button data-val="dense">Dense</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="menu-section well" id="stress-info" hidden>
+            <h4>Stress test</h4>
+            <p>2200 warriors against 2000 berserkers, normal terrain, waves ×1.</p>
+          </div>
+
+          <div class="menu-section well" id="battle-info" hidden>
+            <h4>Battle</h4>
+            <p class="faint">
+              3 heroes per side, no waves. Select one of your heroes and right-click to give it an
+              order.
+            </p>
+            <div class="cfg-row">
+              <label>Objective</label>
+              <div class="seg" id="cfg-objective">
+                <button data-val="elimination" class="active">Elimination</button>
+                <button data-val="control">Control A-B</button>
+                <button data-val="base">Base</button>
+              </div>
+            </div>
+            <div class="cfg-row">
+              <label class="west-text">West</label>
+              <div class="seg" id="cfg-west">
+                <button data-val="none" class="active">You</button>
+                <button data-val="llm">LLM</button>
+                <button
+                  data-val="jev+llm"
+                  title="The LLM plans; Jev, a decision model, acts for each hero every few seconds"
+                >
+                  LLM + Jev
+                </button>
+                <button
+                  data-val="snap+llm"
+                  title="The LLM plans; SubQ Snap, a decision model, acts for each hero every few seconds"
+                >
+                  LLM + Snap
+                </button>
+              </div>
+            </div>
+            <div class="cfg-row sub" id="row-west-provider" hidden>
+              <label>LLM via</label>
+              <div class="seg" id="cfg-west-provider">
+                <button
+                  data-val="claude"
+                  class="active"
+                  title="Claude through the Agent SDK and your own Claude login"
+                >
+                  Claude
+                </button>
+                <button
+                  data-val="openrouter"
+                  title="Any company's model through OpenRouter (the AI server needs an OpenRouter key)"
+                >
+                  OpenRouter
+                </button>
+              </div>
+            </div>
+            <div class="cfg-row sub" id="row-west-model" hidden>
+              <label>Model</label>
+              <div class="seg" id="cfg-west-model">
+                <button data-val="haiku">Haiku</button>
+                <button data-val="sonnet" class="active">Sonnet</button>
+                <button data-val="opus">Opus</button>
+              </div>
+            </div>
+            <div class="cfg-row sub" id="row-west-router" hidden>
+              <label>Model</label>
+              <div id="cfg-west-router" class="router-select"></div>
+              <input
+                type="text"
+                id="cfg-west-router-id"
+                class="router-id"
+                placeholder="publisher/model"
+                spellcheck="false"
+                autocomplete="off"
+                hidden
+              />
+            </div>
+            <div class="cfg-row">
+              <label class="east-text">East</label>
+              <div class="seg" id="cfg-opponent">
+                <button data-val="none" class="active">Rules</button>
+                <button data-val="llm">LLM</button>
+                <button
+                  data-val="jev+llm"
+                  title="The LLM plans; Jev, a decision model, acts for each hero every few seconds"
+                >
+                  LLM + Jev
+                </button>
+                <button
+                  data-val="snap+llm"
+                  title="The LLM plans; SubQ Snap, a decision model, acts for each hero every few seconds"
+                >
+                  LLM + Snap
+                </button>
+              </div>
+            </div>
+            <div class="cfg-row sub" id="row-east-provider" hidden>
+              <label>LLM via</label>
+              <div class="seg" id="cfg-east-provider">
+                <button
+                  data-val="claude"
+                  class="active"
+                  title="Claude through the Agent SDK and your own Claude login"
+                >
+                  Claude
+                </button>
+                <button
+                  data-val="openrouter"
+                  title="Any company's model through OpenRouter (the AI server needs an OpenRouter key)"
+                >
+                  OpenRouter
+                </button>
+              </div>
+            </div>
+            <div class="cfg-row sub" id="row-east-model" hidden>
+              <label>Model</label>
+              <div class="seg" id="cfg-east-model">
+                <button data-val="haiku">Haiku</button>
+                <button data-val="sonnet" class="active">Sonnet</button>
+                <button data-val="opus">Opus</button>
+              </div>
+            </div>
+            <div class="cfg-row sub" id="row-east-router" hidden>
+              <label>Model</label>
+              <div id="cfg-east-router" class="router-select"></div>
+              <input
+                type="text"
+                id="cfg-east-router-id"
+                class="router-id"
+                placeholder="publisher/model"
+                spellcheck="false"
+                autocomplete="off"
+                hidden
+              />
+            </div>
+            <div class="cfg-row" id="row-timing" hidden>
+              <label>AI timing</label>
+              <div class="seg" id="cfg-timing">
+                <button data-val="realtime" class="active">Real-time</button>
+                <button data-val="paused">Paused</button>
+              </div>
+            </div>
+            <div class="cfg-row">
+              <label>Replay</label>
+              <div class="seg" id="cfg-replay">
+                <button
+                  data-val="on"
+                  class="active"
+                  title="Keep a replay of the match to watch again or download at the end"
+                >
+                  Record
+                </button>
+                <button
+                  data-val="off"
+                  title="No replay (saves memory in very long or large matches)"
+                >
+                  Off
+                </button>
+              </div>
+            </div>
           </div>
         </div>
 
-        <!-- Battle result -->
-        <div id="match-result" class="panel" hidden></div>
-      </div>
-
-      <aside id="side-panel">
-        <section class="side-section panel sp-map">
-          <h3>Map</h3>
-          <canvas id="minimapCanvas" width="300" height="300"></canvas>
-        </section>
-        <section class="side-section panel sp-armies">
-          <h3><span id="armies-title">Armies</span><span class="h3-actions"><button id="btn-replay" class="btn btn-small" hidden title="Download the replay of this match so far">Replay</button><button id="btn-log" class="btn btn-small" hidden title="Download the match log: settings, timeline and every AI decision">Log</button></span></h3>
-          <div id="armies-body"></div>
-        </section>
-        <section class="side-section panel sp-area">
-          <h3>Area</h3>
-          <div id="stat-content" class="faint">Drag on the map to count the units in an area</div>
-        </section>
-        <!-- What each side's AI layers decided, West and East side by side below -->
-        <section id="ai-col-west" class="side-section panel ai-col" hidden>
-          <div class="ai-col-main"></div>
-          <details class="ai-log">
-            <summary>Requests and answers <span class="ai-log-count faint">0</span></summary>
-            <div class="ai-log-list"></div>
-          </details>
-        </section>
-        <section id="ai-col-east" class="side-section panel ai-col" hidden>
-          <div class="ai-col-main"></div>
-          <details class="ai-log">
-            <summary>Requests and answers <span class="ai-log-count faint">0</span></summary>
-            <div class="ai-log-list"></div>
-          </details>
-        </section>
-      </aside>
-    </main>
-  </div>
-
-  <!-- Main menu -->
-  <div id="main-menu" class="overlay">
-    <div class="menu-card panel">
-      <div class="menu-title">
-        <div class="title-unit" id="title-west"></div>
-        <h1>2D Battle Simulation</h1>
-        <div class="title-unit" id="title-east"></div>
-      </div>
-
-      <div id="menu-tabs" class="seg tabs">
-        <button id="tab-default" class="active">Default</button>
-        <button id="tab-custom">Custom</button>
-        <button id="tab-stress">Stress</button>
-        <button id="tab-battle">Battle</button>
-      </div>
-
-      <div class="menu-body">
-        <div class="menu-section well" id="menu-map">
-          <h4>Map</h4>
-          <div class="cfg-row">
-            <div class="seg" id="cfg-map">
-              <button data-val="random" class="active">Random</button>
-              <button data-val="fixed">Fixed</button>
-              <button data-val="saved">Saved</button>
-            </div>
-            <select id="cfg-map-saved" hidden></select>
-          </div>
+        <div class="menu-actions">
+          <button id="menu-continue" class="btn" hidden title="Back to the current run (Esc)">
+            Continue
+          </button>
+          <button id="menu-start" class="btn btn-primary">Start</button>
+          <button id="menu-instructions" class="btn btn-quiet">Controls</button>
+          <button
+            id="menu-replay"
+            class="btn btn-quiet"
+            title="Open a replay file (.replay) and watch it"
+          >
+            Watch a replay
+          </button>
+          <input id="menu-replay-file" type="file" accept=".replay" hidden />
         </div>
-
-        <div class="menu-section well locked" id="menu-config">
-          <h4 id="cfg-army-title">Army</h4>
-          <div class="cfg-row">
-            <label id="cfg-warriors-label" for="cfg-warriors">Warriors</label>
-            <input type="range" id="cfg-warriors" min="0" max="2000" step="1" value="300">
-            <input type="number" id="cfg-warriors-num" min="0" max="2000" value="300">
-          </div>
-          <div class="cfg-row" id="cfg-wave-row">
-            <label for="cfg-wave-slider">Waves</label>
-            <input type="range" id="cfg-wave-slider" min="0.5" max="10" step="0.5" value="1">
-            <span class="cfg-val" id="cfg-wave-val">1×</span>
-          </div>
-          <div class="cfg-row">
-            <label>Terrain</label>
-            <div class="seg" id="cfg-terrain">
-              <button data-val="light">Light</button>
-              <button data-val="normal" class="active">Normal</button>
-              <button data-val="dense">Dense</button>
-            </div>
-          </div>
-        </div>
-
-        <div class="menu-section well" id="stress-info" hidden>
-          <h4>Stress test</h4>
-          <p>2200 warriors against 2000 berserkers, normal terrain, waves ×1.</p>
-        </div>
-
-        <div class="menu-section well" id="battle-info" hidden>
-          <h4>Battle</h4>
-          <p class="faint">3 heroes per side, no waves. Select one of your heroes and right-click to give it an order.</p>
-          <div class="cfg-row">
-            <label>Objective</label>
-            <div class="seg" id="cfg-objective">
-              <button data-val="elimination" class="active">Elimination</button>
-              <button data-val="control">Control A-B</button>
-              <button data-val="base">Base</button>
-            </div>
-          </div>
-          <div class="cfg-row">
-            <label class="west-text">West</label>
-            <div class="seg" id="cfg-west">
-              <button data-val="none" class="active">You</button>
-              <button data-val="llm">LLM</button>
-              <button data-val="jev+llm" title="The LLM plans; Jev, a decision model, acts for each hero every few seconds">LLM + Jev</button>
-              <button data-val="snap+llm" title="The LLM plans; SubQ Snap, a decision model, acts for each hero every few seconds">LLM + Snap</button>
-            </div>
-          </div>
-          <div class="cfg-row sub" id="row-west-provider" hidden>
-            <label>LLM via</label>
-            <div class="seg" id="cfg-west-provider">
-              <button data-val="claude" class="active" title="Claude through the Agent SDK and your own Claude login">Claude</button>
-              <button data-val="openrouter" title="Any company's model through OpenRouter (the AI server needs an OpenRouter key)">OpenRouter</button>
-            </div>
-          </div>
-          <div class="cfg-row sub" id="row-west-model" hidden>
-            <label>Model</label>
-            <div class="seg" id="cfg-west-model">
-              <button data-val="haiku">Haiku</button>
-              <button data-val="sonnet" class="active">Sonnet</button>
-              <button data-val="opus">Opus</button>
-            </div>
-          </div>
-          <div class="cfg-row sub" id="row-west-router" hidden>
-            <label>Model</label>
-            <div id="cfg-west-router" class="router-select"></div>
-            <input type="text" id="cfg-west-router-id" class="router-id" placeholder="publisher/model" spellcheck="false" autocomplete="off" hidden />
-          </div>
-          <div class="cfg-row">
-            <label class="east-text">East</label>
-            <div class="seg" id="cfg-opponent">
-              <button data-val="none" class="active">Rules</button>
-              <button data-val="llm">LLM</button>
-              <button data-val="jev+llm" title="The LLM plans; Jev, a decision model, acts for each hero every few seconds">LLM + Jev</button>
-              <button data-val="snap+llm" title="The LLM plans; SubQ Snap, a decision model, acts for each hero every few seconds">LLM + Snap</button>
-            </div>
-          </div>
-          <div class="cfg-row sub" id="row-east-provider" hidden>
-            <label>LLM via</label>
-            <div class="seg" id="cfg-east-provider">
-              <button data-val="claude" class="active" title="Claude through the Agent SDK and your own Claude login">Claude</button>
-              <button data-val="openrouter" title="Any company's model through OpenRouter (the AI server needs an OpenRouter key)">OpenRouter</button>
-            </div>
-          </div>
-          <div class="cfg-row sub" id="row-east-model" hidden>
-            <label>Model</label>
-            <div class="seg" id="cfg-east-model">
-              <button data-val="haiku">Haiku</button>
-              <button data-val="sonnet" class="active">Sonnet</button>
-              <button data-val="opus">Opus</button>
-            </div>
-          </div>
-          <div class="cfg-row sub" id="row-east-router" hidden>
-            <label>Model</label>
-            <div id="cfg-east-router" class="router-select"></div>
-            <input type="text" id="cfg-east-router-id" class="router-id" placeholder="publisher/model" spellcheck="false" autocomplete="off" hidden />
-          </div>
-          <div class="cfg-row" id="row-timing" hidden>
-            <label>AI timing</label>
-            <div class="seg" id="cfg-timing">
-              <button data-val="realtime" class="active">Real-time</button>
-              <button data-val="paused">Paused</button>
-            </div>
-          </div>
-          <div class="cfg-row">
-            <label>Replay</label>
-            <div class="seg" id="cfg-replay">
-              <button data-val="on" class="active" title="Keep a replay of the match to watch again or download at the end">Record</button>
-              <button data-val="off" title="No replay (saves memory in very long or large matches)">Off</button>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div class="menu-actions">
-        <button id="menu-continue" class="btn" hidden title="Back to the current run (Esc)">Continue</button>
-        <button id="menu-start" class="btn btn-primary">Start</button>
-        <button id="menu-instructions" class="btn btn-quiet">Controls</button>
-        <button id="menu-replay" class="btn btn-quiet" title="Open a replay file (.replay) and watch it">Watch a replay</button>
-        <input id="menu-replay-file" type="file" accept=".replay" hidden>
       </div>
     </div>
-  </div>
 
-  <!-- Building simulation (shown after Start) -->
-  <div id="loading-overlay" class="overlay">
-    <div class="loading-card panel">
-      <h2>Building simulation</h2>
-      <div id="loading-units">
-        <div id="loading-warrior" class="loading-unit"></div>
-        <div id="loading-berserker" class="loading-unit"></div>
+    <!-- Building simulation (shown after Start) -->
+    <div id="loading-overlay" class="overlay">
+      <div class="loading-card panel">
+        <h2>Building simulation</h2>
+        <div id="loading-units">
+          <div id="loading-warrior" class="loading-unit"></div>
+          <div id="loading-berserker" class="loading-unit"></div>
+        </div>
+        <div id="loading-step"></div>
+        <div id="loading-bar" class="bar"><i id="loading-fill"></i></div>
+        <div id="loading-hint" class="faint">click to skip</div>
       </div>
-      <div id="loading-step"></div>
-      <div id="loading-bar" class="bar"><i id="loading-fill"></i></div>
-      <div id="loading-hint" class="faint">click to skip</div>
     </div>
-  </div>
 
-  <!-- Controls -->
-  <div id="instructions-overlay" class="overlay">
-    <div class="help-card panel">
-      <h2>Controls</h2>
-      <table id="help-table"></table>
-      <button id="btn-close-instructions" class="btn">Close</button>
+    <!-- Controls -->
+    <div id="instructions-overlay" class="overlay">
+      <div class="help-card panel">
+        <h2>Controls</h2>
+        <table id="help-table"></table>
+        <button id="btn-close-instructions" class="btn">Close</button>
+      </div>
     </div>
-  </div>
 
-  <script type="module" src="/src/main.ts"></script>
-</body>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
 </html>

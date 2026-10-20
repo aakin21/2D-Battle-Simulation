@@ -379,18 +379,6 @@
   color: #8fd18a;
 }
 
-.ai-layer {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 6px;
-  margin-top: 4px;
-}
-
-.ai-name {
-  color: var(--wood-light);
-}
-
 .stance {
   padding: 0 4px 1px;
   border: 2px solid var(--ink);
@@ -416,31 +404,11 @@
   margin-top: 2px;
 }
 
-/* The order running now: one line, whose it is, since when, the tactical layer agreeing */
-.ai-order {
-  margin-top: 2px;
-  overflow-wrap: anywhere;
-}
-
-.ai-cmd {
-  color: var(--text);
-}
-
 .ai-agree {
   color: #8fd18a;
   white-space: nowrap;
 }
 
-/* What the tactical layer said, on one line (the tooltip has it all) */
-.ai-tac {
-  margin-top: 3px;
-  color: var(--text-faint);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.ai-orders,
 .ai-hero {
   color: var(--text-dim);
 }

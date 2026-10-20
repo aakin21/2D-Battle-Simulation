@@ -1,6 +1,6 @@
 import {
   IBattlefield,
-  IHero,
+  IUnit,
   TerrainType,
   UnitType,
   Faction,
@@ -10,18 +10,25 @@ import {
   GRID_SIZE,
 } from '../types/types';
 import { CONTROL_RADIUS, BASE_RADIUS } from '../engine/Rules';
-import { SIDE_HEX, SIDE_RGB } from './SideColors';
+import { SIDE_HEX, SIDE_RGB, hexToRgb } from './SideColors';
 
 // Minimap: terrain and units at one pixel per tile, drawn into a small layer that is scaled
 // up by whole pixels, with control points, bases, heroes and the main view's rectangle on top.
 
 // Marker colours by Faction: SIDE_RGB and SIDE_HEX (SideColors.ts); this one for no holder
 const NEUTRAL_RGB = '232, 224, 208';
+// Control point colours: by Faction, then the neutral one (index 2) for no holder
+const POINT_RGB = [...SIDE_RGB, NEUTRAL_RGB];
+const POINT_FILL = POINT_RGB.map((rgb) => `rgba(${rgb}, 0.25)`);
+const POINT_LINE = POINT_RGB.map((rgb) => `rgb(${rgb})`);
+const BASE_FILL = SIDE_RGB.map((rgb) => `rgb(${rgb})`);
 const WHITE: [number, number, number] = [255, 255, 255];
-// Soldier pixel colours by unit type, parsed once
-const UNIT_RGB = new Map<UnitType, [number, number, number]>(
-  [UnitType.WARRIOR, UnitType.BERSERKER].map((t) => [t, hexToRgb(UNIT_COLORS[UnitType[t]])])
-);
+// Soldier pixel colours indexed by UnitType, parsed once (heroes have markers instead)
+const UNIT_RGB: Array<[number, number, number]> = [
+  hexToRgb(UNIT_COLORS.WARRIOR),
+  WHITE,
+  hexToRgb(UNIT_COLORS.BERSERKER),
+];
 
 export class MinimapRenderer {
   private canvas: HTMLCanvasElement;
@@ -36,6 +43,8 @@ export class MinimapRenderer {
   private layerCtx: CanvasRenderingContext2D;
   // Reused ImageData — allocated once, updated each frame
   private imageData: ImageData;
+  // This frame's heroes, in the order of the unit list (reused array)
+  private heroes: IUnit[] = [];
 
   // Cached terrain RGBA bytes — rebuilt on reset and when the terrain art changes
   private terrainPixels: Uint8ClampedArray | null = null;
@@ -93,17 +102,24 @@ export class MinimapRenderer {
     const data = this.imageData.data;
     data.set(this.terrainPixels);
 
-    // Paint soldiers as single pixels on top; heroes get markers below
-    for (const unit of battlefield.units) {
-      if (unit.unitType === UnitType.HERO) continue;
+    // Paint soldiers as single pixels on top; heroes are kept for their markers below
+    const units = battlefield.units;
+    const heroes = this.heroes;
+    heroes.length = 0;
+    for (let n = 0; n < units.length; n++) {
+      const unit = units[n];
+      if (unit.unitType === UnitType.HERO) {
+        heroes.push(unit);
+        continue;
+      }
       const x = Math.floor(unit.position.x);
       const y = Math.floor(unit.position.y);
       if (x < 0 || x >= GRID_SIZE || y < 0 || y >= GRID_SIZE) continue;
-      const [r, g, b] = UNIT_RGB.get(unit.unitType) ?? WHITE;
+      const rgb = UNIT_RGB[unit.unitType] ?? WHITE;
       const i = (y * GRID_SIZE + x) * 4;
-      data[i] = r;
-      data[i + 1] = g;
-      data[i + 2] = b;
+      data[i] = rgb[0];
+      data[i + 1] = rgb[1];
+      data[i + 2] = rgb[2];
       data[i + 3] = 255;
     }
     this.layerCtx.putImageData(this.imageData, 0, 0);
@@ -119,7 +135,7 @@ export class MinimapRenderer {
     const o = battlefield.objective;
     ctx.lineWidth = 2;
     for (const p of o.points) {
-      const rgb = p.holder === null ? NEUTRAL_RGB : SIDE_RGB[p.holder];
+      const c = p.holder === null ? 2 : p.holder;
       ctx.beginPath();
       ctx.arc(
         (p.position.x + 0.5) * s,
@@ -128,16 +144,16 @@ export class MinimapRenderer {
         0,
         Math.PI * 2
       );
-      ctx.fillStyle = `rgba(${rgb}, 0.25)`;
+      ctx.fillStyle = POINT_FILL[c];
       ctx.fill();
-      ctx.strokeStyle = `rgb(${rgb})`;
+      ctx.strokeStyle = POINT_LINE[c];
       ctx.stroke();
     }
     for (const b of o.bases) {
       const half = BASE_RADIUS * s;
       const cx = (b.position.x + 0.5) * s;
       const cy = (b.position.y + 0.5) * s;
-      ctx.fillStyle = b.hp > 0 ? `rgb(${SIDE_RGB[b.faction]})` : '#555';
+      ctx.fillStyle = b.hp > 0 ? BASE_FILL[b.faction] : '#555';
       ctx.fillRect(cx - half, cy - half, half * 2, half * 2);
       ctx.strokeStyle = '#131b1b';
       ctx.strokeRect(cx - half, cy - half, half * 2, half * 2);
@@ -145,9 +161,7 @@ export class MinimapRenderer {
 
     // Heroes: outlined squares in their side's colour
     const heroSize = Math.max(5, s * 3);
-    for (const unit of battlefield.units) {
-      if (unit.unitType !== UnitType.HERO) continue;
-      const hero = unit as IHero;
+    for (const hero of heroes) {
       const cx = hero.position.x * s;
       const cy = hero.position.y * s;
       ctx.fillStyle = '#131b1b';
@@ -170,9 +184,4 @@ export class MinimapRenderer {
     this.terrainPixels = null;
     // imageData object itself is reused — only terrain cache cleared
   }
-}
-
-function hexToRgb(hex: string): [number, number, number] {
-  const n = parseInt(hex.replace('#', ''), 16);
-  return [(n >> 16) & 0xff, (n >> 8) & 0xff, n & 0xff];
 }

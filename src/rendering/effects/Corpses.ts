@@ -12,8 +12,8 @@ import {
 
 // Death animation: the unit "falls" (its square tips over to a random angle and
 // darkens), the body lies for a while, then fades out. Times are in simulation seconds.
-// When zoomed in far enough for unit sprites, the corpse is the sprite's own "dead"
-// frame instead: the living frame crossfades into a darkened dead frame.
+// When units are drawn as sprites (FX on, sprites loaded), the corpse is the sprite's own
+// "dead" frame instead: the living frame crossfades into a darkened dead frame.
 const FALL_TIME = 0.4;
 const CORPSE_LIFE = 5;
 const FADE_TIME = 1.5; // last part of CORPSE_LIFE spent fading out
@@ -69,9 +69,9 @@ export class Corpses {
     age: 0,
     tilt: 0,
   }));
-  // Unit sprite sheets, used for corpses when zoomed in (set by the renderer)
+  // Unit sprite sheets, used for corpses in sprite mode (set by the renderer)
   private unitSprites: UnitSprites | null = null;
-  // Decided by the renderer per frame (FX on, sprites loaded, zoom)
+  // Decided by the renderer per frame (FX on and sprites loaded)
   private spriteMode: boolean = false;
   // [unitType][tiltIndex], built by prepare() (needs a DOM)
   private sprites: HTMLCanvasElement[][] | null = null;
@@ -135,7 +135,7 @@ export class Corpses {
     this.prepare();
     const sprites = this.sprites!;
     const { x: camX, y: camY, zoom } = camera;
-    // Same square size as living units in Renderer.drawUnits
+    // Same square size as living units in UnitLayer (FX off or sprites not loaded)
     const size = Math.max(3, zoom * 2);
     const half = size / 2;
     // On-screen size of the sprite canvas (which has padding for the rotation)
@@ -147,16 +147,17 @@ export class Corpses {
     const prevSmoothing = ctx.imageSmoothingEnabled;
     ctx.imageSmoothingEnabled = true;
 
-    this.pool.forEach((c) => {
+    for (let i = 0; i < this.pool.size; i++) {
+      const c = this.pool.at(i);
       const cx = (c.x - camX) * zoom;
       const cy = (c.y - camY) * zoom;
-      if (cx + reach < 0 || cx - reach > width || cy + reach < 0 || cy - reach > height) return;
+      if (cx + reach < 0 || cx - reach > width || cy + reach < 0 || cy - reach > height) continue;
 
       if (c.age >= FALL_TIME) {
         // Lying (most corpses): a pre-rendered sprite, faded near the end of its life
         ctx.globalAlpha = c.age < fadeStart ? 1 : 1 - (c.age - fadeStart) / FADE_TIME;
         ctx.drawImage(sprites[c.unitType][c.tilt], cx - reach, cy - reach, d, d);
-        return;
+        continue;
       }
 
       // Falling (few at a time): square tips over toward its final angle and the
@@ -172,7 +173,7 @@ export class Corpses {
       ctx.globalAlpha = 1 - t;
       ctx.fillStyle = UNIT_COLORS[name];
       ctx.fill();
-    });
+    }
 
     ctx.globalAlpha = 1;
     ctx.imageSmoothingEnabled = prevSmoothing;
@@ -190,10 +191,11 @@ export class Corpses {
     const half = size / 2;
     const fadeStart = CORPSE_LIFE - FADE_TIME;
 
-    this.pool.forEach((c) => {
+    for (let i = 0; i < this.pool.size; i++) {
+      const c = this.pool.at(i);
       const sx = (c.x - camX) * zoom - half;
       const sy = (c.y - camY) * zoom - half;
-      if (sx + size < 0 || sx > width || sy + size < 0 || sy > height) return;
+      if (sx + size < 0 || sx > width || sy + size < 0 || sy > height) continue;
 
       const set = sprites.get(c.unitType, c.faction, Math.max(0, c.heroIndex - 1));
       if (c.age < FALL_TIME) {
@@ -208,7 +210,7 @@ export class Corpses {
         ctx.globalAlpha = c.age < fadeStart ? 1 : 1 - (c.age - fadeStart) / FADE_TIME;
         ctx.drawImage(set.dark, 0, ROW_DEAD * FRAME, FRAME, FRAME, sx, sy, size, size);
       }
-    });
+    }
     ctx.globalAlpha = 1;
   }
 }

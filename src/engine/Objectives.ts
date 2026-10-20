@@ -64,9 +64,14 @@ export function damageBases(sm: StateManager, units: IUnit[], dt: number): void 
   const bases = sm.getBattlefield().objective.bases;
   if (bases.length === 0) return;
   const reach = BASE_RADIUS + COMBAT_RANGE;
+  // The base each side attacks: the first one not its own
+  const against = [
+    bases.find((b) => b.faction !== Faction.FRIENDLY),
+    bases.find((b) => b.faction !== Faction.ENEMY),
+  ];
   for (const u of units) {
     if (u.hp <= 0 || u.state !== BehaviorState.IDLE) continue;
-    const base = bases.find((b) => b.faction !== u.faction);
+    const base = against[u.faction];
     if (!base || base.hp <= 0) continue;
     const dx = base.position.x + 0.5 - u.position.x;
     const dy = base.position.y + 0.5 - u.position.y;

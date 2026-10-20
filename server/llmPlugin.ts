@@ -24,7 +24,7 @@ type Model = ClaudeModel;
 // Each alias runs a pinned model of one generation (D44). The CLI's own aliases are not used:
 // its "haiku" ran Haiku 4.5, an older generation than Sonnet and Opus 5.5, and much slower here
 // (35–70 s per answer against 4–12 s for Opus), and an alias can change without notice.
-export const MODEL_IDS: Record<Model, string> = {
+const MODEL_IDS: Record<Model, string> = {
   haiku: 'claude-haiku-5-5',
   sonnet: 'claude-sonnet-5-5',
   opus: 'claude-opus-5-5',
@@ -108,14 +108,6 @@ class Session implements LlmSession {
   private waiting: Array<{ resolve: (answer: Answer) => void; reject: (err: Error) => void }> = [];
   private costSoFar = 0;
   private apiMsSoFar = 0;
-
-  // duration_api_ms is the session's running total; one answer's share is the difference
-  private apiDelta(total: number | null): number | null {
-    if (total === null || total < this.apiMsSoFar) return null;
-    const delta = total - this.apiMsSoFar;
-    this.apiMsSoFar = total;
-    return delta;
-  }
   private q: Query;
 
   constructor(
@@ -212,6 +204,14 @@ class Session implements LlmSession {
       turns: num(message.num_turns),
       modelIds: Object.keys(message.modelUsage ?? {}),
     };
+  }
+
+  // duration_api_ms is the session's running total; one answer's share is the difference
+  private apiDelta(total: number | null): number | null {
+    if (total === null || total < this.apiMsSoFar) return null;
+    const delta = total - this.apiMsSoFar;
+    this.apiMsSoFar = total;
+    return delta;
   }
 
   // A session that can still answer; otherwise the next request opens a new one
@@ -363,7 +363,8 @@ class OpenRouterSession implements LlmSession {
 
 const sessions = new Map<string, LlmSession>();
 
-// Reached through the tunnel too (D37), so requests are bounded: a report is ~10 KB.
+// Reached through the tunnel too (D37), so requests are bounded (in characters of the body
+// text): a request is ~20 KB, half of it the rulebook, half the report.
 const MAX_BODY_BYTES = 1_000_000;
 const SIDES = ['west', 'east'];
 

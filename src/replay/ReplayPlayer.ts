@@ -10,13 +10,13 @@ import {
 } from '../types/types';
 import { clock } from '../ui/format';
 import { icon } from '../ui/icons';
-import { POS_SCALE, Replay, ReplayFrame } from './Replay';
+import { PANEL_SELECTORS, POS_SCALE, Replay, ReplayFrame } from './Replay';
 
 // Plays a Replay: builds the battlefield for the replay's current time (positions between two
 // frames are interpolated) for the renderer and the minimap, puts the side panels back as they
 // were at that time, and drives the replay bar (play, pause, speed, seek, exit).
 
-export const REPLAY_SPEEDS = [0.5, 1, 2, 4, 8] as const;
+const REPLAY_SPEEDS = [0.5, 1, 2, 4, 8] as const;
 
 type ReplayUnitObject = IHero; // soldiers use the unit part only
 
@@ -260,14 +260,7 @@ export class ReplayPlayer {
       document.getElementById('side-panel')!.classList.toggle('ai-two', layout.two);
       return;
     }
-    const selector: Record<string, string> = {
-      banner: '#match-banner',
-      armies: '#armies-body',
-      armiesTitle: '#armies-title',
-      west: '#ai-col-west .ai-col-main',
-      east: '#ai-col-east .ai-col-main',
-    };
-    const el = document.querySelector<HTMLElement>(selector[key] ?? '');
+    const el = document.querySelector<HTMLElement>(PANEL_SELECTORS[key] ?? '');
     if (!el) return;
     el.innerHTML = html;
     // Long LLM texts the viewer opened in the replay stay open

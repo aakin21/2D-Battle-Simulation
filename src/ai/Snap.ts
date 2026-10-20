@@ -5,7 +5,7 @@
 // a question's instructions are one text. Also used by the shadow comparison script that
 // resends logged Jev requests to Snap (tests/smoke/tools/shadow-snap.ts, outside the repository).
 
-export const SNAP_MODEL = 'subq-snap-preview';
+const SNAP_MODEL = 'subq-snap-preview';
 export const SNAP_MAX_QUESTIONS = 16; // per request (Snap's API reference)
 
 interface JevQuestion {

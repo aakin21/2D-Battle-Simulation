@@ -23,6 +23,8 @@ const POS_MIN = 0.5;
 const POS_MAX = GRID_SIZE - 0.5;
 // A unit this close to a tile's centre is at (or next to) that tile
 export const NEAR_TILE_DISTANCE = 1.5;
+// nearestReachableTile looks this many tiles around the target (Chebyshev rings) before giving up
+const REACHABLE_SEARCH_TILES = 40;
 
 export function terrainSpeed(terrain: TerrainType): number {
   return terrain === TerrainType.MOUNTAIN
@@ -40,28 +42,13 @@ export function effectiveSight(sm: StateManager, unit: IUnit): number {
 }
 
 // Nearest living enemy within the unit's sight. Uses the fast ring search (D31); only
-// when several enemies are at exactly the same distance does it fall back to the full scan
-// below, whose order picks the same enemy as the original code.
+// when several enemies are at exactly the same distance does it fall back to the full scan,
+// whose order picks the same enemy as the original code.
 export function findNearestEnemy(sm: StateManager, unit: IUnit): IUnit | null {
+  const { x, y } = unit.position;
   const sight = effectiveSight(sm, unit);
-  const fast = sm.nearestEnemyInRadius(unit.position.x, unit.position.y, sight, unit.faction);
-  if (!sm.wasNearestTied()) return fast;
-
-  let nearest: IUnit | null = null;
-  let minDist2 = Infinity;
-
-  sm.forEachInRadius(unit.position.x, unit.position.y, sight, (other) => {
-    if (other.faction === unit.faction || other.hp <= 0) return;
-    const dx = other.position.x - unit.position.x;
-    const dy = other.position.y - unit.position.y;
-    const d2 = dx * dx + dy * dy;
-    if (d2 < minDist2) {
-      minDist2 = d2;
-      nearest = other;
-    }
-  });
-
-  return nearest;
+  const fast = sm.nearestEnemyInRadius(x, y, sight, unit.faction);
+  return sm.wasNearestTied() ? sm.nearestEnemyByScan(x, y, sight, unit.faction) : fast;
 }
 
 // D55: the enemy an attack or lead order goes for: the nearest enemy in the hero's sight, or,
@@ -141,7 +128,7 @@ export function enemyPositionSum(
 // tile of the map's main walkable region instead.
 export function nearestReachableTile(sm: StateManager, target: Position): Position {
   const t = tileOf(target);
-  for (let r = 0; r <= 40; r++) {
+  for (let r = 0; r <= REACHABLE_SEARCH_TILES; r++) {
     for (let dy = -r; dy <= r; dy++) {
       for (let dx = -r; dx <= r; dx++) {
         if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
@@ -153,6 +140,26 @@ export function nearestReachableTile(sm: StateManager, target: Position): Positi
     }
   }
   return t;
+}
+
+// Battle mode: whether a step (or a push) from (ox, oy) to (nx, ny) is allowed: it stays on its
+// tile, or ends on a tile the pathfinder can use in the same walkable region. Regions join through
+// tile edges, while a step can cross the corner where two mountain buffers meet: that put units
+// into pockets no path reaches, and whole armies then stood in front of them (CASES 14.x).
+export function canStep(
+  grid: TerrainType[][],
+  ox: number,
+  oy: number,
+  nx: number,
+  ny: number
+): boolean {
+  const fx = Math.floor(ox);
+  const fy = Math.floor(oy);
+  const tx = Math.floor(nx);
+  const ty = Math.floor(ny);
+  if (tx === fx && ty === fy) return true;
+  if (Pathfinder.isBlocked(grid, tx, ty)) return false;
+  return Pathfinder.sameRegion(grid, fx, fy, tx, ty);
 }
 
 // A fleeing soldier looks this far ahead (or one flight step, if longer) for a blocked way

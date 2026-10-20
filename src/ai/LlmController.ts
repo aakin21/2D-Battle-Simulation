@@ -1,46 +1,21 @@
 import { SimulationEngine } from '../engine/SimulationEngine';
 import { StateManager } from '../state/StateManager';
-import {
-  positionToSector,
-  positionToSubsector,
-  sectorTarget,
-  SECTORS_PER_SIDE,
-  SECTOR_SIZE,
-} from '../engine/Sectors';
-import {
-  Faction,
-  IHero,
-  HeroCommand,
-  BehaviorState,
-  TerrainType,
-  UnitType,
-  LlmModel,
-} from '../types/types';
+import { Faction, IHero, BehaviorState, LlmModel } from '../types/types';
 import { llmSystemPrompt } from './GameRules';
 import { LLM_TIMEOUT_MS } from './Limits';
-import {
-  armyHp,
-  exactPlace,
-  formatRatio,
-  groupStats,
-  localForce,
-  objectivePlaces,
-  wayToObjectives,
-} from './Observations';
-import { strayClusters } from '../engine/Strays';
-import { enemyBase, pointCounts, wholePoints } from '../engine/Objectives';
-import { opponent, sideName } from '../engine/Sides';
+import { hpPercent } from './Observations';
+import { sideName } from '../engine/Sides';
 import { aiEndpoint, aiHeaders, deniedByAiServer, transientStatus } from './AiServer';
 import { AiLayer } from './AiLayer';
 import { startExchange } from './Exchange';
-
-const MAX_STRAY_CLUSTERS = 5;
-const MAX_REASON = 300; // characters of an order's reason that are kept
+import { describeCommand } from './Describe';
+import { buildReport, type ReportMemory } from './LlmReport';
+import { readOrder, readReply, usageOf } from './LlmReply';
 
 // Layer 3 (D1, D10): the LLM plans the overall strategy every 15 s (D50) from a computed summary
 // of the whole map (D16, R5). It runs in the dev server through the Claude Agent SDK.
 
-export type Stance = 'aggressive' | 'defensive' | 'regroup';
+type Stance = 'aggressive' | 'defensive' | 'regroup';
 
 export interface LlmDecision {
   time: number; // simulation time when the request was sent
@@ -65,26 +40,6 @@ export interface LlmUsage {
   cacheWriteTokens: number | null;
   apiMs: number | null; // time in API calls, part of latencyMs
   modelIds: string[]; // the full model ids behind the menu's alias
-}
-
-function usageOf(body: Record<string, unknown> | null): LlmUsage | null {
-  if (!body) return null;
-  const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
-  const ids = Array.isArray(body.modelIds)
-    ? body.modelIds.filter((m) => typeof m === 'string')
-    : [];
-  const usage: LlmUsage = {
-    costUsd: num(body.costUsd),
-    inputTokens: num(body.inputTokens),
-    outputTokens: num(body.outputTokens),
-    cacheReadTokens: num(body.cacheReadTokens),
-    cacheWriteTokens: num(body.cacheWriteTokens),
-    apiMs: num(body.apiMs),
-    modelIds: ids as string[],
-  };
-  return Object.values(usage).some((v) => v !== null && !(Array.isArray(v) && v.length === 0))
-    ? usage
-    : null;
 }
 
 // What Jev reports upward about one hero (R5: lower layers report to the commander).
@@ -117,15 +72,6 @@ const DEFAULTS: LlmOptions = {
   timeoutMs: LLM_TIMEOUT_MS,
 };
 
-interface RawOrder {
-  reason?: unknown;
-  hero?: unknown;
-  command?: unknown;
-  place?: unknown;
-  sector?: unknown;
-  target_hero?: unknown;
-}
-
 export class LlmController extends AiLayer {
   protected opts: LlmOptions;
   protected readonly nextAsk = 'report';
@@ -137,10 +83,9 @@ export class LlmController extends AiLayer {
   readonly system: string; // the rulebook sent as the session's system prompt
   readonly decisions: LlmDecision[] = [];
 
-  // Memory between reports
-  private lastForceRatio: number | null = null;
-  private lastFollowers = new Map<number, number>();
-  private lastSoldiers: { yours: number; enemy: number } | null = null;
+  // Memory between reports: what the last report the LLM saw counted, and the hero events
+  // noted since
+  private counted: ReportMemory = { forceRatio: null, soldiers: null, followers: new Map() };
   private events: string[] = [];
   private heroAlive = new Map<string, IHero>();
   private heroFleeing = new Set<string>();
@@ -174,33 +119,42 @@ export class LlmController extends AiLayer {
   }
 
   // Notes hero deaths and survival-reflex retreats as they happen, for the next report.
+  // Runs every step: the list of heroes is only copied when it has changed.
   private watchEvents(elapsed: number): void {
     const t = Math.round(elapsed);
-    const current = new Map(this.stateManager.getHeroes().map((h) => [h.id, h]));
-    for (const [id, h] of this.heroAlive) {
-      if (!current.has(id))
-        this.events.push(`t=${t}s ${this.owner(h)} hero ${h.heroIndex} was killed`);
+    const heroes = this.stateManager.getHeroes();
+    if (!this.sameHeroes(heroes)) {
+      const current = new Map(heroes.map((h) => [h.id, h]));
+      for (const [id, h] of this.heroAlive) {
+        if (!current.has(id))
+          this.events.push(`t=${t}s ${this.owner(h)} hero ${h.heroIndex} was killed`);
+      }
+      this.heroAlive = current;
     }
-    for (const h of current.values()) {
+    for (const h of this.heroAlive.values()) {
       const fleeing = h.state === BehaviorState.FLEE;
       if (fleeing && !this.heroFleeing.has(h.id)) {
         this.events.push(
-          `t=${t}s ${this.owner(h)} hero ${h.heroIndex} started retreating (survival reflex, ${this.pct(h)}% HP)`
+          `t=${t}s ${this.owner(h)} hero ${h.heroIndex} started retreating (survival reflex, ${hpPercent(h)}% HP)`
         );
         this.heroFleeing.add(h.id);
       } else if (!fleeing) this.heroFleeing.delete(h.id);
     }
-    this.heroAlive = current;
+  }
+
+  // The heroes are the ones seen at the last step, in the same order (none has died or come)
+  private sameHeroes(heroes: IHero[]): boolean {
+    if (heroes.length !== this.heroAlive.size) return false;
+    let i = 0;
+    for (const h of this.heroAlive.values()) if (heroes[i++] !== h) return false;
+    return true;
   }
 
   private owner(h: IHero): string {
     return h.faction === this.faction ? 'your' : 'enemy';
   }
 
-  private pct(h: IHero): number {
-    return Math.round((100 * h.hp) / h.maxHp);
-  }
-
+  // The heroes this layer commands (AiLayer.ownHeroes)
   private myHeroes(): IHero[] {
     return this.ownHeroes();
   }
@@ -266,7 +220,7 @@ export class LlmController extends AiLayer {
     latencyMs: number,
     text: string,
     model: string,
-    usage: LlmUsage | null = null
+    usage: LlmUsage | null
   ): void {
     const d: LlmDecision = {
       usage,
@@ -283,391 +237,40 @@ export class LlmController extends AiLayer {
     };
     this.decisions.push(d);
 
-    let parsed: Record<string, unknown>;
-    try {
-      parsed = JSON.parse(text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1));
-    } catch {
-      d.rejected.push('reply was not valid JSON');
-      return;
-    }
-    const str = (v: unknown) => (typeof v === 'string' ? v : '');
-    d.situation = str(parsed.situation);
-    d.change = str(parsed.change);
-    d.plan = str(parsed.plan);
-    const stance = str(parsed.stance);
-    if (stance === 'aggressive' || stance === 'defensive' || stance === 'regroup')
-      d.stance = stance;
-    else d.rejected.push(`unknown stance ${stance || '(none)'}`);
-
-    if (!Array.isArray(parsed.orders)) {
-      d.rejected.push('no "orders" list');
-      return;
-    }
-    for (const entry of parsed.orders as unknown[]) {
-      // One malformed entry must not stop the layer: skip it with a reason
-      if (!entry || typeof entry !== 'object') {
-        d.rejected.push(`order is not an object: ${JSON.stringify(entry)}`);
+    const orders = readReply(text, d);
+    if (!orders) return;
+    for (const entry of orders) {
+      const order = readOrder(this.stateManager, this.myHeroes(), entry);
+      if (typeof order === 'string') {
+        d.rejected.push(order);
         continue;
       }
-      const raw = entry as RawOrder;
-      const hero = this.myHeroes().find((h) => h.heroIndex === Number(raw.hero));
-      if (!hero) {
-        d.rejected.push(`unknown or dead hero ${String(raw.hero)}`);
-        continue;
-      }
-      const parsed = this.toCommand(hero, raw);
-      if (typeof parsed === 'string') {
-        d.rejected.push(`hero ${hero.heroIndex}: ${parsed}`);
-        continue;
-      }
-      // The order's reason travels with it: Jev reads it, the panel and the log show it
-      const reason = typeof raw.reason === 'string' ? raw.reason.trim().slice(0, MAX_REASON) : '';
-      const command: HeroCommand = reason ? { ...parsed, reason } : parsed;
+      const { hero, command, reason } = order;
       // Always issued, even if unchanged: the LLM's latest order wins when it arrives (D15).
       this.engine.issueCommand(hero, command, 'llm');
       d.orders.push(
-        `hero ${hero.heroIndex}: ${this.describe(command)}${reason ? ` (${reason})` : ''}`
+        `hero ${hero.heroIndex}: ${describeCommand(command, 'llm')}${reason ? ` (${reason})` : ''}`
       );
     }
   }
 
-  // Returns a command, or a reason why the order cannot be used.
-  private toCommand(hero: IHero, raw: RawOrder): HeroCommand | string {
-    // Written by the model: case and outer spaces do not matter ("Move", " regroup ")
-    const command =
-      typeof raw.command === 'string' ? raw.command.trim().toLowerCase() : raw.command;
-    switch (command) {
-      case 'move': {
-        const place = typeof raw.place === 'string' ? raw.place : raw.sector;
-        // "A", or "point A" as the report names it (way_to_objectives)
-        const pointName =
-          typeof place === 'string'
-            ? place
-                .trim()
-                .toUpperCase()
-                .replace(/^POINT\s+/, '')
-            : '';
-        const point = this.stateManager
-          .getBattlefield()
-          .objective.points.find((p) => p.name === pointName);
-        const target = point
-          ? point.position
-          : typeof place === 'string'
-            ? sectorTarget(place)
-            : null;
-        return target ? { type: 'move', target } : `invalid place ${String(place)}`;
-      }
-      case 'hold':
-        return {
-          type: 'hold',
-          at: { x: Math.floor(hero.position.x), y: Math.floor(hero.position.y) },
-        };
-      case 'retreat':
-        return { type: 'retreat' };
-      case 'attack':
-        return { type: 'attack' };
-      case 'lead':
-        return { type: 'lead' };
-      case 'regroup':
-        return { type: 'regroup' };
-      case 'attack_base':
-        return enemyBase(this.stateManager, hero.faction)
-          ? { type: 'attackBase' }
-          : 'there is no enemy base in this mode';
-      case 'attack_hero': {
-        const index = Number(raw.target_hero);
-        const alive = this.stateManager
-          .getHeroes()
-          .some((h) => h.faction !== hero.faction && h.heroIndex === index && h.hp > 0);
-        return alive
-          ? { type: 'attackHero', heroIndex: index }
-          : `enemy hero ${String(raw.target_hero)} does not exist or is dead`;
-      }
-      default:
-        return `unknown command ${String(raw.command)}`;
-    }
-  }
-
-  // The whole battlefield as computed values (R5, D26).
+  // The whole battlefield as computed values (LlmReport.ts). What the next report compares
+  // with is kept only once this report has reached the LLM (remember() is called when its
+  // answer arrives): after a failed request the next report still carries these events and
+  // counts its changes from the last report the LLM saw.
   private report(time: number): { report: Record<string, unknown>; remember: () => void } {
-    const sm = this.stateManager;
-    const mine = (f: Faction) => f === this.faction;
-    const heroes = sm.getHeroes().filter((h) => h.hp > 0);
-    const myGroups = groupStats(sm, this.faction);
-    const enemyFaction = opponent(this.faction);
-    const enemyGroups = groupStats(sm, enemyFaction);
-
-    // Armies and sectors: [count, sum of HP share, sum of courage, fleeing]
-    const perSector = new Map<string, { y: number[]; e: number[] }>();
-    const army = { yours: [0, 0, 0, 0], enemy: [0, 0, 0, 0] };
-    for (const u of sm.getBattlefield().units) {
-      if (u.hp <= 0 || u.unitType === UnitType.HERO) continue;
-      const a = mine(u.faction) ? army.yours : army.enemy;
-      a[0]++;
-      a[1] += u.hp / u.maxHp;
-      a[2] += u.courage;
-      if (u.state === BehaviorState.FLEE) a[3]++;
-      const key = positionToSector(u.position);
-      const cell = perSector.get(key) ?? { y: [0, 0, 0], e: [0, 0, 0] };
-      const c = mine(u.faction) ? cell.y : cell.e;
-      c[0]++;
-      c[1] += u.hp / u.maxHp;
-      c[2] += u.courage;
-      perSector.set(key, cell);
-    }
-    const avg = (sum: number, n: number, scale = 1) => (n ? Math.round((sum * scale) / n) : 0);
-    const hp = armyHp(sm);
-    const myHp = mine(Faction.FRIENDLY) ? hp.friendly : hp.enemy;
-    const enemyHp = mine(Faction.FRIENDLY) ? hp.enemy : hp.friendly;
-    const forceRatio = enemyHp > 0 ? myHp / enemyHp : Infinity;
-    const cellInfo = (c: number[]) =>
-      c[0]
-        ? { soldiers: c[0], avg_hp_percent: avg(c[1], c[0], 100), avg_courage: avg(c[2], c[0]) }
-        : 0;
-
-    const last = this.decisions[this.decisions.length - 1];
-    const objectives = objectivePlaces(sm, this.faction, 'your');
-    const report = {
-      time_seconds: Math.round(time),
-      your_previous_decision: last
-        ? { stance: last.stance, plan: last.plan, seconds_ago: Math.round(time - last.time) }
-        : 'none (first report)',
-      your_groups: heroes
-        .filter((h) => mine(h.faction))
-        .map((h) => {
-          const g = myGroups.get(h.id);
-          const jev = this.opts.jevAssessment?.(h.heroIndex);
-          const prev = this.lastFollowers.get(h.heroIndex);
-          return {
-            hero: h.heroIndex,
-            place: positionToSubsector(h.position),
-            hero_hp_percent: this.pct(h),
-            hero_status: this.status(h),
-            current_order: h.command
-              ? `${this.describe(h.command)} (from ${h.commandSource}${h.command.reason ? `: ${h.command.reason}` : ''})`
-              : 'none',
-            soldiers_following: g?.followers ?? 0,
-            soldiers_change_since_last_report:
-              prev === undefined ? 'n/a' : (g?.followers ?? 0) - prev,
-            soldiers_avg_hp_percent: g?.avgHpPercent ?? 0,
-            soldiers_avg_courage: g?.avgCourage ?? 0,
-            soldiers_fleeing: g?.fleeing ?? 0,
-            local_force_ratio: formatRatio(localForce(sm, h).ratio),
-            ...(objectives.length ? { way_to_objectives: wayToObjectives(h, objectives) } : {}),
-            ...(jev
-              ? {
-                  jev_recent_decisions: jev.recentDecisions,
-                  jev_surrounded_probability: jev.surrounded,
-                  jev_threat_0_to_3: jev.threat,
-                  jev_your_order_still_fits_probability: jev.orderStillFits,
-                }
-              : {}),
-          };
-        }),
-      enemy_groups: heroes
-        .filter((h) => !mine(h.faction))
-        .map((h) => {
-          const g = enemyGroups.get(h.id);
-          return {
-            hero: h.heroIndex,
-            place: positionToSubsector(h.position),
-            hero_hp_percent: this.pct(h),
-            hero_status: this.status(h),
-            soldiers_following: g?.followers ?? 0,
-            soldiers_avg_hp_percent: g?.avgHpPercent ?? 0,
-            soldiers_avg_courage: g?.avgCourage ?? 0,
-            soldiers_fleeing: g?.fleeing ?? 0,
-          };
-        }),
-      armies: {
-        your_soldiers: army.yours[0],
-        enemy_soldiers: army.enemy[0],
-        your_soldiers_lost_since_last_report: this.lastSoldiers
-          ? this.lastSoldiers.yours - army.yours[0]
-          : 'n/a',
-        enemy_soldiers_lost_since_last_report: this.lastSoldiers
-          ? this.lastSoldiers.enemy - army.enemy[0]
-          : 'n/a',
-        your_avg_hp_percent: avg(army.yours[1], army.yours[0], 100),
-        enemy_avg_hp_percent: avg(army.enemy[1], army.enemy[0], 100),
-        your_avg_courage: avg(army.yours[2], army.yours[0]),
-        enemy_avg_courage: avg(army.enemy[2], army.enemy[0]),
-        your_fleeing: army.yours[3],
-        enemy_fleeing: army.enemy[3],
-        force_ratio_total_hp: formatRatio(forceRatio),
-        force_ratio_at_last_report:
-          this.lastForceRatio === null ? 'n/a' : formatRatio(this.lastForceRatio),
-      },
-      your_stray_soldiers: this.strays(this.faction),
-      enemy_stray_soldiers: this.strays(enemyFaction),
-      events_since_last_report: this.events.length ? this.events : ['none'],
-      sectors: [...perSector.entries()]
-        .sort(([a], [b]) => a.localeCompare(b))
-        .map(([sector, c]) => ({
-          sector,
-          yours: cellInfo(c.y),
-          enemy: cellInfo(c.e),
-          control:
-            c.y[0] > 0 && c.y[0] >= 2 * c.e[0]
-              ? 'yours'
-              : c.e[0] > 0 && c.e[0] >= 2 * c.y[0]
-                ? 'enemy'
-                : 'contested',
-        })),
-      objective: this.objectiveReport(),
-      terrain_by_sector: this.terrainMap(),
-    };
-
-    // What the next report compares with, kept only once this report has reached the LLM
-    // (remember() is called when its answer arrives): after a failed request the next report
-    // still carries these events and counts its changes from the last report the LLM saw.
+    const { report, counted } = buildReport(this.stateManager, this.faction, {
+      time,
+      previous: this.decisions[this.decisions.length - 1],
+      memory: this.counted,
+      events: this.events,
+      jevAssessment: this.opts.jevAssessment,
+    });
     const sentEvents = this.events.length;
-    const followers = new Map(
-      heroes
-        .filter((h) => mine(h.faction))
-        .map((h) => [h.heroIndex, myGroups.get(h.id)?.followers ?? 0])
-    );
     const remember = () => {
-      this.lastForceRatio = forceRatio;
-      this.lastSoldiers = { yours: army.yours[0], enemy: army.enemy[0] };
-      this.lastFollowers = followers;
+      this.counted = counted;
       this.events.splice(0, sentEvents); // events noted while waiting stay for the next one
     };
     return { report, remember };
-  }
-
-  // D30: control points (holder, units near, scores, time left) or bases (HP, units near).
-  private objectiveReport(): unknown {
-    const bf = this.stateManager.getBattlefield();
-    const o = bf.objective;
-    const mineF = this.faction;
-    const secondsLeft =
-      o.timeLimit === null ? 'n/a' : Math.max(0, Math.round(o.timeLimit - bf.elapsedTime));
-    if (o.mode === 'control') {
-      const yours = mineF === Faction.FRIENDLY ? o.scores.friendly : o.scores.enemy;
-      const theirs = mineF === Faction.FRIENDLY ? o.scores.enemy : o.scores.friendly;
-      return {
-        mode: 'control points',
-        your_points: wholePoints(yours),
-        enemy_points: wholePoints(theirs),
-        seconds_left: secondsLeft,
-        points: o.points.map((p) => {
-          const c = pointCounts(this.stateManager, p);
-          return {
-            point: p.name,
-            place: exactPlace(p.position),
-            held_by: p.holder === null ? 'nobody' : p.holder === mineF ? 'you' : 'enemy',
-            // a side with the majority that does not hold it yet (CONTROL_CAPTURE_SECONDS)
-            ...(p.leader !== null && p.leader !== p.holder
-              ? { being_taken_by: p.leader === mineF ? 'you' : 'enemy' }
-              : {}),
-            your_units_near: mineF === Faction.FRIENDLY ? c.friendly : c.enemy,
-            enemy_units_near: mineF === Faction.FRIENDLY ? c.enemy : c.friendly,
-          };
-        }),
-      };
-    }
-    if (o.mode === 'base') {
-      const describe = (faction: Faction) => {
-        const b = o.bases.find((x) => x.faction === faction);
-        if (!b) return 'none';
-        let attackers = 0;
-        this.stateManager.forEachInRadius(b.position.x, b.position.y, 15, (u) => {
-          if (u.hp > 0 && u.faction !== faction) attackers++;
-        });
-        return {
-          place: exactPlace(b.position),
-          hp_percent: Math.round((100 * b.hp) / b.maxHp),
-          enemy_units_within_15_tiles: attackers,
-        };
-      };
-      const enemyF = opponent(mineF);
-      return {
-        mode: 'destroy the base',
-        seconds_left: secondsLeft,
-        your_base: describe(mineF),
-        enemy_base: describe(enemyF),
-      };
-    }
-    return { mode: 'elimination', seconds_left: secondsLeft };
-  }
-
-  // Stray soldiers as clusters (D28): the 5 largest, the rest summed up.
-  private strays(faction: Faction): unknown {
-    const clusters = strayClusters(this.stateManager, faction);
-    if (clusters.length === 0) return 'none';
-    const top = clusters.slice(0, MAX_STRAY_CLUSTERS).map((c) => ({
-      place: positionToSubsector(c.center),
-      soldiers: c.soldiers,
-      avg_hp_percent: c.avgHpPercent,
-      avg_courage: c.avgCourage,
-      fleeing: c.fleeing,
-    }));
-    const rest = clusters.slice(MAX_STRAY_CLUSTERS).reduce((n, c) => n + c.soldiers, 0);
-    return rest > 0 ? [...top, { other_strays_elsewhere: rest }] : top;
-  }
-
-  // Dominant terrain per sector, one row per grid row (north first), columns A-J.
-  private terrainMap(): Record<string, unknown> {
-    const grid = this.stateManager.getBattlefield().grid;
-    const rows: string[] = [];
-    for (let r = 0; r < SECTORS_PER_SIDE; r++) {
-      let line = '';
-      for (let c = 0; c < SECTORS_PER_SIDE; c++) {
-        const counts = [0, 0, 0, 0];
-        for (let y = r * SECTOR_SIZE; y < (r + 1) * SECTOR_SIZE; y++) {
-          for (let x = c * SECTOR_SIZE; x < (c + 1) * SECTOR_SIZE; x++) counts[grid[y][x]]++;
-        }
-        // A sector counts as mountainous when a third of it is impassable.
-        if (counts[TerrainType.MOUNTAIN] > (SECTOR_SIZE * SECTOR_SIZE) / 3) line += 'M';
-        else {
-          const top = [TerrainType.OPEN, TerrainType.FOREST, TerrainType.SWAMP].reduce((a, b) =>
-            counts[b] > counts[a] ? b : a
-          );
-          line += top === TerrainType.FOREST ? 'f' : top === TerrainType.SWAMP ? 's' : '.';
-        }
-      }
-      rows.push(`${r + 1}`.padStart(2) + ' ' + line);
-    }
-    return {
-      legend: 'columns A-J west to east; . open, f forest, s swamp, M mostly mountains',
-      rows,
-    };
-  }
-
-  private status(h: IHero): string {
-    switch (h.state) {
-      case BehaviorState.ATTACK:
-        return 'fighting';
-      case BehaviorState.FLEE:
-        return 'retreating (survival reflex)';
-      case BehaviorState.REST:
-        return 'resting';
-      default:
-        return h.path.length > 0 ? 'moving' : 'standing';
-    }
-  }
-
-  private describe(c: HeroCommand): string {
-    switch (c.type) {
-      case 'move':
-        return `move ${positionToSubsector(c.target)}`;
-      case 'hold':
-        return `hold in ${positionToSubsector(c.at)}`;
-      case 'retreat':
-        return 'retreat a short way from the enemies';
-      case 'attack':
-        return 'attack nearest enemy in sight';
-      case 'lead':
-        return 'lead the soldiers at the nearest enemy in sight';
-      case 'attackHero':
-        return `attack enemy hero ${c.heroIndex}`;
-      case 'regroup':
-        return 'regroup stray soldiers';
-      case 'attackBase':
-        return 'attack the enemy base';
-      case 'continueLlm':
-        return "follow the commander's order";
-    }
   }
 }

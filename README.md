@@ -13,8 +13,9 @@ A browser-based simulation of large-scale battlefield behavior. Hundreds of unit
 - Each unit tracks its own courage — taking heavy losses or being outnumbered causes units to flee and rest before returning to the fight
 - The hero boosts the courage of nearby warriors
 - Terrain (forest, swamp, mountain) affects movement speed and pathfinding
-- Visual effects layer: hit flashes, death animation, light blood, status icons (flee / rest), hero aura, animated unit sprites when zoomed in, and a loading screen. Rendering only — the simulation itself is unaffected, and the FX button switches all of it off
-- Runs entirely in the browser, no server
+- Battle mode: two symmetric armies with heroes commanded by the user, rule-based heroes or AI layers (a tactical model and an LLM), with elimination, control-point and base objectives; matches can be recorded and replayed
+- Visual effects layer: hit flashes, death animation, light blood, status icons (flee / rest), hero aura, animated unit sprites, and a loading screen. Rendering only — the simulation itself is unaffected, and the FX button switches all of it off
+- The simulation runs entirely in the browser; only the AI layers need the dev server (`npm run dev`), which adds the API keys on the server side
 
 ## Controls
 

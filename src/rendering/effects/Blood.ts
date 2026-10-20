@@ -42,7 +42,7 @@ const LAYER_RES = 8; // layer pixels per tile
 // pools are drawn live from the full-resolution sprites instead. Zoomed in, the view
 // covers a small area, so only a few pools are visible.
 const LAYER_MAX_ZOOM = 12;
-// Unit square side in tiles (Renderer draws units at zoom·2 px; zoom is px per tile)
+// Unit square side in tiles (UnitLayer draws units at zoom·2 px; zoom is px per tile)
 const UNIT_SIDE_TILES = 2;
 
 interface Drop {
@@ -134,16 +134,12 @@ export class Blood {
     }
   }
 
-  get dropCount(): number {
-    return this.drops.size;
-  }
-
   // Pools still visible at simTime (expired ones stay in the ring until overwritten)
   countPools(simTime: number): number {
     let n = 0;
-    this.pools.forEach((p) => {
-      if (simTime - p.born < POOL_LIFE) n++;
-    });
+    for (let i = 0; i < this.pools.size; i++) {
+      if (simTime - this.pools.get(i).born < POOL_LIFE) n++;
+    }
     return n;
   }
 
@@ -185,19 +181,20 @@ export class Blood {
     // Pools not in the layer (or all pools when zoomed in): drawn live as sprites
     const sprites = this.sprites!;
     const fadeStart = POOL_LIFE - POOL_FADE_TIME;
-    this.pools.forEach((p) => {
-      if (useLayer && p.born + POOL_GROW_TIME <= this.bakedAt) return;
+    for (let i = 0; i < this.pools.size; i++) {
+      const p = this.pools.get(i);
+      if (useLayer && p.born + POOL_GROW_TIME <= this.bakedAt) continue;
       const age = simTime - p.born;
-      if (age < 0 || age >= POOL_LIFE) return;
+      if (age < 0 || age >= POOL_LIFE) continue;
       const d = this.poolSpriteSize(p, age) * zoom;
       const cx = (p.x - camX) * zoom;
       const cy = (p.y - camY) * zoom;
       const r = d / 2;
-      if (cx + r < 0 || cx - r > width || cy + r < 0 || cy - r > height) return;
+      if (cx + r < 0 || cx - r > width || cy + r < 0 || cy - r > height) continue;
       const fade = age < fadeStart ? 1 : 1 - (age - fadeStart) / POOL_FADE_TIME;
       ctx.globalAlpha = POOL_ALPHA * fade;
       ctx.drawImage(sprites[p.rot], cx - r, cy - r, d, d);
-    });
+    }
 
     ctx.globalAlpha = 1;
     ctx.imageSmoothingEnabled = prevSmoothing;
@@ -281,16 +278,17 @@ export class Blood {
     const { x: camX, y: camY, zoom } = camera;
     const d = Math.max(1.5, zoom * 0.3);
     const half = d / 2;
-    const path = new Path2D();
 
-    this.drops.forEach((p) => {
+    // One path with every visible drop, filled once
+    ctx.beginPath();
+    for (let i = 0; i < this.drops.size; i++) {
+      const p = this.drops.at(i);
       const sx = (p.x - camX) * zoom - half;
       const sy = (p.y - camY) * zoom - half;
-      if (sx + d < 0 || sx > width || sy + d < 0 || sy > height) return;
-      path.rect(sx, sy, d, d);
-    });
-
+      if (sx + d < 0 || sx > width || sy + d < 0 || sy > height) continue;
+      ctx.rect(sx, sy, d, d);
+    }
     ctx.fillStyle = DROP_COLOR;
-    ctx.fill(path);
+    ctx.fill();
   }
 }

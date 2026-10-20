@@ -3,7 +3,7 @@ import type { JevController } from '../ai/JevController';
 import type { LlmController } from '../ai/LlmController';
 import type { AiSides } from './MatchLog';
 import type { Side } from '../engine/Sides';
-import { clock, escapeHtml } from './format';
+import { clock, escapeHtml, prettyKey } from './format';
 
 // The AI panel's request log: every request to Jev and the LLM with its answer, newest first.
 // The summary line gives the answer at a glance; opening an entry shows what was offered and
@@ -41,7 +41,7 @@ function runnerUp(probabilities: unknown, choice: unknown): string | null {
   const ranked = Object.entries(probabilities as Record<string, unknown>)
     .filter(([k, p]) => k !== choice && typeof p === 'number' && Number.isFinite(p))
     .sort((a, b) => (b[1] as number) - (a[1] as number));
-  return ranked.length ? `${pretty(ranked[0][0])} ${percent(ranked[0][1])}` : null;
+  return ranked.length ? `${prettyKey(ranked[0][0])} ${percent(ranked[0][1])}` : null;
 }
 
 function percent(v: unknown): string {
@@ -54,11 +54,6 @@ function value(v: unknown): string {
 
 function kb(text: string): string {
   return text.length < 1024 ? `${text.length} B` : `${(text.length / 1024).toFixed(1)} KB`;
-}
-
-// "step_north_east" → "step north-east"
-function pretty(key: string): string {
-  return key.replace(/_/g, ' ').replace(/(north|south) (east|west)/, '$1-$2');
 }
 
 // A collapsed block whose text is only produced when it is opened
@@ -77,6 +72,11 @@ export class AiRequestLog {
   private elList: HTMLElement;
   private elCount: HTMLElement;
   private sides: AiSides | null = null;
+  // Exchanges are only added, in order and with growing seq: the newest one added per layer, and
+  // the entries still waiting for their answer
+  private lastSeq = new Map<JevController | LlmController, number>();
+  private waiting = new Set<Shown>();
+  private byEl = new WeakMap<Element, Shown>();
 
   // One log per side, in that side's column
   constructor(
@@ -87,24 +87,30 @@ export class AiRequestLog {
     this.elCount = column.querySelector('.ai-log-count')!;
   }
 
-  private shown = new Map<number, Shown>(); // by exchange seq
-
   update(sides: AiSides): void {
     if (sides !== this.sides) {
       // A new match: its controllers are new, so the log starts empty
       this.sides = sides;
-      this.shown.clear();
+      this.lastSeq.clear();
+      this.waiting.clear();
       this.elList.textContent = '';
+    }
+    for (const item of this.waiting) {
+      if (item.exchange.latencyMs === null) continue;
+      this.waiting.delete(item);
+      this.refresh(item);
     }
     const fresh: Array<[Source, AiExchange]> = [];
     let total = 0;
     for (const source of this.sources(sides)) {
-      for (const x of source.controller.exchanges) {
-        total++;
-        const known = this.shown.get(x.seq);
-        if (!known) fresh.push([source, x]);
-        else if (!known.answered && x.latencyMs !== null) this.refresh(known);
-      }
+      const list = source.controller.exchanges;
+      total += list.length;
+      const seen = this.lastSeq.get(source.controller) ?? 0;
+      let k = list.length;
+      while (k > 0 && list[k - 1].seq > seen) k--;
+      for (; k < list.length; k++) fresh.push([source, list[k]]);
+      if (list.length)
+        this.lastSeq.set(source.controller, Math.max(seen, list[list.length - 1].seq));
     }
     // Oldest first, so the newest ends up on top
     fresh.sort((a, b) => a[1].seq - b[1].seq);
@@ -127,7 +133,8 @@ export class AiRequestLog {
     const el = document.createElement('details');
     el.className = 'ai-x';
     const item: Shown = { el, answered: x.latencyMs !== null, source, exchange: x };
-    this.shown.set(x.seq, item);
+    if (!item.answered) this.waiting.add(item);
+    this.byEl.set(el, item);
     el.innerHTML = this.summaryHtml(source, x);
     // Details are built on first open, and again if the answer arrived since
     let builtFor: number | null = null;
@@ -151,7 +158,8 @@ export class AiRequestLog {
   private trim(): void {
     while (this.elList.childElementCount > MAX_SHOWN) {
       const last = this.elList.lastElementChild!;
-      for (const item of this.shown.values()) if (item.el === last) item.el = null;
+      const item = this.byEl.get(last);
+      if (item) item.el = null;
       last.remove();
     }
   }
@@ -192,7 +200,7 @@ export class AiRequestLog {
     const answers = ((x.response as { answers?: JevAnswers } | null)?.answers ?? {}) as JevAnswers;
     const parts = this.jevHeroKeys(x).map((key) => {
       const a = answers[key];
-      const choice = typeof a?.choice === 'string' ? pretty(a.choice) : 'no answer';
+      const choice = typeof a?.choice === 'string' ? prettyKey(a.choice) : 'no answer';
       return `H${key.replace('hero', '')} ${choice} ${percent(a?.confidence)}`;
     });
     return parts.join(' · ') || 'no heroes';
@@ -235,9 +243,9 @@ export class AiRequestLog {
     const answers = ((x.response as { answers?: JevAnswers } | null)?.answers ?? {}) as JevAnswers;
     return this.jevHeroKeys(x)
       .map((key) => {
-        const offered = Object.keys(questions[key]?.criteria ?? {}).map(pretty);
+        const offered = Object.keys(questions[key]?.criteria ?? {}).map(prettyKey);
         const a = answers[key];
-        const choice = typeof a?.choice === 'string' ? pretty(a.choice) : '–';
+        const choice = typeof a?.choice === 'string' ? prettyKey(a.choice) : '–';
         const next = runnerUp(a?.probabilities, a?.choice);
         const extra = [
           `threat ${value(answers[`${key}_threat`]?.score)}`,

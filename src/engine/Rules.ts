@@ -26,6 +26,10 @@ export const ALLY_SHARE_VERY_LOW_PENALTY = 30;
 export const CHARISMA_RADIUS = 10; // tiles
 export const CHARISMA_BONUS = 20; // courage, not damage
 
+// Movement: a unit walks at its base speed times this share plus the rest scaled by its HP left
+// (half speed at 0 HP, full speed unhurt), times the terrain's speed
+export const WOUNDED_SPEED_MIN = 0.5;
+
 // Rest
 export const REST_TRIGGER_HP = 50; // below this HP, with no enemy in sight, a unit rests
 export const REST_HEAL_PER_SEC = 10;

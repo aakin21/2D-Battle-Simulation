@@ -119,6 +119,9 @@ export function regroupTarget(clusters: StrayCluster[], hero: IHero): StrayClust
 // (tests/smoke/out/probe-regroup.ts, 572 per side, all three heroes regrouping): every stray
 // collected in 106 s, against 149 s (centre) and 175 s (nearest soldier).
 const SPOT_CANDIDATES = 48; // soldiers tried as spots per group (evenly spread over its members)
+// Tiles added to every walk when weighing spots, so a spot within the hero's sight already (a walk
+// of 0) does not win by dividing by zero, and near spots are weighed by their gain
+const SPOT_WALK_EXTRA = 5;
 const spotGains = new WeakMap<StrayCluster, Array<{ at: Position; gain: number }>>();
 
 export function regroupPoint(cluster: StrayCluster, hero: IHero): Position {
@@ -142,7 +145,7 @@ export function regroupPoint(cluster: StrayCluster, hero: IHero): Position {
   for (const s of spots) {
     // soldiers gained per tile walked; the hero only has to come within its sight of the spot
     const d = Math.hypot(s.at.x - hero.position.x, s.at.y - hero.position.y);
-    const score = s.gain / (Math.max(0, d - hero.sight) + 5);
+    const score = s.gain / (Math.max(0, d - hero.sight) + SPOT_WALK_EXTRA);
     if (score > bestScore) {
       bestScore = score;
       best = s.at;
