@@ -24,7 +24,7 @@ import {
 import type { JevAssessment } from './LlmController';
 import { strayClusters, regroupTarget } from '../engine/Strays';
 import { Pathfinder } from '../engine/Pathfinder';
-import { ATTACK_CHASE_TILES } from '../engine/Rules';
+import { ATTACK_CHASE_TILES, CONTROL_CAPTURE_SECONDS } from '../engine/Rules';
 import { hasAttackTarget, nearestReachableTile } from '../engine/UnitHelpers';
 import { sameCommand } from '../engine/HeroCommands';
 import { enemyBase, wholePoints } from '../engine/Objectives';
@@ -391,10 +391,13 @@ export class JevController extends AiLayer {
       const d = Math.round(
         Math.hypot(p.position.x - hero.position.x, p.position.y - hero.position.y)
       );
-      const held = p.holder === null ? 'nobody' : p.holder === hero.faction ? 'us' : 'the enemy';
+      const side = (f: Faction) => (f === hero.faction ? 'us' : 'the enemy');
+      const held =
+        (p.holder === null ? 'nobody' : side(p.holder)) +
+        (p.leader !== null && p.leader !== p.holder ? `, being taken by ${side(p.leader)}` : '');
       opts.push({
         key: `move_to_${p.name}`,
-        what: `Go to control point ${p.name} (${d} tiles to the ${compass(hero.position, p.position)}, held by ${held} now) and stay; the side with more units there scores.`,
+        what: `Go to control point ${p.name} (${d} tiles to the ${compass(hero.position, p.position)}, held by ${held} now) and stay; the side with more units there takes it after ${CONTROL_CAPTURE_SECONDS} s and then scores.`,
         notFor:
           'When the hero is needed in the fight it is in, or the point is held strongly by the enemy.',
         command: { type: 'move', target: p.position },
@@ -604,7 +607,7 @@ export class JevController extends AiLayer {
         seconds_left: secondsLeft,
         points: o.points.map(
           (p) =>
-            `${p.name} at ${exactPlace(p.position)}, held by ${p.holder === null ? 'nobody' : p.holder === mine ? 'us' : 'the enemy'}`
+            `${p.name} at ${exactPlace(p.position)}, held by ${p.holder === null ? 'nobody' : p.holder === mine ? 'us' : 'the enemy'}${p.leader !== null && p.leader !== p.holder ? `, being taken by ${p.leader === mine ? 'us' : 'the enemy'}` : ''}`
         ),
       };
     }

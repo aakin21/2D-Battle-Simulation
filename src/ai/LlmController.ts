@@ -557,6 +557,10 @@ export class LlmController extends AiLayer {
             point: p.name,
             place: exactPlace(p.position),
             held_by: p.holder === null ? 'nobody' : p.holder === mineF ? 'you' : 'enemy',
+            // a side with the majority that does not hold it yet (CONTROL_CAPTURE_SECONDS)
+            ...(p.leader !== null && p.leader !== p.holder
+              ? { being_taken_by: p.leader === mineF ? 'you' : 'enemy' }
+              : {}),
             your_units_near: mineF === Faction.FRIENDLY ? c.friendly : c.enemy,
             enemy_units_near: mineF === Faction.FRIENDLY ? c.enemy : c.friendly,
           };

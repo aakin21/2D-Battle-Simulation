@@ -94,7 +94,9 @@ export class ReplayPlayer {
       objective: {
         mode: o.mode ?? 'elimination',
         timeLimit: o.timeLimit,
-        points: o.points.map((p): ControlPoint => ({ ...p, holder: null })),
+        points: o.points.map(
+          (p): ControlPoint => ({ ...p, holder: null, leader: null, leaderSince: 0 })
+        ),
         scores: { friendly: 0, enemy: 0 },
         bases: o.bases.map((b) => ({ ...b, hp: b.maxHp })),
       },

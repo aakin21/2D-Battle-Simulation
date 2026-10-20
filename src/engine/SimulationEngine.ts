@@ -7,6 +7,7 @@ import {
   COMBAT_RANGE,
   ATTACK_INTERVAL,
   FLEE_THRESHOLD,
+  RALLY_COURAGE,
   WOUND_STEP,
   WOUND_PENALTY,
   ALLY_SHARE_HIGH,
@@ -36,6 +37,7 @@ import {
   nearestReachableTile,
   stepToward,
   terrainSpeed,
+  fleeWayOpen,
 } from './UnitHelpers';
 import {
   IUnit,
@@ -454,7 +456,17 @@ export class SimulationEngine {
     const enemy = findNearestEnemy(this.stateManager, unit);
 
     if (unit.state === BehaviorState.FLEE) {
-      if (!enemy || unit.courage > FLEE_THRESHOLD) {
+      // Battle mode (D57, a rout): a flight lasts until no enemy is in sight, or until one of the
+      // soldier's heroes is near and its courage is back to RALLY_COURAGE; it used to end as soon as
+      // courage rose above the threshold, a step back into its own ranks, and the soldier flipped
+      // between fleeing and fighting many times a second. Classic mode keeps that rule (D19).
+      const over =
+        this.battleMode && this.isSoldier(unit)
+          ? !enemy ||
+            (unit.courage >= RALLY_COURAGE &&
+              this.findLeader(unit, (h) => h.charismaRadius) !== undefined)
+          : !enemy || unit.courage > FLEE_THRESHOLD;
+      if (over) {
         unit.state = BehaviorState.IDLE;
         unit.target = null;
         unit.path = [];
@@ -537,7 +549,15 @@ export class SimulationEngine {
     const dist = Math.sqrt(dx * dx + dy * dy);
     if (dist === 0) return;
 
-    stepToward(this.stateManager, unit, Math.atan2(dy, dx), deltaTime, grid, this.battleMode);
+    const away = Math.atan2(dy, dx);
+    // Battle mode (D57): with its way away blocked (a mountain, the map's edge), even turning up to
+    // FLEE_MAX_TURN_DEGREES, a soldier stops fleeing and fights the nearest enemy; it used to stand
+    // there and be cut down. While its courage stays low it tries to flee again every frame.
+    if (this.battleMode && this.isSoldier(unit) && !fleeWayOpen(unit, away, deltaTime, grid)) {
+      this.attackOrIdle(unit, enemy, true);
+      return;
+    }
+    stepToward(this.stateManager, unit, away, deltaTime, grid, this.battleMode);
   }
 
   // Classic berserker waves (ClassicWaves.ts); the stress test has none

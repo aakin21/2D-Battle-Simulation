@@ -112,7 +112,9 @@ export type Objective = 'elimination' | 'control' | 'base';
 export interface ControlPoint {
   name: string; // "A" or "B"
   position: Position;
-  holder: Faction | null; // side with the most units in range right now (null: tie or empty)
+  holder: Faction | null; // side that holds it and scores: it has had the most units in range for CONTROL_CAPTURE_SECONDS (null: nobody yet, a tie or empty)
+  leader: Faction | null; // side with the most units in range right now
+  leaderSince: number; // simulation time since which `leader` has had the most units
 }
 
 export interface Base {

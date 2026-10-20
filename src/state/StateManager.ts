@@ -412,8 +412,20 @@ export class StateManager {
     o.timeLimit = mode === 'control' ? CONTROL_TIME_LIMIT : MATCH_TIME_LIMIT;
     if (mode === 'control') {
       o.points = [
-        { name: 'A', position: this.nearestMainTile(75, 45), holder: null },
-        { name: 'B', position: this.nearestMainTile(75, 105), holder: null },
+        {
+          name: 'A',
+          position: this.nearestMainTile(75, 45),
+          holder: null,
+          leader: null,
+          leaderSince: 0,
+        },
+        {
+          name: 'B',
+          position: this.nearestMainTile(75, 105),
+          holder: null,
+          leader: null,
+          leaderSince: 0,
+        },
       ];
     } else if (mode === 'base') {
       o.bases = [

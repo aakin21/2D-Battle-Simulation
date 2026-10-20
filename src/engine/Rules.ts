@@ -8,6 +8,13 @@ export const ATTACK_INTERVAL = 1.0; // seconds between attacks
 // Courage (soldiers only)
 export const FLEE_THRESHOLD = 25; // at or below: the soldier flees
 export const FLEE_SPEED_MULT = 1.5;
+// Battle mode (D57): a fleeing soldier runs until no enemy is in its sight ("rout"); it turns back
+// earlier only when one of its heroes is within its charisma radius and its courage is back to this
+export const RALLY_COURAGE = 40;
+// Battle mode (D57): a flight may turn this far from straight away from the nearest enemy; when
+// even that way is blocked (mountain, map edge) the soldier fights instead (turning further would
+// not take it away from the enemy)
+export const FLEE_MAX_TURN_DEGREES = 45;
 export const WOUND_STEP = 0.2; // every 20% of HP lost...
 export const WOUND_PENALTY = 10; // ...costs this much courage
 export const ALLY_SHARE_HIGH = 0.6; // more allies than this share in sight...
@@ -66,7 +73,9 @@ export const DISENGAGE_CLEAR_RADIUS = 6;
 // Objectives (D30)
 export const CONTROL_RADIUS = 8; // tiles: units this close to a point count for it
 export const CONTROL_POINTS_PER_SEC = 1; // per point held
-export const CONTROL_TIME_LIMIT = 300; // seconds
+// A side holds a point (and scores) once it has had the most units near it this long in a row
+export const CONTROL_CAPTURE_SECONDS = 3;
+export const CONTROL_TIME_LIMIT = 480; // seconds (8 min; 300 until 2026-10-18)
 export const MATCH_TIME_LIMIT = 500; // seconds: elimination and base modes
 export const BASE_HP = 3000;
 export const BASE_RADIUS = 3; // tiles: units within BASE_RADIUS + COMBAT_RANGE can hit the base

@@ -11,7 +11,7 @@ import {
   INNER_MIN,
   INNER_MAX,
 } from '../types/types';
-import { ATTACK_CHASE_TILES, FLEE_SPEED_MULT } from './Rules';
+import { ATTACK_CHASE_TILES, FLEE_MAX_TURN_DEGREES, FLEE_SPEED_MULT } from './Rules';
 
 // Small queries and movement helpers shared by the engine and its hero modules.
 
@@ -153,6 +153,36 @@ export function nearestReachableTile(sm: StateManager, target: Position): Positi
     }
   }
   return t;
+}
+
+// A fleeing soldier looks this far ahead (or one flight step, if longer) for a blocked way
+const FLEE_LOOK_TILES = 0.6;
+
+// D57: whether a flight in this direction can go on, turning at most FLEE_MAX_TURN_DEGREES (in
+// steps of 22.5 degrees): the point a step ahead must be on the map and not blocked (a mountain
+// or next to one)
+export function fleeWayOpen(
+  unit: IUnit,
+  baseAngle: number,
+  deltaTime: number,
+  grid: TerrainType[][]
+): boolean {
+  const terrain =
+    grid[Math.floor(unit.position.y)]?.[Math.floor(unit.position.x)] ?? TerrainType.OPEN;
+  const look = Math.max(
+    FLEE_LOOK_TILES,
+    unit.baseSpeed * terrainSpeed(terrain) * FLEE_SPEED_MULT * deltaTime
+  );
+  const max = (FLEE_MAX_TURN_DEGREES * Math.PI) / 180;
+  for (let turn = 0; turn <= max + 1e-9; turn += Math.PI / 8) {
+    for (const angle of turn === 0 ? [baseAngle] : [baseAngle + turn, baseAngle - turn]) {
+      const x = unit.position.x + Math.cos(angle) * look;
+      const y = unit.position.y + Math.sin(angle) * look;
+      if (x < POS_MIN || y < POS_MIN || x > POS_MAX || y > POS_MAX) continue;
+      if (!Pathfinder.isBlocked(grid, Math.floor(x), Math.floor(y))) return true;
+    }
+  }
+  return false;
 }
 
 // Flee-speed step in the given direction, trying nearby angles if the way is blocked.
