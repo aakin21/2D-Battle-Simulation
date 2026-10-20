@@ -1,3 +1,5 @@
+import { escapeHtml } from './format';
+
 // A drop-down list in the menu's own pixel style (the browser's <select> cannot be styled to
 // match it): a button with the chosen item, and a list of items grouped under headings. Works
 // with the mouse and the keyboard (arrows, Home/End, Enter or Space, Esc) and closes when the
@@ -84,12 +86,12 @@ export class Dropdown {
     this.items.forEach((item, index) => {
       if (item.group !== group) {
         group = item.group;
-        if (group) html += `<div class="dd-group" role="presentation">${escapeText(group)}</div>`;
+        if (group) html += `<div class="dd-group" role="presentation">${escapeHtml(group)}</div>`;
       }
       const selected = item.value === this.current;
       html +=
         `<div class="dd-item${selected ? ' selected' : ''}" role="option" id="${this.list.id}-${index}" ` +
-        `data-index="${index}" aria-selected="${selected}">${escapeText(item.label)}</div>`;
+        `data-index="${index}" aria-selected="${selected}">${escapeHtml(item.label)}</div>`;
     });
     this.list.innerHTML = html;
   }
@@ -156,8 +158,4 @@ export class Dropdown {
     } else return;
     e.preventDefault();
   }
-}
-
-function escapeText(text: string): string {
-  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }

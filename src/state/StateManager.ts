@@ -46,12 +46,13 @@ export class StateManager {
   private battleMode: boolean = false;
   private mainRegion = new Uint8Array(GRID_SIZE * GRID_SIZE);
 
-  setStressMode(on: boolean): void {
-    this.stressMode = on;
-  }
-
   constructor() {
     this.battlefield = this.emptyBattlefield();
+  }
+
+  // The stress test: classic rules with 1,900 extra warriors and 2,000 berserkers (next reset)
+  setStressMode(on: boolean): void {
+    this.stressMode = on;
   }
 
   // Random terrain (TerrainGen.ts)
@@ -285,6 +286,12 @@ export class StateManager {
     this.spatialGrid.forEach(cx, cy, radius, cb);
   }
 
+  // The units forEachInRadius would visit, in the same order, as a list reused by the next call;
+  // fast for many small queries while no unit moves (separation)
+  unitsInRadiusInScanOrder(cx: number, cy: number, radius: number): readonly IUnit[] {
+    return this.spatialGrid.inRadiusInScanOrder(cx, cy, radius);
+  }
+
   // Living units within radius per faction, into out[faction] (courage; D31)
   countByFactionInRadius(cx: number, cy: number, radius: number, out: Int32Array): void {
     this.spatialGrid.countByFaction(cx, cy, radius, out);
@@ -300,12 +307,17 @@ export class StateManager {
     return this.spatialGrid.wasNearestTied();
   }
 
-  // Returns array — used by UIController for click selection and hover tooltip.
+  // The same, by a plain scan in the spatial grid's order: on a tie, the unit scanned first
+  nearestEnemyByScan(cx: number, cy: number, radius: number, faction: number): IUnit | null {
+    return this.spatialGrid.scanNearestEnemy(cx, cy, radius, faction);
+  }
+
+  // Returns an array: for the UI's click selection and hover tooltip (CanvasInteraction)
   getUnitsInRadius(cx: number, cy: number, radius: number): IUnit[] {
     return this.spatialGrid.query(cx, cy, radius);
   }
 
-  // Called by SimulationEngine after moving a unit to keep the grid in sync.
+  // After moving a unit (movement and separation), keeps the spatial grid in sync
   syncPosition(unit: IUnit, oldX: number, oldY: number): void {
     this.spatialGrid.move(unit, { x: oldX, y: oldY });
   }
@@ -412,8 +424,20 @@ export class StateManager {
     o.timeLimit = mode === 'control' ? CONTROL_TIME_LIMIT : MATCH_TIME_LIMIT;
     if (mode === 'control') {
       o.points = [
-        { name: 'A', position: this.nearestMainTile(75, 45), holder: null },
-        { name: 'B', position: this.nearestMainTile(75, 105), holder: null },
+        {
+          name: 'A',
+          position: this.nearestMainTile(75, 45),
+          holder: null,
+          leader: null,
+          leaderSince: 0,
+        },
+        {
+          name: 'B',
+          position: this.nearestMainTile(75, 105),
+          holder: null,
+          leader: null,
+          leaderSince: 0,
+        },
       ];
     } else if (mode === 'base') {
       o.bases = [

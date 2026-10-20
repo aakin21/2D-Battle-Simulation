@@ -2,7 +2,7 @@ import type { Plugin } from 'vite';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { timingSafeEqual } from 'node:crypto';
 
-// D37: the online demo reaches the AI endpoints (/api/jev, /api/llm) of this dev server through
+// D37: the online demo reaches the AI endpoints (/api/jev, /api/snap, /api/llm) of this dev server through
 // a tunnel (ngrok or Cloudflare Tunnel). Requests from this computer (localhost) work as before.
 // Every other request must carry the password from AI_PASSWORD in the x-ai-key header, so a
 // public tunnel address cannot spend the author's Jev quota or Claude subscription. The demo's

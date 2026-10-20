@@ -4,6 +4,7 @@ import {
   ATTACK_INTERVAL,
   BASE_RADIUS,
   COMBAT_RANGE,
+  CONTROL_CAPTURE_SECONDS,
   CONTROL_POINTS_PER_SEC,
   CONTROL_RADIUS,
 } from './Rules';
@@ -36,13 +37,22 @@ export function pointCounts(
   return { friendly, enemy };
 }
 
-// Control mode: every moment, the side with more units near a point scores for it.
+// Control mode: the side with more units near a point holds it, and scores for it, once it has
+// had the majority for CONTROL_CAPTURE_SECONDS in a row; losing the majority (or a tie) ends the
+// hold at once.
 export function updateControl(sm: StateManager, dt: number): void {
-  const o = sm.getBattlefield().objective;
+  const bf = sm.getBattlefield();
+  const o = bf.objective;
   for (const p of o.points) {
     const c = pointCounts(sm, p);
-    p.holder =
+    const leader =
       c.friendly > c.enemy ? Faction.FRIENDLY : c.enemy > c.friendly ? Faction.ENEMY : null;
+    if (leader !== p.leader) {
+      p.leader = leader;
+      p.leaderSince = bf.elapsedTime;
+    }
+    p.holder =
+      leader !== null && bf.elapsedTime - p.leaderSince >= CONTROL_CAPTURE_SECONDS ? leader : null;
     if (p.holder === Faction.FRIENDLY) o.scores.friendly += CONTROL_POINTS_PER_SEC * dt;
     else if (p.holder === Faction.ENEMY) o.scores.enemy += CONTROL_POINTS_PER_SEC * dt;
   }
@@ -54,9 +64,14 @@ export function damageBases(sm: StateManager, units: IUnit[], dt: number): void 
   const bases = sm.getBattlefield().objective.bases;
   if (bases.length === 0) return;
   const reach = BASE_RADIUS + COMBAT_RANGE;
+  // The base each side attacks: the first one not its own
+  const against = [
+    bases.find((b) => b.faction !== Faction.FRIENDLY),
+    bases.find((b) => b.faction !== Faction.ENEMY),
+  ];
   for (const u of units) {
     if (u.hp <= 0 || u.state !== BehaviorState.IDLE) continue;
-    const base = bases.find((b) => b.faction !== u.faction);
+    const base = against[u.faction];
     if (!base || base.hp <= 0) continue;
     const dx = base.position.x + 0.5 - u.position.x;
     const dy = base.position.y + 0.5 - u.position.y;

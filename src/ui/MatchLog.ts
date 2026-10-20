@@ -5,11 +5,12 @@ import type { LlmController } from '../ai/LlmController';
 import type { AiExchange } from '../ai/Exchange';
 import { BehaviorState, Faction, SimConfig, UnitType } from '../types/types';
 import { wholePoints } from '../engine/Objectives';
+import { downloadFile, matchFileName } from './download';
 
 // Everything needed to study a battle afterwards (Q11): the settings, the result, a timeline
 // of both armies once per simulation second, every AI decision with its response time, and
 // every request to the AI layers with its answer.
-// Downloaded as JSON from the AI panel or the match result. Reads the battlefield only.
+// Downloaded as JSON (the Log button in Armies, the match result). Reads the battlefield only.
 
 export interface AiSide {
   jev?: JevController;
@@ -162,20 +163,11 @@ export class MatchLog {
   }
 
   download(sm: StateManager, result: MatchResult | null, error: string | null = null): void {
-    const c = this.config;
-    const stamp = new Date().toISOString().slice(0, 19).replace(/[-:]/g, '').replace('T', '-');
-    const name = `match-${c.objective ?? 'elimination'}-${c.friendlyAI ?? 'none'}-vs-${c.enemyAI ?? 'none'}-${stamp}.json`;
+    const name = matchFileName(this.config, new Date().toISOString(), 'json');
     const blob = new Blob([JSON.stringify(this.build(sm, result, error), null, 2)], {
       type: 'application/json',
     });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = name.replace(/\+/g, '');
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    downloadFile(blob, name);
   }
 }
 

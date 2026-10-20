@@ -12,9 +12,8 @@ import {
 import { decodeGrid, listSavedMaps, loadSavedMap, saveMap } from '../state/MapStore';
 import { FIXED_MAP } from '../maps/fixedMap';
 import { isOpenRouterId, OPENROUTER_MODELS } from '../ai/Models';
+import type { Side } from '../engine/Sides';
 import { Dropdown } from './Dropdown';
-
-type Side = 'west' | 'east';
 
 // Each side's "who commands it" button group in the menu
 const SIDE_GROUPS = [

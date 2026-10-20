@@ -24,7 +24,7 @@ The three decision layers (D1): rules every frame (`src/engine`), Jev every ~4 s
 
 ## Rules that must not be broken
 
-- **Every hero order goes through `SimulationEngine.issueCommand`** (D20): user clicks, rule heroes, Jev and the LLM alike. Never set `hero.taskPoint` or `hero.command` directly.
+- **Every hero order goes through the command interface** (D20): user clicks, Jev and the LLM call `SimulationEngine.issueCommand`; rule heroes (`src/engine/RuleHeroes.ts`) call the same `HeroCommands.issue` inside the engine. Never set `hero.taskPoint` or `hero.command` directly (only `ReplayPlayer` does, on its own copies of a replay's units).
 - **Courage is computed only by the engine** (D14). No command or AI layer may change courage or force a fleeing unit to fight.
 - **The rule layer's reflexes come first** (D18, D34): a hero's survival reflex overrides rule-layer orders; only a different order from the user, Jev or the LLM can end a flight. Fleeing soldiers can never be ordered back (D14).
 - **Classic mode keeps Phase 1 behavior** (D19). Battle-mode changes must be guarded by battle mode.
@@ -37,8 +37,8 @@ The three decision layers (D1): rules every frame (`src/engine`), Jev every ~4 s
 - `npm run build`: static build. On Vercel, `api/jev.ts` serves `/api/jev` (key in the Vercel project's `TYPESAFE_API_KEY`); the LLM is not available there until the Claude API is used (D10).
 - AI in the online demo (D37): set `AI_PASSWORD=...` in `.env.local`, run `npm run dev` and a tunnel (`cloudflared tunnel --url http://localhost:5173` or `ngrok http 5173`), then open the demo once with `?ai=<tunnel address>&key=<AI_PASSWORD>`. Requests from localhost need no password; `AI_ALLOWED_ORIGINS` overrides the allowed demo origin (default `https://aakin21.github.io`).
 - Jev needs `TYPESAFE_API_KEY=...` in `.env.local`. The LLM uses the developer's Claude login through the Agent SDK; the model is chosen per side in the Battle menu (Haiku / Sonnet / Opus, pinned to the 5.5 generation, D44; `LLM_MODEL` only sets the server default).
-- Formatting: Prettier (`.prettierrc`); lint: `npm run lint` (src, server, api); types: `npm run typecheck` (the browser code and, through `tsconfig.node.json`, the Node code). Run them on files you change.
-- Smoke tests (D24) live outside the repo in `../tests/smoke/` (`./run-all.sh`, `README.md`): headless, fake AIs only. `same.ts` hashes the battlefield, so diffing its output before and after a change shows the simulation is unchanged.
+- Formatting: Prettier (`.prettierrc`; `npm run format` / `npm run format:check` cover src, server, api and `vite.config.ts`; Markdown is not formatted, `.prettierignore`); lint: `npm run lint` (src, server, api); types: `npm run typecheck` (the browser code and, through `tsconfig.node.json`, the Node code). Run them on files you change.
+- Smoke tests (D24) live outside the repo in `../tests/smoke/` (`./run-all.sh`, `README.md`): headless, fake AIs only. `same.ts` hashes the battlefield, so diffing its output before and after a change shows the simulation is unchanged; `prompts.ts` prints everything the AI layers are sent, so the same diff shows the prompts are unchanged.
 
 ## Thesis documentation rule
 

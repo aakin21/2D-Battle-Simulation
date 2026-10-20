@@ -11,7 +11,7 @@ import {
   INNER_MIN,
   INNER_MAX,
 } from '../types/types';
-import { ATTACK_CHASE_TILES, FLEE_SPEED_MULT } from './Rules';
+import { ATTACK_CHASE_TILES, FLEE_MAX_TURN_DEGREES, FLEE_SPEED_MULT } from './Rules';
 
 // Small queries and movement helpers shared by the engine and its hero modules.
 
@@ -23,6 +23,8 @@ const POS_MIN = 0.5;
 const POS_MAX = GRID_SIZE - 0.5;
 // A unit this close to a tile's centre is at (or next to) that tile
 export const NEAR_TILE_DISTANCE = 1.5;
+// nearestReachableTile looks this many tiles around the target (Chebyshev rings) before giving up
+const REACHABLE_SEARCH_TILES = 40;
 
 export function terrainSpeed(terrain: TerrainType): number {
   return terrain === TerrainType.MOUNTAIN
@@ -40,28 +42,13 @@ export function effectiveSight(sm: StateManager, unit: IUnit): number {
 }
 
 // Nearest living enemy within the unit's sight. Uses the fast ring search (D31); only
-// when several enemies are at exactly the same distance does it fall back to the full scan
-// below, whose order picks the same enemy as the original code.
+// when several enemies are at exactly the same distance does it fall back to the full scan,
+// whose order picks the same enemy as the original code.
 export function findNearestEnemy(sm: StateManager, unit: IUnit): IUnit | null {
+  const { x, y } = unit.position;
   const sight = effectiveSight(sm, unit);
-  const fast = sm.nearestEnemyInRadius(unit.position.x, unit.position.y, sight, unit.faction);
-  if (!sm.wasNearestTied()) return fast;
-
-  let nearest: IUnit | null = null;
-  let minDist2 = Infinity;
-
-  sm.forEachInRadius(unit.position.x, unit.position.y, sight, (other) => {
-    if (other.faction === unit.faction || other.hp <= 0) return;
-    const dx = other.position.x - unit.position.x;
-    const dy = other.position.y - unit.position.y;
-    const d2 = dx * dx + dy * dy;
-    if (d2 < minDist2) {
-      minDist2 = d2;
-      nearest = other;
-    }
-  });
-
-  return nearest;
+  const fast = sm.nearestEnemyInRadius(x, y, sight, unit.faction);
+  return sm.wasNearestTied() ? sm.nearestEnemyByScan(x, y, sight, unit.faction) : fast;
 }
 
 // D55: the enemy an attack or lead order goes for: the nearest enemy in the hero's sight, or,
@@ -141,7 +128,7 @@ export function enemyPositionSum(
 // tile of the map's main walkable region instead.
 export function nearestReachableTile(sm: StateManager, target: Position): Position {
   const t = tileOf(target);
-  for (let r = 0; r <= 40; r++) {
+  for (let r = 0; r <= REACHABLE_SEARCH_TILES; r++) {
     for (let dy = -r; dy <= r; dy++) {
       for (let dx = -r; dx <= r; dx++) {
         if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
@@ -153,6 +140,56 @@ export function nearestReachableTile(sm: StateManager, target: Position): Positi
     }
   }
   return t;
+}
+
+// Battle mode: whether a step (or a push) from (ox, oy) to (nx, ny) is allowed: it stays on its
+// tile, or ends on a tile the pathfinder can use in the same walkable region. Regions join through
+// tile edges, while a step can cross the corner where two mountain buffers meet: that put units
+// into pockets no path reaches, and whole armies then stood in front of them (CASES 14.x).
+export function canStep(
+  grid: TerrainType[][],
+  ox: number,
+  oy: number,
+  nx: number,
+  ny: number
+): boolean {
+  const fx = Math.floor(ox);
+  const fy = Math.floor(oy);
+  const tx = Math.floor(nx);
+  const ty = Math.floor(ny);
+  if (tx === fx && ty === fy) return true;
+  if (Pathfinder.isBlocked(grid, tx, ty)) return false;
+  return Pathfinder.sameRegion(grid, fx, fy, tx, ty);
+}
+
+// A fleeing soldier looks this far ahead (or one flight step, if longer) for a blocked way
+const FLEE_LOOK_TILES = 0.6;
+
+// D57: whether a flight in this direction can go on, turning at most FLEE_MAX_TURN_DEGREES (in
+// steps of 22.5 degrees): the point a step ahead must be on the map and not blocked (a mountain
+// or next to one)
+export function fleeWayOpen(
+  unit: IUnit,
+  baseAngle: number,
+  deltaTime: number,
+  grid: TerrainType[][]
+): boolean {
+  const terrain =
+    grid[Math.floor(unit.position.y)]?.[Math.floor(unit.position.x)] ?? TerrainType.OPEN;
+  const look = Math.max(
+    FLEE_LOOK_TILES,
+    unit.baseSpeed * terrainSpeed(terrain) * FLEE_SPEED_MULT * deltaTime
+  );
+  const max = (FLEE_MAX_TURN_DEGREES * Math.PI) / 180;
+  for (let turn = 0; turn <= max + 1e-9; turn += Math.PI / 8) {
+    for (const angle of turn === 0 ? [baseAngle] : [baseAngle + turn, baseAngle - turn]) {
+      const x = unit.position.x + Math.cos(angle) * look;
+      const y = unit.position.y + Math.sin(angle) * look;
+      if (x < POS_MIN || y < POS_MIN || x > POS_MAX || y > POS_MAX) continue;
+      if (!Pathfinder.isBlocked(grid, Math.floor(x), Math.floor(y))) return true;
+    }
+  }
+  return false;
 }
 
 // Flee-speed step in the given direction, trying nearby angles if the way is blocked.

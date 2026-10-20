@@ -1,4 +1,5 @@
-import { Faction, UnitType } from '../types/types';
+import { Faction, UnitType, UNIT_COLORS } from '../types/types';
+import { hexToRgb } from './SideColors';
 import warriorUrl from '../assets/sprites/warrior_knight.png';
 import berserkerUrl from '../assets/sprites/berserker_lion.png';
 import heroKnightGoldUrl from '../assets/sprites/hero_knight_gold.png';
@@ -33,19 +34,19 @@ const OUTLINE_LUMA = 0.16;
 const CORPSE_DARKEN = 0.6;
 const SHADOW_ALPHA = 0.3;
 
-const TEAM_RGB: Record<string, [number, number, number]> = {
-  WARRIOR: [255, 215, 0], // UNIT_COLORS.WARRIOR
-  BERSERKER: [65, 105, 225], // UNIT_COLORS.BERSERKER
+const TEAM_RGB = {
+  WARRIOR: hexToRgb(UNIT_COLORS.WARRIOR),
+  BERSERKER: hexToRgb(UNIT_COLORS.BERSERKER),
 };
 
-// Hero sprites per side, in hero order. Phase 1 has a single friendly hero; the rest are
-// ready for symmetric sides with 3 heroes each (D13).
+// Hero sprites per side, in hero order: classic mode has a single friendly hero, battle mode
+// 3 heroes per side by default (D13); further heroes reuse them in turn.
 const HERO_URLS: Record<Faction, string[]> = {
   [Faction.FRIENDLY]: [heroKnightGoldUrl, heroMasterUrl, heroSamuraiUrl],
   [Faction.ENEMY]: [heroShamanLionUrl, heroLionOrangeUrl, heroTenguUrl],
 };
 
-export interface SheetSet {
+interface SheetSet {
   normal: HTMLCanvasElement;
   flash: HTMLCanvasElement;
   dark: HTMLCanvasElement;
@@ -161,7 +162,7 @@ export class UnitSprites {
     return this.warrior !== null;
   }
 
-  // heroIndex: position of the hero within its side (0 for Phase 1's single hero)
+  // heroIndex: 0-based position of the hero within its side (0 for classic mode's hero)
   get(unitType: UnitType, faction: Faction, heroIndex: number = 0): SheetSet {
     if (unitType === UnitType.WARRIOR) return this.warrior!;
     if (unitType === UnitType.BERSERKER) return this.berserker!;

@@ -57,6 +57,24 @@ class MinHeap {
 
 // Region id of a blocked tile
 export const NO_REGION = -1;
+
+// A* bookkeeping per tile, reused by every search instead of a new Set and Map each time: a tile
+// is closed, or has a g score, only when its stamp is the current search's number
+const TILE_COUNT = GRID_SIZE * GRID_SIZE;
+const closedIn = new Uint32Array(TILE_COUNT);
+const scoredIn = new Uint32Array(TILE_COUNT);
+const gScore = new Int32Array(TILE_COUNT);
+let searchNo = 0;
+
+function nextSearch(): number {
+  if (searchNo === 0xffffffff) {
+    closedIn.fill(0);
+    scoredIn.fill(0);
+    searchNo = 0;
+  }
+  return ++searchNo;
+}
+
 const DIRS4 = [
   [1, 0],
   [-1, 0],
@@ -163,19 +181,27 @@ export class Pathfinder {
     const heuristic = (x: number, y: number): number => Math.abs(x - ex) + Math.abs(y - ey);
 
     const heap = new MinHeap();
-    const closed = new Set<number>();
-    const gScore = new Map<number, number>();
+    const search = nextSearch();
+    // Only a start tile off the map (odd input) can have a key outside the arrays; no step leads
+    // to such a key, so leaving it untracked is what a set of keys would do
+    const tracked = (k: number): boolean => k >= 0 && k < TILE_COUNT;
 
     const sh = heuristic(sx, sy);
     heap.push({ x: sx, y: sy, g: 0, h: sh, f: sh, parent: null });
-    gScore.set(key(sx, sy), 0);
+    const startKey = key(sx, sy);
+    if (tracked(startKey)) {
+      scoredIn[startKey] = search;
+      gScore[startKey] = 0;
+    }
 
     while (heap.size > 0) {
       const cur = heap.pop();
 
       const ck = key(cur.x, cur.y);
-      if (closed.has(ck)) continue;
-      closed.add(ck);
+      if (tracked(ck)) {
+        if (closedIn[ck] === search) continue;
+        closedIn[ck] = search;
+      }
 
       if (cur.x === ex && cur.y === ey) {
         const raw = Pathfinder.rebuild(cur);
@@ -189,12 +215,12 @@ export class Pathfinder {
         if (Pathfinder.isBlocked(grid, nx, ny)) continue;
 
         const nk = key(nx, ny);
-        if (closed.has(nk)) continue;
+        if (closedIn[nk] === search) continue;
 
         const ng = cur.g + 1;
-        const prevG = gScore.get(nk);
-        if (prevG === undefined || ng < prevG) {
-          gScore.set(nk, ng);
+        if (scoredIn[nk] !== search || ng < gScore[nk]) {
+          scoredIn[nk] = search;
+          gScore[nk] = ng;
           const nh = heuristic(nx, ny);
           heap.push({ x: nx, y: ny, g: ng, h: nh, f: ng + nh, parent: cur });
         }

@@ -23,6 +23,8 @@ import { enemyBase } from './Objectives';
 import { HERO_CRITICAL_HP_RATIO, RETREAT_SCAN, RETREAT_SECONDS } from './Rules';
 
 const STRAY_CACHE_SEC = 0.5; // stray clusters are recomputed at most this often
+// A hold restated within this many tiles of the hold being run is the same order (sameCommand)
+const HOLD_SAME_TILES = 2;
 
 // The command interface (D20). Every order — user click, rule hero, Jev, LLM — goes through
 // issue(), so a hero behaves the same whoever gave it. Each frame applyAll() turns each
@@ -214,8 +216,9 @@ export class HeroCommands {
         return enemy ? nearestReachableTile(this.sm, enemy.position) : null;
       }
       case 'regroup': {
+        // No strays: the hero stays where it is
         const cluster = regroupTarget(this.straysOf(hero.faction), hero);
-        return cluster ? nearestReachableTile(this.sm, regroupPoint(cluster, hero)) : null; // no strays: stay
+        return cluster ? nearestReachableTile(this.sm, regroupPoint(cluster, hero)) : null;
       }
       case 'attackBase': {
         const base = enemyBase(this.sm, hero.faction);
@@ -242,8 +245,6 @@ export function sameCommand(a: HeroCommand, b: HeroCommand): boolean {
   if (a.type === 'attackHero' && b.type === 'attackHero') return a.heroIndex === b.heroIndex;
   return true;
 }
-
-const HOLD_SAME_TILES = 2;
 
 function finitePoint(command: HeroCommand): boolean {
   const p = command.type === 'move' ? command.target : command.type === 'hold' ? command.at : null;

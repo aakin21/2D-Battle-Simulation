@@ -1,8 +1,8 @@
-import { modelLabel, TACTICAL_NAME, type TacticalModel } from '../ai/Models';
+import { modelLabel, TACTICAL_NAME } from '../ai/Models';
 import { SimulationEngine, MatchResult } from '../engine/SimulationEngine';
 import { StateManager } from '../state/StateManager';
 import type { Renderer } from '../rendering/Renderer';
-import { IUnit, IHero, UnitType, Faction, BehaviorState, SimConfig, SideAI } from '../types/types';
+import { IUnit, IHero, UnitType, Faction, BehaviorState, SimConfig } from '../types/types';
 import { sideName } from '../engine/Sides';
 import { wholePoints } from '../engine/Objectives';
 import { clock, describeCommand, escapeHtml, SIDE_NAME } from './format';
@@ -20,15 +20,15 @@ interface Baseline {
   hp: [number, number];
 }
 
-export function sideLabel(
-  ai: SideAI | undefined,
-  faction: Faction,
-  model?: string,
-  tactical?: TacticalModel
-): string {
-  if (!ai || ai === 'none') return faction === Faction.FRIENDLY ? 'You' : 'Rules';
+// Who commands a side: "You" or "Rules", "LLM Sonnet", "Jev + LLM Opus"
+function sideLabel(config: SimConfig, faction: Faction): string {
+  const west = faction === Faction.FRIENDLY;
+  const ai = west ? config.friendlyAI : config.enemyAI;
+  if (!ai || ai === 'none') return west ? 'You' : 'Rules';
+  const model = ai.includes('llm') ? (west ? config.friendlyModel : config.enemyModel) : undefined;
   const m = model ? ` ${modelLabel(model)}` : '';
   if (ai === 'llm') return `LLM${m}`;
+  const tactical = west ? config.friendlyTactical : config.enemyTactical;
   return `${TACTICAL_NAME[tactical ?? 'jev']} + LLM${m}`;
 }
 
@@ -213,8 +213,8 @@ export class Hud {
       if (u.state === BehaviorState.FLEE) fleeing[u.faction]++;
     }
 
+    if (this.elArmiesTitle.textContent !== 'Armies') this.elArmiesTitle.textContent = 'Armies';
     if (!this.engine.isBattleMode()) {
-      this.elArmiesTitle.textContent = 'Armies';
       const hero = this.stateManager.getHero();
       const heroRow = hero
         ? `<div class="army-row hero-row"><span class="lbl">Hero</span>${bar(hero.hp / hero.maxHp)}<span class="val">${Math.ceil(hero.hp)}</span></div>`
@@ -229,41 +229,31 @@ export class Hud {
       );
     }
 
-    this.elArmiesTitle.textContent = 'Armies';
-    const models = [config.friendlyModel, config.enemyModel];
-    const tacticals = [config.friendlyTactical, config.enemyTactical];
-    const ais = [config.friendlyAI, config.enemyAI];
     const heroes = this.stateManager.getHeroes();
-    return SIDES.map((f) => {
-      const who = sideLabel(
-        ais[f],
-        f,
-        ais[f]?.includes('llm') ? models[f] : undefined,
-        tacticals[f]
-      );
+    let html = '';
+    for (const f of SIDES) {
+      const side = sideName(f);
       const total = base.soldiers[f] || 1;
-      const heroRows = heroes
-        .filter((h) => h.faction === f)
-        .sort((a, b) => a.heroIndex - b.heroIndex)
-        .map((h) => {
-          const r = h.hp / h.maxHp;
-          const tag =
-            h.state === BehaviorState.FLEE ? 'flee' : h.state === BehaviorState.REST ? 'rest' : '';
-          return `<div class="army-row hero-row"><span class="lbl">Hero ${h.heroIndex}</span><div class="bar"><i style="width:${Math.round(r * 100)}%;background:${hpColor(r)}"></i></div><span class="hero-state">${tag}</span></div>`;
-        })
-        .join('');
-      const fallen = Math.max(0, base.heroes[f] - heroes.filter((h) => h.faction === f).length);
-      return (
-        `<div class="army"><div class="army-head"><span class="${sideName(f)}-text">${SIDE_NAME[sideName(f)]}</span><span class="army-who">${who}</span></div>` +
-        `<div class="army-row"><span class="lbl">Soldiers</span>${bar(soldiers[f] / total, sideName(f))}<span class="val">${soldiers[f]}</span></div>` +
+      const mine = heroes.filter((h) => h.faction === f).sort((a, b) => a.heroIndex - b.heroIndex);
+      let heroRows = '';
+      for (const h of mine) {
+        const r = h.hp / h.maxHp;
+        const tag =
+          h.state === BehaviorState.FLEE ? 'flee' : h.state === BehaviorState.REST ? 'rest' : '';
+        heroRows += `<div class="army-row hero-row"><span class="lbl">Hero ${h.heroIndex}</span><div class="bar"><i style="width:${Math.round(r * 100)}%;background:${hpColor(r)}"></i></div><span class="hero-state">${tag}</span></div>`;
+      }
+      const fallen = Math.max(0, base.heroes[f] - mine.length);
+      html +=
+        `<div class="army"><div class="army-head"><span class="${side}-text">${SIDE_NAME[side]}</span><span class="army-who">${sideLabel(config, f)}</span></div>` +
+        `<div class="army-row"><span class="lbl">Soldiers</span>${bar(soldiers[f] / total, side)}<span class="val">${soldiers[f]}</span></div>` +
         `<div class="army-row"><span class="lbl">HP</span>${bar(hp[f] / (base.hp[f] || 1))}<span class="val">${Math.round((100 * hp[f]) / (base.hp[f] || 1))}%</span></div>` +
         heroRows +
         (fallen > 0
           ? `<div class="army-row hero-row dead"><span class="lbl">Fallen</span><span class="faint">${fallen} hero${fallen > 1 ? 'es' : ''}</span></div>`
           : '') +
-        `<div class="army-row"><span class="lbl">Fleeing</span><span class="val">${fleeing[f]}</span></div></div>`
-      );
-    }).join('');
+        `<div class="army-row"><span class="lbl">Fleeing</span><span class="val">${fleeing[f]}</span></div></div>`;
+    }
+    return html;
   }
 
   // --- Selected unit ---
@@ -393,8 +383,8 @@ export class Hud {
       title +
       `<div class="how">${how} · ${clock(r.time)}</div>` +
       `<table>` +
-      `<tr><th></th><th class="west-text">West · ${sideLabel(config.friendlyAI, Faction.FRIENDLY, config.friendlyAI?.includes('llm') ? config.friendlyModel : undefined, config.friendlyTactical)}</th>` +
-      `<th class="east-text">East · ${sideLabel(config.enemyAI, Faction.ENEMY, config.enemyAI?.includes('llm') ? config.enemyModel : undefined, config.enemyTactical)}</th></tr>` +
+      `<tr><th></th><th class="west-text">West · ${sideLabel(config, Faction.FRIENDLY)}</th>` +
+      `<th class="east-text">East · ${sideLabel(config, Faction.ENEMY)}</th></tr>` +
       row('Units left', units[0], units[1]) +
       row('Heroes alive', heroes[0], heroes[1]) +
       row(
@@ -410,16 +400,13 @@ export class Hud {
         ? `<div class="actions"><button class="btn" data-act="watch" title="Watch this match again from the start">Watch replay</button>` +
           `<button class="btn btn-quiet" data-act="save-replay" title="Save the replay as a file, to open later from the menu">Download replay</button></div>`
         : '');
-    this.elResult.querySelector('[data-act="restart"]')!.addEventListener('click', actions.restart);
-    this.elResult.querySelector('[data-act="menu"]')!.addEventListener('click', actions.menu);
-    this.elResult.querySelector('[data-act="log"]')!.addEventListener('click', actions.log);
-    if (actions.watch)
-      this.elResult.querySelector('[data-act="watch"]')!.addEventListener('click', actions.watch);
-    if (actions.saveReplay)
-      this.elResult
-        .querySelector('[data-act="save-replay"]')!
-        .addEventListener('click', actions.saveReplay);
-    this.elResult.hidden = false;
+    this.showCard({
+      restart: actions.restart,
+      menu: actions.menu,
+      log: actions.log,
+      watch: actions.watch,
+      'save-replay': actions.saveReplay,
+    });
   }
 
   // The run was stopped by an error in the simulation (SimulationEngine.fail).
@@ -437,10 +424,15 @@ export class Hud {
         ? '<button class="btn btn-quiet" data-act="log" title="Settings, timeline and every AI decision as JSON">Download log</button>'
         : '') +
       '</div>';
-    this.elResult.querySelector('[data-act="restart"]')!.addEventListener('click', actions.restart);
-    this.elResult.querySelector('[data-act="menu"]')!.addEventListener('click', actions.menu);
-    if (actions.log)
-      this.elResult.querySelector('[data-act="log"]')!.addEventListener('click', actions.log);
+    this.showCard(actions);
+  }
+
+  // Wires the result card's buttons (data-act) to their actions and shows the card; a null action
+  // has no button
+  private showCard(actions: Record<string, (() => void) | null>): void {
+    for (const [act, run] of Object.entries(actions)) {
+      if (run) this.elResult.querySelector(`[data-act="${act}"]`)!.addEventListener('click', run);
+    }
     this.elResult.hidden = false;
   }
 

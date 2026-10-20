@@ -8,7 +8,7 @@ import { BehaviorState, Faction, IHero, SimConfig } from '../types/types';
 import type { StateManager } from '../state/StateManager';
 import type { AiSides } from './MatchLog';
 import { AiRequestLog } from './AiRequestLog';
-import { describeCommand, escapeHtml, SIDE_NAME } from './format';
+import { describeCommand, escapeHtml, prettyKey, SIDE_NAME } from './format';
 import { modelLabel } from '../ai/Models';
 
 // The AI panels in the side panel, below Map, Armies and Area: one for each side with AI
@@ -43,10 +43,7 @@ function percent(v: number | undefined): string {
 
 // "step_north_east" → "step north-east", "attack_hero_2" → "attack hero 2"
 function prettyChoice(key: string): string {
-  return key
-    .replace(/_/g, ' ')
-    .replace(/(north|south) (east|west)/, '$1-$2')
-    .replace('continue llm', 'follow the LLM');
+  return prettyKey(key).replace('continue llm', 'follow the LLM');
 }
 
 function heroState(h: IHero): string {
@@ -78,6 +75,14 @@ interface Panel {
   main: HTMLElement;
   log: AiRequestLog;
   last: string;
+  // The footer's counts, kept until a layer answers again or counts a skip or a failure
+  meta: { llm?: LlmController; jev?: JevController; key: string; html: string } | null;
+}
+
+// Each hero's latest tactical decision, brought up to date with the decisions added since
+interface LatestJev {
+  seen: number;
+  byHero: Map<number, JevDecision>;
 }
 
 export class AiPanel {
@@ -86,6 +91,7 @@ export class AiPanel {
   private stats = new Map<string, GroupStats>();
   private statsAt = 0;
   private open = new Set<string>(); // long texts the viewer opened, by key
+  private latest = new WeakMap<JevController, LatestJev>();
 
   constructor() {
     const panel = (side: Side): Panel => {
@@ -95,6 +101,7 @@ export class AiPanel {
         main: el.querySelector('.ai-col-main')!,
         log: new AiRequestLog(side, el),
         last: '',
+        meta: null,
       };
       // "more" / "less" on a long text: open or close it, then draw again at once
       p.main.addEventListener('click', (e) => {
@@ -163,10 +170,17 @@ export class AiPanel {
     const mine = heroes
       .filter((h) => h.faction === faction && h.controller === 'ai')
       .sort((a, b) => a.heroIndex - b.heroIndex);
-    const latestJev = new Map<number, JevDecision>();
-    for (const d of jev?.decisions ?? []) latestJev.set(d.heroIndex, d);
-    html += mine.map((h) => this.heroHtml(side, h, jev, latestJev.get(h.heroIndex), now)).join('');
-    return html + this.metaHtml(llm, jev);
+    const latestJev = jev ? this.latestJev(jev) : null;
+    for (const h of mine) html += this.heroHtml(side, h, jev, latestJev?.get(h.heroIndex), now);
+    return html + this.metaHtml(this.panels[side], llm, jev);
+  }
+
+  private latestJev(jev: JevController): Map<number, JevDecision> {
+    let l = this.latest.get(jev);
+    if (!l) this.latest.set(jev, (l = { seen: 0, byHero: new Map() }));
+    const all = jev.decisions;
+    for (; l.seen < all.length; l.seen++) l.byHero.set(all[l.seen].heroIndex, all[l.seen]);
+    return l.byHero;
   }
 
   // "LLM  answered 4 s ago in 3.2 s · next in 16 s", "thinking… 12 s", or why it stopped
@@ -293,7 +307,23 @@ export class AiPanel {
     return `<div class="ai-hero${overrides ? ' override' : ''}">${html}</div>`;
   }
 
-  private metaHtml(llm: LlmController | undefined, jev: JevController | undefined): string {
+  // Decisions are only ever added, so their count stands for them
+  private metaHtml(
+    p: Panel,
+    llm: LlmController | undefined,
+    jev: JevController | undefined
+  ): string {
+    const key =
+      `${llm?.decisions.length},${llm?.skippedRequests},${llm?.failedRequests},` +
+      `${jev?.decisions.length},${jev?.skippedRequests},${jev?.failedRequests}`;
+    const m = p.meta;
+    if (m && m.llm === llm && m.jev === jev && m.key === key) return m.html;
+    const html = this.buildMetaHtml(llm, jev);
+    p.meta = { llm, jev, key, html };
+    return html;
+  }
+
+  private buildMetaHtml(llm: LlmController | undefined, jev: JevController | undefined): string {
     const parts: string[] = [];
     if (llm && llm.decisions.length) {
       const avg = llm.decisions.reduce((sum, x) => sum + x.latencyMs, 0) / llm.decisions.length;

@@ -7,6 +7,9 @@ const ORDER_PING_TIME = 0.45;
 // Order markers by Faction: west gold, east blue (as in the HUD)
 const SIDE_FILL = SIDE_HEX;
 const SIDE_LINE = SIDE_RGB.map((rgb) => `rgba(${rgb}, 0.75)`);
+// Dash pattern of the selected hero's line (setLineDash copies the array)
+const LINE_DASH = [6, 5];
+const NO_DASH: number[] = [];
 
 // Each hero's current task point. FX off: the original X. FX on: a small marker in the
 // side's colour, a ring that closes on the point when a new order arrives (from the user,
@@ -22,9 +25,10 @@ export class OrderMarkers {
     this.orderPings.length = 0;
   }
 
+  // heroes: this frame's heroes (other units are skipped)
   draw(
     ctx: CanvasRenderingContext2D,
-    units: IUnit[],
+    heroes: readonly IUnit[],
     camera: Camera,
     viewW: number,
     viewH: number,
@@ -35,9 +39,9 @@ export class OrderMarkers {
     const now = performance.now();
     const half = Math.max(5, zoom * 0.7);
 
-    for (const unit of units) {
-      if (unit.unitType !== UnitType.HERO) continue;
-      const hero = unit as IHero;
+    for (let i = 0; i < heroes.length; i++) {
+      if (heroes[i].unitType !== UnitType.HERO) continue;
+      const hero = heroes[i] as IHero;
       if (fx) {
         const prev = this.lastOrders.get(hero.id);
         if (hero.command !== prev) {
@@ -60,12 +64,12 @@ export class OrderMarkers {
       if (fx && hero.id === selectedUnitId) {
         ctx.strokeStyle = SIDE_LINE[hero.faction];
         ctx.lineWidth = 2;
-        ctx.setLineDash([6, 5]);
+        ctx.setLineDash(LINE_DASH);
         ctx.beginPath();
         ctx.moveTo((hero.position.x - camX) * zoom, (hero.position.y - camY) * zoom);
         ctx.lineTo(sx, sy);
         ctx.stroke();
-        ctx.setLineDash([]);
+        ctx.setLineDash(NO_DASH);
       }
 
       if (sx < -20 || sx > viewW + 20) continue;

@@ -12,7 +12,7 @@ import {
 import { AiExchange, finishExchange } from './Exchange';
 
 // What every AI layer is configured with (JevOptions and LlmOptions extend it)
-export interface AiLayerOptions {
+interface AiLayerOptions {
   intervalSec: number; // how often to ask
   fallbackToRules: boolean; // on failure, hand heroes to the rule layer
   endpoint: string;
@@ -21,7 +21,7 @@ export interface AiLayerOptions {
 }
 
 // What a request came back with; `attempts` only when it was retried within itself (Jev)
-export interface Sent {
+interface Sent {
   res: Response;
   attempts?: number;
 }
