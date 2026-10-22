@@ -303,6 +303,11 @@ export class StateManager {
     return this.spatialGrid.nearestEnemy(cx, cy, radius, faction);
   }
 
+  // Whether a living unit not of `faction` is within radius
+  hasEnemyInRadius(cx: number, cy: number, radius: number, faction: number): boolean {
+    return this.spatialGrid.hasEnemy(cx, cy, radius, faction);
+  }
+
   wasNearestTied(): boolean {
     return this.spatialGrid.wasNearestTied();
   }
