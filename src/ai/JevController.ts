@@ -1,20 +1,27 @@
 import { SimulationEngine } from '../engine/SimulationEngine';
 import { StateManager } from '../state/StateManager';
-import { Faction, IHero } from '../types/types';
+import { Faction, IHero, Position } from '../types/types';
 import { jevGameRules, JEV_INTERVAL_SEC } from './GameRules';
 import { groupStats, GroupStats, localForce } from './Observations';
 import type { JevAssessment } from './LlmController';
 import { strayClusters, type StrayCluster } from '../engine/Strays';
 import { sameCommand } from '../engine/HeroCommands';
-import { sideName } from '../engine/Sides';
+import { opponent, sideName } from '../engine/Sides';
 import { aiEndpoint, aiHeaders, fetchWithRetries, transientStatus } from './AiServer';
 import { AiLayer } from './AiLayer';
 import { finishExchange, startExchange } from './Exchange';
 import { JEV_MAX_REQUEST_SIZE, JEV_TIMEOUT_MS } from './Limits';
 import { TACTICAL_NAME, type TacticalModel } from './Models';
 import { SNAP_MAX_QUESTIONS, toSnapRequest } from './Snap';
+import { threatCosts } from './Detour';
 import { heroQuestions, jevOptions, type JevOption } from './JevQuestions';
-import { heroSituation, localMap, objectiveState } from './JevSituation';
+import {
+  enemyGroupsOf,
+  heroSituation,
+  localMap,
+  objectiveState,
+  type EnemyGroup,
+} from './JevSituation';
 
 // Layer 2 (D6, D21, D26): Jev makes tactical decisions for each hero of one side every few
 // seconds. Jev has no memory, so every request carries the relevant rules (game_rules) and
@@ -66,6 +73,8 @@ export class JevController extends AiLayer {
   private lastForce = new Map<number, number>(); // force ratio per hero at the previous request
   private lastChoice = new Map<number, string>();
   private assessments = new Map<number, Omit<JevAssessment, 'recentDecisions'>>();
+  // Where every hero was at the previous request, to tell how enemy heroes move
+  private lastPositions: { time: number; at: Map<string, Position> } | undefined;
 
   constructor(
     engine: SimulationEngine,
@@ -121,6 +130,13 @@ export class JevController extends AiLayer {
     // Computed once per request, for every hero's options and description
     const groups = groupStats(this.stateManager, this.faction);
     const strays = strayClusters(this.stateManager, this.faction);
+    const enemyGroups = enemyGroupsOf(
+      this.stateManager,
+      this.faction,
+      groupStats(this.stateManager, opponent(this.faction))
+    );
+    let costs: Uint8Array | undefined; // tiles near enemies, only when a hero has a way to check
+    const threats = () => (costs ??= threatCosts(this.stateManager, this.faction));
     const options = new Map<number, JevOption[]>();
     const forceNow = new Map<number, number>();
     const questions: Record<string, unknown> = {};
@@ -136,13 +152,17 @@ export class JevController extends AiLayer {
 
     for (const hero of heroes) {
       const key = `hero${hero.heroIndex}`;
-      const opts = this.optionsFor(hero, strays);
+      const opts = this.optionsFor(hero, strays, threats);
       options.set(hero.heroIndex, opts);
       const force = localForce(this.stateManager, hero);
       forceNow.set(hero.heroIndex, force.ratio);
-      state[key] = this.describeHero(hero, time, force, groups, strays);
+      state[key] = this.describeHero(hero, time, force, groups, strays, enemyGroups);
       Object.assign(questions, heroQuestions(key, hero, opts));
     }
+    this.lastPositions = {
+      time,
+      at: new Map(this.stateManager.getHeroes().map((h) => [h.id, { ...h.position }])),
+    };
 
     // Snap gets the same state, options and questions in its own format (D51)
     const request: Record<string, unknown> =
@@ -261,9 +281,10 @@ export class JevController extends AiLayer {
   // The options Jev can choose from for one hero (JevQuestions.ts)
   private optionsFor(
     hero: IHero,
-    strays: StrayCluster[] = strayClusters(this.stateManager, hero.faction)
+    strays: StrayCluster[] = strayClusters(this.stateManager, hero.faction),
+    threats?: () => Uint8Array
   ): JevOption[] {
-    return jevOptions(this.stateManager, hero, strays);
+    return jevOptions(this.stateManager, hero, strays, threats);
   }
 
   // Everything Jev knows about one hero: its status, orders and surroundings (JevSituation.ts)
@@ -272,13 +293,16 @@ export class JevController extends AiLayer {
     time: number,
     force: { allies: number; enemies: number; ratio: number },
     groups: Map<string, GroupStats>,
-    strays: StrayCluster[]
+    strays: StrayCluster[],
+    enemyGroups: EnemyGroup[]
   ): Record<string, unknown> {
     return heroSituation(this.stateManager, hero, {
       time,
       force,
       groups,
       strays,
+      enemyGroups,
+      previousPositions: this.lastPositions,
       previousForce: this.lastForce.get(hero.heroIndex),
       previousChoice: this.lastChoice.get(hero.heroIndex),
     });

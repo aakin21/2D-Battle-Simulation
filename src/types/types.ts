@@ -65,21 +65,34 @@ export type AITiming = 'realtime' | 'paused';
 export type { LlmModel, TacticalModel };
 
 // Orders a hero can receive (D20). Every source (user, rule, Jev, LLM) uses the same set.
-export type HeroCommand = (
-  | { type: 'move'; target: Position } // AI gives a sector, the user an exact point
-  | { type: 'hold'; at: Position }
-  | { type: 'retreat'; to?: Position } // fall back a short way from the enemies (set on issue)
-  | { type: 'attack' } // the hero leads the charge and fights in front
-  | { type: 'lead' } // the soldiers charge the nearest enemy, the hero follows behind them (D48)
-  | { type: 'attackHero'; heroIndex: number }
-  | { type: 'regroup' } // collect stray soldiers of the hero's side, group after group (D28)
-  | { type: 'attackBase' } // walk to the enemy base and attack it (base mode, D30)
-  | { type: 'continueLlm' } // Jev only: keep following the LLM's latest command
-) & {
-  // Why the order was given (the LLM writes one per order); Jev reads it to judge whether the
-  // order still fits. The engine ignores it.
-  reason?: string;
-};
+export type HeroCommand =
+  // AI gives a sector, the user an exact point; `via`: places walked to first, in order (D60)
+  (
+    | { type: 'move'; target: Position; via?: Position[] }
+    | { type: 'hold'; at: Position }
+    | { type: 'retreat'; to?: Position } // fall back a short way from the enemies (set on issue)
+    | { type: 'attack' } // the hero leads the charge and fights in front
+    | { type: 'lead' } // the soldiers charge the nearest enemy, the hero follows behind them (D48)
+    | { type: 'attackHero'; heroIndex: number }
+    | { type: 'regroup' } // collect stray soldiers of the hero's side, group after group (D28)
+    // Jev only (D60): collect the stray group near `at`, then follow the LLM's latest order
+    | { type: 'regroupOne'; at: Position }
+    | { type: 'attackBase' } // walk to the enemy base and attack it (base mode, D30)
+    | { type: 'continueLlm' } // Jev only: keep following the LLM's latest command
+  ) & {
+    // Why the order was given (the LLM writes one per order); Jev reads it to judge whether the
+    // order still fits. The engine ignores it.
+    reason?: string;
+    // D60: what the LLM wants instead if a condition comes about; a hint the tactical layer reads
+    // (it judges the condition and chooses). The engine ignores it.
+    fallback?: OrderFallback;
+  };
+
+export const FALLBACK_ORDERS = ['retreat', 'regroup', 'hold'] as const;
+export interface OrderFallback {
+  when: string;
+  do: (typeof FALLBACK_ORDERS)[number];
+}
 
 export type CommandSource = 'user' | 'rule' | 'jev' | 'llm';
 
@@ -103,6 +116,9 @@ export interface IHero extends IUnit {
   standPoint: Position | null;
   standUntil: number; // simulation time until which the hero stays behind (enemies just left)
   attackTargetId: string | null; // D55: the enemy its attack or lead order goes for
+  // D60: the via points of move orders the hero reached, and when (the latest few); null until it
+  // is given a route
+  viaReached: Array<{ x: number; y: number; t: number }> | null;
 }
 
 // D30: battle objectives. 'elimination': destroy every enemy unit. 'control': hold points

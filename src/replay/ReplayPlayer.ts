@@ -85,6 +85,7 @@ export class ReplayPlayer {
       standPoint: null,
       standUntil: 0,
       attackTargetId: null,
+      viaReached: null,
     }));
     const o = h.objective;
     this.bf = {

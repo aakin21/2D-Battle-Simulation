@@ -7,7 +7,8 @@ import { regroupTarget, type StrayCluster } from '../engine/Strays';
 import { GRID_SIZE, HeroCommand, IHero, Position } from '../types/types';
 import { JEV_STEP_TILES, RETREAT_ABOUT_TILES } from './GameRules';
 import { describeCommand } from './Describe';
-import { COMPASS, distance, hpPercent, towards } from './Observations';
+import { detourFor, threatCosts } from './Detour';
+import { COMPASS, distance, hpPercent, towards, VIEW_RADIUS } from './Observations';
 import { alliesOf, enemyHeroesNear, nearbyStrays, pointHolder } from './JevSituation';
 
 // What Jev is asked about one hero (D20, D26): a choice over the options we define, each with
@@ -65,8 +66,14 @@ export function heroQuestions(
 }
 
 // The options Jev can choose from for one hero. Moves are short steps: Jev decides locally, the
-// LLM moves map-wide. `strays` are the side's stray clusters (strayClusters).
-export function jevOptions(sm: StateManager, hero: IHero, strays: StrayCluster[]): JevOption[] {
+// LLM moves map-wide. `strays` are the side's stray clusters (strayClusters); `threats` gives the
+// side's cost of tiles near enemies (threatCosts), computed only when a hero needs it.
+export function jevOptions(
+  sm: StateManager,
+  hero: IHero,
+  strays: StrayCluster[],
+  threats: () => Uint8Array = () => threatCosts(sm, hero.faction)
+): JevOption[] {
   const here = { x: Math.floor(hero.position.x), y: Math.floor(hero.position.y) };
   const opts: JevOption[] = [];
   const order = hero.lastLlmCommand;
@@ -78,6 +85,17 @@ export function jevOptions(sm: StateManager, hero: IHero, strays: StrayCluster[]
       notFor: 'When the hero is in danger or the order no longer fits the local situation.',
       command: { type: 'continueLlm' },
     });
+    // D60: the commander's move by a way around the enemies near it, worked out by code
+    const detour = detourFor(sm, hero, threats());
+    if (detour) {
+      opts.push({
+        key: 'continue_around',
+        what: `Go on with the commander's order by a way that keeps away from enemy units: about ${detour.length} tiles (the direct way, about ${detour.direct} tiles, passes near enemy units); the soldiers follow the hero the same way.`,
+        notFor:
+          'When the enemies on the direct way are weak and the fight is worth it, or the hero is already in a fight.',
+        command: detour.command,
+      });
+    }
   }
   opts.push(
     {
@@ -172,6 +190,26 @@ export function jevOptions(sm: StateManager, hero: IHero, strays: StrayCluster[]
       command: { type: 'regroup' },
     });
   }
+  // D60: one group only, then back to the commander's order: the nearest group within the view,
+  // preferring bigger ones as regroup does
+  const one = order
+    ? regroupTarget(
+        strays.filter((c) => distance(hero.position, c.center) <= VIEW_RADIUS),
+        hero
+      )
+    : null;
+  if (one && order) {
+    const d = Math.round(distance(hero.position, one.center));
+    opts.push({
+      key: 'regroup_short',
+      what: `Collect only the group of ${one.soldiers} stray soldiers ${d} tiles ${towards(hero.position, one.center)}, then go back to the commander's order (${describeCommand(order, 'jev')}).`,
+      notFor: 'When the group is small and far away, or the hero is in a fight.',
+      command: {
+        type: 'regroupOne',
+        at: { x: Math.round(one.center.x), y: Math.round(one.center.y) },
+      },
+    });
+  }
 
   COMPASS.forEach((dir, i) => {
     const angle = (i * Math.PI) / 4;
@@ -190,6 +228,15 @@ export function jevOptions(sm: StateManager, hero: IHero, strays: StrayCluster[]
       command: { type: 'move', target },
     });
   });
+  // D60: the commander's fallback marks the option it names (regroup: collecting one group and
+  // going back to the order, when offered); Jev judges whether its condition has come about
+  const fallback = order?.fallback;
+  if (fallback) {
+    const keys = fallback.do === 'regroup' ? ['regroup_short', 'regroup'] : [fallback.do];
+    const marked = keys.map((k) => opts.find((o) => o.key === k)).find((o) => o);
+    if (marked)
+      marked.what += ` The commander's fallback for this hero: choose this when ${fallback.when}.`;
+  }
   return opts;
 }
 

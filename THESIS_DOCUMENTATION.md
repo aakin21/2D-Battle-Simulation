@@ -19,6 +19,14 @@ A running record of the project's process: what was built, which decisions were 
 | 2026-10-01 | Phase 2 begins: feasibility research for AI integration |
 | 2026-10-01 | First decisions: Jev for layer 2, Vercel hosting with proxy, Agent SDK for the LLM during development (D6–D11) |
 | 2026-10-04 | Phase 2 merged into `main` and deployed to the online demo (tag `v2.0-phase2`): battle mode, Jev and LLM layers, objectives (D30), time limit and rule changes (D33–D36); the demo reaches the AI layers through a tunnel to the author's computer (D37) |
+| 2026-10-07 | AI panel and match log (`v2.3`): every AI request, answer and response time can be saved from a match for analysis; pixel-art UI, terrain art, unit animation and sound (`v2.2`–`v2.6`) |
+| 2026-10-10 | AI intent (`v2.9`, `v2.9.1`): commanders per side (D38), order reasons (D41), retreat and regroup reworked (D39, D40); first LLM + Jev matches logged by the author |
+| 2026-10-12 | `v2.9.2`, `v2.9.3` in `main` and the demo: strays stay (D42), mechanics-only rulebook (D43), models pinned to the 5.5 generation (D44, P8), hero reflex and rest (D45), engagement rule (D46); P6 closed |
+| 2026-10-13 | Hero reflex v3 (D47, `v2.9.4`) |
+| 2026-10-17 | SubQ Snap as a second tactical layer (D51) and the OpenRouter path for a cross-company LLM comparison (D52), LLM interval 15 s (D50) (`v2.10`); behaviour-preserving refactor merged into `main`; units take up room (D53, `v2.11`) |
+| 2026-10-18 | Hero behind its soldiers and the lead order (D48), attack in sight and points-only control (D54–D56), match replays |
+| 2026-10-20 | Soldiers rout until safe and fight when cornered (D57), 8-minute control matches with a 3 s capture (D58); behaviour-preserving cleanup (faster engine and rendering) |
+| 2026-10-22 | Marching soldiers push each other a tenth as hard (D59), in `main` and the demo |
 
 ---
 
@@ -1229,18 +1237,18 @@ Problems encountered during the project, how they were found, and how they were 
 |---|---|---|
 | Q1 | What command set will layers 2 and 3 control? | Answered by D13, D14 |
 | Q2 | How do layers 2 and 3 interact when they disagree? | Answered by D15 |
-| Q3 | What surrounding information is passed to Jev? | Proposed in D21: hero status, current and strategic order, nearby ally/enemy counts and courage, nearest enemy, visible enemy heroes, 15×15 local text map. To be redesigned per R5 (local force ratio and trend, LLM order and its age, previous decision) |
-| Q4 | How is the full map summarized for the LLM? | Proposed in D22: heroes of both sides, army totals and courage, soldiers per sector, terrain per sector as a 10×10 text grid (~380 tokens). To be redesigned per R5 (complete rulebook, computed per-sector values, recent events, previous plan) |
+| Q3 | What surrounding information is passed to Jev? | Answered by D26 (replaces D21, applies R5: local force ratio and trend, the LLM's order and its age, previous decision); map form by R11; allied heroes added by D54 |
+| Q4 | How is the full map summarized for the LLM? | Answered by D26 (replaces D22, applies R5: complete rulebook, computed per-sector values, recent events, previous plan); rulebook limited to mechanics by D43 and D56 |
 | Q5 | Proxy hosting for the live demo | Answered by D8 (Vercel) |
 | Q6 | Real-time mode: how does the speed multiplier interact with latency? | Answered by D4: speed setting stays; at higher speed more game time passes before an answer arrives. Response times are recorded |
-| Q7 | Real-time mode: a new decision is due but the previous one hasn't arrived | Proposed in D21 (Jev): skip it and count skipped requests |
+| Q7 | Real-time mode: a new decision is due but the previous one hasn't arrived | Answered: skip it and count it, for both layers (D21, kept by D26; the match log records skipped requests). Seen in practice: 4 skipped LLM requests in one match at a 20 s interval, one reason for D50 |
 | Q8 | Does the latency mode apply to both AI layers? | Answered by D4: yes, both Jev and the LLM |
 | Q9 | Agent vs Agent: same model on both sides, or different models? | Suggestion: both. A mirror match is the control experiment. |
-| Q10 | Does wave spawning stay in the symmetric setup? | If D12 is adopted: waves become symmetric reinforcements from each side's base |
+| Q10 | Does wave spawning stay in the symmetric setup? | Answered by D19 and D30 (D12 superseded): waves stay only in Classic mode; Battle mode has no waves and its bases are passive, without reinforcements |
 | Q11 | Which metrics will the thesis report? | Win rate, casualties, survival time, decision latency, skipped decisions, cost. Requires headless mode and export.. AI-vs-AI benchmarks use many seeded matches, side swaps, several maps and a baseline (R13). Conditions now also include the tactical model (Jev or SubQ Snap, D51) and, in a separate experiment, LLMs of different companies through OpenRouter (D52) |
-| Q12 | How should the layer 2 decision frequency relate to Jev latency (~0.3–0.7 s)? | Proposed in D21: every 4 s, one request per side for all its heroes. Still to measure with a real key (Q13) |
-| Q13 | What are Jev's real end-to-end latency and token cost per call? | Needs an API key; measure inside the simulation (R1, R3) |
+| Q12 | How should the layer 2 decision frequency relate to Jev latency (~0.3–0.7 s)? | Answered: every 4 s, one request per side for all its heroes (D21, kept by D26). Measured latency (median 545 ms, longest 1,028 ms, R14) is well inside the 4 s interval |
+| Q13 | What are Jev's real end-to-end latency and token cost per call? | Latency answered by R14 (author's logs of 2026-10-10, 250 requests: median 545 ms, 90th percentile 712 ms, longest 1,028 ms; about 6,400 input tokens per request). Cost: the author's dashboards show about $0.20 for Jev and SubQ Snap together over 300–400 matches (2026-10-18, not yet logged as an R entry) |
 | Q14 | How large is the Vercel cold start in practice? | Measure after deployment (D8) |
 | Q15 | Is cross-match learning (D11) feasible, and how should it be built? | Research: lesson format and size limit, summarizing old lessons, effect of a fixed vs varied map (risk of map-specific lessons), fairness in Agent vs Agent, keeping other experiments independent (learning off). Related work: Reflexion (Shinn et al., 2023). Proposed form: D49 (lessons per model written by the LLM, R13) |
-| Q16 | Does the persistent LLM session slow down as history grows over a match? | Repeat R2 measurement over a full-length match; reset the session periodically if needed |
+| Q16 | Does the persistent LLM session slow down as history grows over a match? | Partly measured (author's logs of 2026-10-18, Sonnet through the Agent SDK): the context grows from ~8.5k to ~171k tokens over 16 reports, ~95% of it cache reads; most of the growth is the Agent SDK's own overhead, not our ~3k-token report. Answer time against context size not yet analysed. The stateless OpenRouter path (D52) must resend or summarise the history |
 | Q17 | What causes the one-time ~165 ms frame in stress mode (R7)? | Same in both versions, so not D31. Likely many berserkers re-pathing at once when the warriors are wiped out. Not the unreachable-target searches of P3: the frame remains after D32 (R8). Profile that frame |

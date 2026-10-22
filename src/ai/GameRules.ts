@@ -1,7 +1,14 @@
-import { UNIT_STATS, TERRAIN_SPEED, TERRAIN_SIGHT, GRID_SIZE, Objective } from '../types/types';
+import {
+  UNIT_STATS,
+  TERRAIN_SPEED,
+  TERRAIN_SIGHT,
+  GRID_SIZE,
+  Objective,
+  FALLBACK_ORDERS,
+} from '../types/types';
 import { SECTOR_SIZE, SECTORS_PER_SIDE } from '../engine/Sectors';
 import * as R from '../engine/Rules';
-import { LOCAL_RADIUS } from './Observations';
+import { LOCAL_RADIUS, VIEW_RADIUS } from './Observations';
 
 // The rulebook given to the AI layers (D26). Built from the same constants the engine uses,
 // so the text cannot drift from the simulation. The LLM gets it once per match as its system
@@ -42,7 +49,7 @@ const TERRAIN = `Terrain: forest slows movement to ${pct(TERRAIN_SPEED.FOREST)} 
 const MAP = `The map is ${GRID_SIZE}x${GRID_SIZE} tiles, split into ${SECTORS_PER_SIDE}x${SECTORS_PER_SIDE} sectors of ${SECTOR_SIZE}x${SECTOR_SIZE} tiles. Columns A-J run west to east, rows 1-10 north to south. Each sector is split 3x3 into sub-sectors of 5x5 tiles named NW, N, NE, W, C, E, SW, S, SE, e.g. "D4-NE" is the north-east corner of D4; "D4" alone means its centre. Exact places are also given as tiles (x, y): x counts from 0 at the west edge to ${GRID_SIZE - 1} at the east edge, y from 0 at the north edge to ${GRID_SIZE - 1} at the south edge.`;
 
 const jevForLlm = (name: string) =>
-  `A fast tactical system (${name}) watches each of your heroes and decides every ${JEV_INTERVAL_SEC} seconds, using only what is around that hero. It can briefly override your order to handle the local situation (hold, retreat, attack, attack a nearby enemy hero, collect nearby strays, step toward one of your other heroes, go to a control point or attack the enemy base when the mode has them, or step about ${JEV_STEP_TILES} tiles in some direction), and returns to your order when the situation allows. The report shows ${name}'s recent decisions and its assessment of each hero (surrounded, threat level, whether your order still fits). You set the plan; ${name} handles the moment.`;
+  `A fast tactical system (${name}) watches each of your heroes and decides every ${JEV_INTERVAL_SEC} seconds, using only what is around that hero. It can briefly override your order to handle the local situation (hold, retreat, attack, attack a nearby enemy hero, collect nearby strays, collect one nearby group of strays and then go on with your order, go on to your order's place by a way that keeps away from enemy units, step toward one of your other heroes, go to a control point or attack the enemy base when the mode has them, or step about ${JEV_STEP_TILES} tiles in some direction), and returns to your order when the situation allows. The report shows ${name}'s recent decisions and its assessment of each hero (surrounded, threat level, whether your order still fits). You set the plan; ${name} handles the moment.`;
 
 // Only the result counts, in every mode: there is no score for losing by less
 const RESULT_ONLY =
@@ -99,14 +106,19 @@ ${REFLEX}
 ${TERRAIN}
 ${withJev ? `\n${jevForLlm(tacticalName)}\n` : ''}
 ORDERS:
-- move <place>: walk to that sector or sub-sector ("D4" or "D4-NE") and stay there. Its soldiers fight the enemies they meet on the way and at the place by themselves (FOLLOWING); taking or holding a place needs no attack order.
+- move <place>: walk to that sector or sub-sector ("D4" or "D4-NE") and stay there. Its soldiers fight the enemies they meet on the way and at the place by themselves (FOLLOWING); taking or holding a place needs no attack order. Optionally "via": up to ${R.MAX_LLM_VIA} places walked to first, in order (e.g. "via": ["C5", "D6-N"]); the hero and its soldiers walk the shortest way between two places, which goes around mountains but not around enemy units.
 - hold: stay at the current position and fight what comes; its soldiers fight the enemies that come into their sight by themselves.
 - retreat: fall back from the enemies near the hero as far as it walks in ${R.RETREAT_SECONDS} seconds (about ${RETREAT_ABOUT_TILES} tiles; not to its start position), then stay there. Enemies that follow catch up and the fight goes on there; retreat given again after the hero has arrived falls back further (given again while it is still on its way, it changes nothing).
 - attack: the hero walks toward the nearest enemy unit within its sight (${H.sight} tiles, less in forest and swamp), in front of its soldiers, and fights, and keeps after that enemy until it dies or is more than ${R.ATTACK_CHASE_TILES} tiles away, also when it steps out of sight; with no such enemy it stays where it is.
 - lead: the soldiers walk toward the nearest enemy unit within the hero's sight and fight it; the hero follows behind them (see HERO BEHIND ITS SOLDIERS); like attack, the group keeps after that enemy until it dies or is more than ${R.ATTACK_CHASE_TILES} tiles away; with no such enemy it stays where it is.
 - attack_hero <n>: walk toward enemy hero n's current position and keep following it as it moves. Your hero and its soldiers still fight every enemy they meet on the way. Killing a hero removes its +${R.CHARISMA_BONUS} courage bonus from its soldiers.
 - regroup: collect your stray soldiers: the hero walks to one group after another (nearer and bigger groups first) until none is left, then stays; strays follow the hero again once it is within ${H.sight} tiles and regain the courage bonus near it. If you have no strays, the hero stays where it is.${objectiveOrders(objective)}
-Give every order a short "reason": what it is for and what would make it pointless (e.g. "take A before the enemy arrives; pointless if A is already ours"). The reason is logged, and a tactical layer, if you have one, uses it to judge whether the order still fits.
+Give every order a short "reason": what it is for and what would make it pointless (e.g. "take A before the enemy arrives; pointless if a stronger enemy group gets there first"). The reason is logged, and a tactical layer, if you have one, uses it to judge whether the order still fits.${
+    withJev
+      ? `
+An order can also carry a "fallback": {"when": "<condition>", "do": "${FALLBACK_ORDERS.join('|')}"}, the order you want instead once the condition comes about. ${tacticalName} reads it with the hero's surroundings every ${JEV_INTERVAL_SEC} seconds and decides whether the condition has come about; "regroup" there means collecting the nearest group of strays and then going on with your order.`
+      : ''
+  }
 FIGHTING AND BREAKING OFF: ${BREAK_OFF}
 
 STANCE: keep one stance and change it only when its condition is met.
@@ -125,7 +137,7 @@ Reply with ONLY this JSON, no other text:
 export function jevGameRules(withCommander: boolean, objective: Objective): Record<string, string> {
   return {
     your_role: withCommander
-      ? "You are the tactical layer. A strategic commander (an LLM) sets the overall plan and gives each hero an order with its reason; you decide what each hero should do right now, based on its surroundings. Follow the commander's order while its reason still holds here; when the situation shows the reason no longer holds (the target is gone or already taken, the enemy here is much stronger or weaker than the commander expected, the hero is about to be surrounded), choose what fits, and return to the order when it fits again."
+      ? "You are the tactical layer. A strategic commander (an LLM) sets the overall plan and gives each hero an order with its reason; you decide what each hero should do right now, based on its surroundings. Follow the commander's order while its reason still holds here; when the situation shows the reason no longer holds (the target is gone or already taken, the enemy here is much stronger or weaker than the commander expected, the hero is about to be surrounded), choose what fits, and return to the order when it fits again. A commander_fallback is what the commander wants instead once its condition comes about; you judge whether it has."
       : 'You command these heroes alone; there is no strategic commander. Decide what each hero should do right now to win. Standing still never wins.',
     goal: goalText(objective),
     map: MAP,
@@ -139,5 +151,6 @@ export function jevGameRules(withCommander: boolean, objective: Objective): Reco
     breaking_off: BREAK_OFF,
     terrain: TERRAIN,
     force_ratio: `force_ratio is the total HP of your units divided by the total HP of enemy units within ${LOCAL_RADIUS} tiles of the hero. Above 1 you are stronger here; the trend compares it with ${JEV_INTERVAL_SEC} seconds ago.`,
+    view: `Each hero is described in two rings. Within ${LOCAL_RADIUS} tiles, the fight: allies_nearby, enemies_nearby, force_ratio, nearest_enemy and local_map. Within ${VIEW_RADIUS} tiles, the groups that can reach it: enemy_groups_in_view (an enemy hero with its soldiers, or a group of stray enemy soldiers; "our force ratio against it" is the total HP of this hero and its soldiers divided by the group's total HP; an enemy hero's movement is compared with the previous decision), stray_soldiers_nearby (our own soldiers that follow no hero) and way_ahead (the path the hero and its soldiers walk to the hero's current point, and the enemy groups close to it; the path does not go around enemy units).`,
   };
 }

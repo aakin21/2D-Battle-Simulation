@@ -7,6 +7,10 @@ import { enemyBase, ownBase } from '../engine/Objectives';
 // measures both layers word the same way (distance, direction, HP, places, time left).
 
 export const LOCAL_RADIUS = 15; // tiles around a hero for local counts and force ratio
+// Jev's wider view: enemy groups, our strays and the way ahead within this distance of a hero.
+// Armies close in at about 4 tiles/s, so a group first seen this far away is about two Jev
+// decisions (4 s each) from a fight that starts within LOCAL_RADIUS
+export const VIEW_RADIUS = 40;
 
 // Directions in the order of their angle, starting east and turning clockwise on screen.
 export const COMPASS = [
@@ -96,14 +100,18 @@ export interface GroupStats {
   avgHpPercent: number;
   avgCourage: number;
   fleeing: number;
+  hp: number; // the followers' total HP, for force ratios against other groups
 }
 
 // Followers of every hero of one side, using the same rule the engine uses for following:
 // the nearest living hero of the side within that hero's sight.
 export function groupStats(sm: StateManager, faction: Faction): Map<string, GroupStats> {
   const heroes = sm.getHeroes().filter((h) => h.faction === faction && h.hp > 0);
-  const acc = new Map<string, { n: number; hp: number; courage: number; fleeing: number }>();
-  for (const h of heroes) acc.set(h.id, { n: 0, hp: 0, courage: 0, fleeing: 0 });
+  const acc = new Map<
+    string,
+    { n: number; hp: number; hpSum: number; courage: number; fleeing: number }
+  >();
+  for (const h of heroes) acc.set(h.id, { n: 0, hp: 0, hpSum: 0, courage: 0, fleeing: 0 });
 
   for (const u of sm.getBattlefield().units) {
     if (u.faction !== faction || u.unitType === UnitType.HERO || u.hp <= 0) continue;
@@ -120,6 +128,7 @@ export function groupStats(sm: StateManager, faction: Faction): Map<string, Grou
     const a = acc.get(best.id)!;
     a.n++;
     a.hp += u.hp / u.maxHp;
+    a.hpSum += u.hp;
     a.courage += u.courage;
     if (u.state === BehaviorState.FLEE) a.fleeing++;
   }
@@ -131,6 +140,7 @@ export function groupStats(sm: StateManager, faction: Faction): Map<string, Grou
       avgHpPercent: a.n ? Math.round((100 * a.hp) / a.n) : 0,
       avgCourage: a.n ? Math.round(a.courage / a.n) : 0,
       fleeing: a.fleeing,
+      hp: a.hpSum,
     });
   }
   return out;

@@ -1,11 +1,22 @@
 import { StateManager } from '../state/StateManager';
+import { Pathfinder } from '../engine/Pathfinder';
 import { positionToSubsector } from '../engine/Sectors';
 import { wholePoints } from '../engine/Objectives';
 import { opponent } from '../engine/Sides';
-import type { StrayCluster } from '../engine/Strays';
-import { ControlPoint, Faction, GRID_SIZE, IHero, IUnit, TerrainType } from '../types/types';
+import { strayClusters, type StrayCluster } from '../engine/Strays';
+import { nearestReachableTile } from '../engine/UnitHelpers';
+import {
+  ControlPoint,
+  Faction,
+  GRID_SIZE,
+  IHero,
+  IUnit,
+  Position,
+  TerrainType,
+} from '../types/types';
 import { describeCommand, heroStatus } from './Describe';
 import {
+  compass,
   distance,
   exactPlace,
   formatRatio,
@@ -13,6 +24,7 @@ import {
   hpPercent,
   localForce,
   LOCAL_RADIUS,
+  VIEW_RADIUS,
   secondsLeft,
   sideScores,
   towards,
@@ -22,8 +34,105 @@ import {
 // orders and its surroundings, and the objective from its side's point of view (D30).
 
 const HERO_SCAN = LOCAL_RADIUS * 2; // enemy heroes within this distance can be targeted
-const STRAY_REACH = 25; // stray groups within this distance are shown to Jev
 const MAP_CELL = 2; // local map: one character per 2×2 tiles
+
+// Jev's wider view (VIEW_RADIUS): the groups that can reach a hero within about two decisions.
+// Given as computed lines, not as a bigger map: language models read lists of relations better
+// than grids (R11)
+const VIEW_GROUPS = 5; // nearest enemy groups shown
+const VIEW_STRAYS = 4; // nearest groups of our own strays shown
+const MIN_STRAY_GROUP = 3; // smaller enemy stray groups are left out of the view
+const MOVED_TILES = 2; // a hero that moved less than this since the last decision is standing
+const WAY_NEAR = 12; // a group this close to the way ahead is on it (soldiers fight what they see within 10)
+const WAY_STEP = 2; // the way ahead is checked every this many tiles
+
+const TOGETHER_TILES = 8; // heroes of a side this close lead one army (their soldiers mix)
+
+// A group of enemy units Jev sees: enemy heroes standing together with their followers, or a
+// cluster of enemy strays (no heroes)
+export interface EnemyGroup {
+  heroes: IHero[];
+  soldiers: number;
+  center: Position;
+  hp: number; // total HP, the heroes' included
+}
+
+// The living heroes of one side in groups that stand together (within TOGETHER_TILES of one
+// another, chained), each in the side's hero order. Soldiers follow the nearest hero, so heroes
+// standing together share one army: counted apart, one showed 70 soldiers and the others none
+export function heroGroups(sm: StateManager, faction: Faction): IHero[][] {
+  const heroes = sm.getHeroes().filter((h) => h.faction === faction && h.hp > 0);
+  const groups: IHero[][] = [];
+  const placed = new Set<IHero>();
+  for (const first of heroes) {
+    if (placed.has(first)) continue;
+    const group = [first];
+    placed.add(first);
+    for (let i = 0; i < group.length; i++)
+      for (const h of heroes)
+        if (!placed.has(h) && distance(group[i].position, h.position) <= TOGETHER_TILES) {
+          group.push(h);
+          placed.add(h);
+        }
+    groups.push(group.sort((a, b) => a.heroIndex - b.heroIndex));
+  }
+  return groups;
+}
+
+// The heroes, soldiers and total HP of an army led by heroes standing together
+function army(heroes: IHero[], stats: Map<string, GroupStats>): { soldiers: number; hp: number } {
+  let soldiers = 0;
+  let hp = 0;
+  for (const h of heroes) {
+    const g = stats.get(h.id);
+    soldiers += g?.followers ?? 0;
+    hp += h.hp + (g?.hp ?? 0);
+  }
+  return { soldiers, hp };
+}
+
+// The middle of some positions
+function middle(points: Position[]): Position {
+  return {
+    x: points.reduce((s, p) => s + p.x, 0) / points.length,
+    y: points.reduce((s, p) => s + p.y, 0) / points.length,
+  };
+}
+
+// Every enemy group on the map, computed once per request for all heroes of the side
+export function enemyGroupsOf(
+  sm: StateManager,
+  faction: Faction,
+  enemyStats: Map<string, GroupStats>
+): EnemyGroup[] {
+  const groups: EnemyGroup[] = heroGroups(sm, opponent(faction)).map((heroes) => ({
+    heroes,
+    center: middle(heroes.map((h) => h.position)),
+    ...army(heroes, enemyStats),
+  }));
+  for (const c of strayClusters(sm, opponent(faction))) {
+    if (c.soldiers < MIN_STRAY_GROUP) continue;
+    groups.push({
+      heroes: [],
+      soldiers: c.soldiers,
+      center: c.center,
+      hp: c.members.reduce((sum, u) => sum + u.hp, 0),
+    });
+  }
+  return groups;
+}
+
+// How a group is named: "enemy hero 2 with 45 soldiers", "enemy heroes 1 and 3 with 80
+// soldiers", "12 stray enemy soldiers"
+function groupName(g: EnemyGroup): string {
+  if (g.heroes.length === 0) return `${g.soldiers} stray enemy soldiers`;
+  const ids = g.heroes.map((h) => h.heroIndex);
+  const heroes =
+    ids.length === 1
+      ? `enemy hero ${ids[0]}`
+      : `enemy heroes ${ids.slice(0, -1).join(', ')} and ${ids[ids.length - 1]}`;
+  return `${heroes} with ${g.soldiers} soldiers`;
+}
 
 // What one hero's description is computed from besides the hero itself. `groups` and `strays`
 // are taken once per request; the previous values are the Jev layer's memory of its last request.
@@ -32,8 +141,11 @@ export interface HeroContext {
   force: { allies: number; enemies: number; ratio: number };
   groups: Map<string, GroupStats>;
   strays: StrayCluster[];
+  enemyGroups: EnemyGroup[];
   previousForce: number | undefined; // force ratio at the previous request
   previousChoice: string | undefined; // the last option applied for this hero
+  // Where every hero was at the previous request and when, to tell how enemy heroes move
+  previousPositions: { time: number; at: Map<string, Position> } | undefined;
 }
 
 export function heroSituation(
@@ -53,10 +165,6 @@ export function heroSituation(
       nearest = u;
     }
   });
-  const enemyHeroes = enemyHeroesNear(sm, hero).map(
-    ({ enemy, d }) =>
-      `enemy hero ${enemy.heroIndex}, ${Math.round(d)} tiles ${towards(hero.position, enemy.position)}, ${hpPercent(enemy)}% HP`
-  );
   const order = hero.lastLlmCommand;
 
   return {
@@ -68,6 +176,11 @@ export function heroSituation(
       : 'none',
     commander_order: order ? describeCommand(order, 'jev') : 'none',
     commander_reason: order ? (order.reason ?? 'not given') : 'n/a',
+    commander_fallback: order
+      ? order.fallback
+        ? `${order.fallback.do} when ${order.fallback.when}`
+        : 'none given'
+      : 'n/a',
     commander_order_age_seconds: order ? Math.round(time - hero.lastLlmTime) : 'n/a',
     my_previous_decision: ctx.previousChoice ?? 'none',
     soldiers_following: group?.followers ?? 0,
@@ -81,12 +194,15 @@ export function heroSituation(
     nearest_enemy: nearest
       ? `${Math.round(nearestD)} tiles ${towards(hero.position, (nearest as IUnit).position)}`
       : 'none in sight',
-    enemy_heroes_nearby: enemyHeroes.length ? enemyHeroes : 'none',
+    enemy_groups_in_view: enemyGroupsInView(sm, hero, ctx),
+    way_ahead: wayAhead(sm, hero, ctx.enemyGroups),
     allied_heroes: alliedHeroes(sm, hero, groups),
-    stray_soldiers_nearby: nearbyStrays(hero, ctx.strays).map(
-      (s) =>
-        `${s.soldiers} stray soldiers, ${s.distance} tiles ${s.direction}, ${s.avgCourage} courage`
-    ),
+    stray_soldiers_nearby: nearbyStrays(hero, ctx.strays)
+      .slice(0, VIEW_STRAYS)
+      .map(
+        (s) =>
+          `${s.soldiers} stray soldiers, ${s.distance} tiles ${s.direction}, ${s.avgCourage} courage`
+      ),
     local_map: localMap(sm, hero),
   };
 }
@@ -137,8 +253,109 @@ export function nearbyStrays(
       direction: towards(hero.position, c.center),
       avgCourage: c.avgCourage,
     }))
-    .filter((s) => s.distance <= STRAY_REACH)
+    .filter((s) => s.distance <= VIEW_RADIUS)
     .sort((a, b) => a.distance - b.distance);
+}
+
+// The enemy groups within VIEW_RADIUS of the hero, nearest first: who they are, where, how
+// strong against this hero's own group, and how an enemy hero has moved since the last decision
+function enemyGroupsInView(sm: StateManager, hero: IHero, ctx: HeroContext): string[] | string {
+  const together = heroGroups(sm, hero.faction).find((g) => g.includes(hero)) ?? [hero];
+  const ours = army(together, ctx.groups).hp;
+  const seen = ctx.enemyGroups
+    .map((g) => ({ g, d: distance(hero.position, g.center) }))
+    .filter((x) => x.d <= VIEW_RADIUS)
+    .sort((a, b) => a.d - b.d)
+    .slice(0, VIEW_GROUPS);
+  if (seen.length === 0) return `none within ${VIEW_RADIUS} tiles`;
+  return seen.map(({ g, d }) => {
+    const heroes = g.heroes.map((h) => `${hpPercent(h)}% HP, ${heroStatus(h, 'jev')}`);
+    const state = heroes.length
+      ? ` (hero${heroes.length > 1 ? 'es' : ''}: ${heroes.join('; ')})`
+      : '';
+    const moving = g.heroes.length ? `, ${groupMovement(hero, g, ctx)}` : '';
+    return `${groupName(g)}${state}, ${Math.round(d)} tiles ${towards(hero.position, g.center)}${moving}, our force ratio against it ${formatRatio(ours / g.hp)}`;
+  });
+}
+
+// How an enemy group led by heroes moved since the previous decision, as anyone watching would
+// see it: its direction, and whether it came closer to this hero. Orders are never told (D16).
+function groupMovement(hero: IHero, g: EnemyGroup, ctx: HeroContext): string {
+  const before = ctx.previousPositions;
+  const heroThen = before?.at.get(hero.id);
+  const then = g.heroes.map((h) => before?.at.get(h.id));
+  if (!before || !heroThen || then.some((p) => !p)) return 'movement not known yet';
+  const groupThen = middle(then as Position[]);
+  const seconds = Math.round(ctx.time - before.time);
+  const moved = distance(groupThen, g.center);
+  const closer = distance(heroThen, groupThen) - distance(hero.position, g.center);
+  const way = moved < MOVED_TILES ? 'not moving' : `moving ${compass(groupThen, g.center)}`;
+  const gap =
+    Math.abs(closer) < MOVED_TILES
+      ? 'about as far as'
+      : `${Math.round(Math.abs(closer))} tiles ${closer > 0 ? 'closer than' : 'farther than'}`;
+  return `${way}, ${gap} ${seconds} s ago`;
+}
+
+// Where the hero's way to its order's point leads within VIEW_RADIUS, and which enemy groups lie
+// close to it there. The way is the path the pathfinder takes (it does not avoid enemies), which
+// the hero and its soldiers walk.
+function wayAhead(sm: StateManager, hero: IHero, enemyGroups: EnemyGroup[]): string {
+  const target = hero.taskPoint;
+  if (!target) return 'the hero has no point to go to';
+  const here = { x: Math.floor(hero.position.x), y: Math.floor(hero.position.y) };
+  const path = Pathfinder.findPath(
+    sm.getBattlefield().grid,
+    here,
+    nearestReachableTile(sm, target)
+  );
+  const toGo = Math.round(distance(hero.position, target));
+  if (path.length === 0)
+    return `at its point, or no way there (${toGo} tiles ${towards(hero.position, target)})`;
+
+  // Points every WAY_STEP tiles along the path, up to VIEW_RADIUS
+  const points: Position[] = [];
+  let prev: Position = here;
+  let walked = 0;
+  for (const next of path) {
+    const len = distance(prev, next);
+    for (
+      let t = WAY_STEP - (walked % WAY_STEP);
+      t <= len && walked + t <= VIEW_RADIUS;
+      t += WAY_STEP
+    ) {
+      points.push({
+        x: prev.x + ((next.x - prev.x) * t) / len,
+        y: prev.y + ((next.y - prev.y) * t) / len,
+      });
+    }
+    walked += len;
+    prev = next;
+    if (walked >= VIEW_RADIUS) break;
+  }
+  points.push(prev);
+
+  const onIt: string[] = [];
+  for (const g of enemyGroups) {
+    let best = Infinity;
+    let bestAlong = 0;
+    points.forEach((p, i) => {
+      const d = distance(p, g.center);
+      if (d < best) {
+        best = d;
+        bestAlong = Math.min(walked, (i + 1) * WAY_STEP);
+      }
+    });
+    if (best > WAY_NEAR) continue;
+    onIt.push(
+      `${groupName(g)} ${Math.round(best)} tiles from it, ${Math.round(bestAlong)} tiles ahead`
+    );
+  }
+  const length = Math.round(walked);
+  const where = `to its point ${toGo} tiles ${towards(hero.position, target)} (path ${length > VIEW_RADIUS ? `over ${VIEW_RADIUS}` : length} tiles), first heading ${compass(here, points[0] ?? prev)}`;
+  return onIt.length
+    ? `${where}; enemy groups near it within ${VIEW_RADIUS} tiles: ${onIt.join('; ')}`
+    : `${where}; no enemy group near it within ${VIEW_RADIUS} tiles`;
 }
 
 // A small text map centred on the hero, north at the top. Each character is a 2×2 tile
