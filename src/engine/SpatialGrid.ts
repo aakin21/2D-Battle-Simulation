@@ -337,6 +337,44 @@ export class SpatialGrid {
     }
   }
 
+  // Whether a living unit of another faction is within radius: the same answer as
+  // nearestEnemy() !== null, but it stops at the first one (separation asks it per unit, D53)
+  hasEnemy(cx: number, cy: number, radius: number, faction: number): boolean {
+    const r2 = radius * radius;
+    const inside2 = r2 * INSIDE_MARGIN;
+    const outside2 = r2 * OUTSIDE_MARGIN;
+    // The side whose units are enemies here (-1: any faction number but the two sides)
+    const otherSide = faction === 0 ? 1 : faction === 1 ? 0 : -1;
+    const minFx = fineCell(cx - radius);
+    const maxFx = fineCell(cx + radius);
+    const minFy = fineCell(cy - radius);
+    const maxFy = fineCell(cy + radius);
+    for (let fy = minFy; fy <= maxFy; fy++) {
+      const y0 = cellMin(fy);
+      const y1 = cellMax(fy);
+      const nearY = nearGap(cy, y0, y1);
+      const farY = farGap(cy, y0, y1);
+      for (let fx = minFx; fx <= maxFx; fx++) {
+        const idx = fy * FINE_COUNT + fx;
+        if (otherSide >= 0 && this.fineCounts[idx * 2 + otherSide] === 0) continue;
+        const x0 = cellMin(fx);
+        const x1 = cellMax(fx);
+        const nearX = nearGap(cx, x0, x1);
+        if (nearX * nearX + nearY * nearY > outside2) continue;
+        const farX = farGap(cx, x0, x1);
+        // Living units only: dead units are removed in the same frame they die
+        if (otherSide >= 0 && farX * farX + farY * farY <= inside2) return true;
+        for (const unit of this.fine[idx]) {
+          if (unit.faction === faction || unit.hp <= 0) continue;
+          const dx = unit.position.x - cx;
+          const dy = unit.position.y - cy;
+          if (dx * dx + dy * dy <= r2) return true;
+        }
+      }
+    }
+    return false;
+  }
+
   // Nearest living unit not of `faction` within radius, searching fine cells ring by ring
   // outward and stopping once no closer unit can exist. When several units share the
   // minimum distance, wasNearestTied() is true: the scan order then decides, so the caller

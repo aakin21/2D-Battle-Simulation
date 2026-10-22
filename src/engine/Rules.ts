@@ -58,6 +58,10 @@ export const RETREAT_SCAN = 20;
 export const SEPARATION_RADIUS = 0.9; // tiles
 export const SEPARATION_SPEED = 2; // tiles/s, a soldier's walking speed
 export const SEPARATION_DEAD_ZONE = 0.15; // a smaller total overlap does not push
+// A unit walking with no enemy this close pushes and is pushed by its own side only this hard (a
+// share of the usual push): a marching army squeezes through passes instead of jamming there
+export const SEPARATION_MARCH_ENEMY_TILES = 20;
+export const SEPARATION_MARCH_PUSH = 0.1;
 
 // The hero behind its soldiers (D48, battle mode): with enemies in its sight and an order other
 // than attack, attack_hero, attack_base or retreat, the hero stands this far behind the middle of
