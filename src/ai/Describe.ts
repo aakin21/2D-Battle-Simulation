@@ -8,8 +8,10 @@ import { BehaviorState, HeroCommand, IHero } from '../types/types';
 export function describeCommand(c: HeroCommand, wording: 'jev' | 'llm'): string {
   const llm = wording === 'llm';
   switch (c.type) {
-    case 'move':
-      return `${llm ? 'move' : 'move to'} ${positionToSubsector(c.target)}`;
+    case 'move': {
+      const via = c.via?.length ? ` via ${c.via.map(positionToSubsector).join(', ')}` : '';
+      return `${llm ? 'move' : 'move to'} ${positionToSubsector(c.target)}${via}`;
+    }
     case 'hold':
       return `${llm ? 'hold in' : 'hold position in'} ${positionToSubsector(c.at)}`;
     case 'retreat':
@@ -22,6 +24,8 @@ export function describeCommand(c: HeroCommand, wording: 'jev' | 'llm'): string 
       return `attack enemy hero ${c.heroIndex}`;
     case 'regroup':
       return 'regroup stray soldiers';
+    case 'regroupOne':
+      return `collect the stray soldiers near ${positionToSubsector(c.at)}, then follow the commander's order`;
     case 'attackBase':
       return 'attack the enemy base';
     case 'continueLlm':

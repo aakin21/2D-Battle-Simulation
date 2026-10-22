@@ -75,6 +75,9 @@ function nextSearch(): number {
   return ++searchNo;
 }
 
+// findPathAvoiding: how far ahead along the path a straight line is tried
+const SMOOTH_AVOID_TILES = 60;
+
 const DIRS4 = [
   [1, 0],
   [-1, 0],
@@ -156,12 +159,15 @@ export class Pathfinder {
 
   // smooth: replace runs of tiles by straight lines where nothing blocks them. A straight line
   // can still pass the corner where two blocked tiles meet; a unit that cannot take such a step
-  // (battle mode) asks for the unsmoothed path, tile by tile through tile edges
+  // (battle mode) asks for the unsmoothed path, tile by tile through tile edges.
+  // extra: a cost per tile added to each step onto it (D60: the tactical layer's way around
+  // enemies; the simulation never passes one, so its paths are unchanged)
   static findPath(
     grid: TerrainType[][],
     start: Position,
     end: Position,
-    smooth = true
+    smooth = true,
+    extra?: Uint8Array
   ): Position[] {
     const sx = Math.floor(start.x);
     const sy = Math.floor(start.y);
@@ -217,7 +223,7 @@ export class Pathfinder {
         const nk = key(nx, ny);
         if (closedIn[nk] === search) continue;
 
-        const ng = cur.g + 1;
+        const ng = cur.g + 1 + (extra ? extra[nk] : 0);
         if (scoredIn[nk] !== search || ng < gScore[nk]) {
           scoredIn[nk] = search;
           gScore[nk] = ng;
@@ -240,6 +246,59 @@ export class Pathfinder {
     path.reverse();
     path.shift(); // exclude start tile — unit is already there
     return path;
+  }
+
+  // D60: a path that weighs each tile's extra cost, as the corners a unit walks between in
+  // straight lines. A straight line replaces a run of the path only if it passes no blocked tile
+  // and no tile costlier than the costliest of that run, so it does not cut back into what the
+  // path went around; lines are tried up to SMOOTH_AVOID_TILES steps of the path ahead
+  static findPathAvoiding(
+    grid: TerrainType[][],
+    start: Position,
+    end: Position,
+    extra: Uint8Array
+  ): Position[] {
+    const raw = Pathfinder.findPath(grid, start, end, false, extra);
+    if (raw.length <= 1) return raw;
+    const cost = (x: number, y: number): number => extra[y * GRID_SIZE + x] ?? 0;
+    const corners: Position[] = [];
+    let from = { x: Math.floor(start.x), y: Math.floor(start.y) };
+    let i = 0;
+    while (i < raw.length) {
+      let furthest = i;
+      for (let j = Math.min(raw.length - 1, i + SMOOTH_AVOID_TILES); j > i; j--) {
+        let runMax = cost(from.x, from.y);
+        for (let k = i; k <= j; k++) runMax = Math.max(runMax, cost(raw[k].x, raw[k].y));
+        if (Pathfinder.lineFits(grid, from, raw[j], (x, y) => cost(x, y) <= runMax)) {
+          furthest = j;
+          break;
+        }
+      }
+      corners.push(raw[furthest]);
+      from = raw[furthest];
+      i = furthest + 1;
+    }
+    return corners;
+  }
+
+  // The line between two tile centres passes no blocked tile and only tiles `ok` accepts
+  private static lineFits(
+    grid: TerrainType[][],
+    a: Position,
+    b: Position,
+    ok: (x: number, y: number) => boolean
+  ): boolean {
+    const ax = a.x + 0.5;
+    const ay = a.y + 0.5;
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const steps = Math.ceil(Math.max(Math.abs(dx), Math.abs(dy))) * 2 + 2;
+    for (let s = 0; s <= steps; s++) {
+      const xi = Math.floor(ax + (dx * s) / steps);
+      const yi = Math.floor(ay + (dy * s) / steps);
+      if (Pathfinder.isBlocked(grid, xi, yi) || !ok(xi, yi)) return false;
+    }
+    return true;
   }
 
   // Greedy forward scan — skip waypoints reachable in a straight line.

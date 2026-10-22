@@ -19,12 +19,26 @@ import {
   tileOf,
 } from './UnitHelpers';
 import { strayClusters, regroupTarget, regroupPoint, StrayCluster } from './Strays';
+import { Pathfinder } from './Pathfinder';
 import { enemyBase } from './Objectives';
-import { HERO_CRITICAL_HP_RATIO, RETREAT_SCAN, RETREAT_SECONDS } from './Rules';
+import {
+  HERO_BEHIND_TILES,
+  HERO_CRITICAL_HP_RATIO,
+  MAX_VIA,
+  RETREAT_SCAN,
+  RETREAT_SECONDS,
+} from './Rules';
 
 const STRAY_CACHE_SEC = 0.5; // stray clusters are recomputed at most this often
 // A hold restated within this many tiles of the hold being run is the same order (sameCommand)
 const HOLD_SAME_TILES = 2;
+// D60: a via point counts as reached once the hero is this close (its soldiers crowd the point,
+// and a hero behind them, D48, stands ~3.5 tiles back)
+const VIA_ARRIVE_TILES = 5;
+const VIA_REACHED_KEPT = 2 * MAX_VIA; // via points a hero remembers having reached
+// regroupOne (D60): the stray group it collects is the one whose centre is nearest its point and
+// within this distance of it; the centre moves as soldiers join the hero
+const REGROUP_ONE_TILES = 8;
 
 // The command interface (D20). Every order — user click, rule hero, Jev, LLM — goes through
 // issue(), so a hero behaves the same whoever gave it. Each frame applyAll() turns each
@@ -56,7 +70,10 @@ export class HeroCommands {
     // one today, but a bad one would leave the hero with a NaN task point)
     if (command && !finitePoint(command)) return;
     if (command?.type === 'move') {
+      const via = command.via?.slice(0, MAX_VIA).map((p) => nearestReachableTile(this.sm, p));
       command = { ...command, target: nearestReachableTile(this.sm, command.target) };
+      if (via?.length) command.via = via;
+      else delete command.via;
     }
     // Orders are compared by what they make the hero do: Jev's "follow the LLM" runs the LLM's
     // latest order, so the LLM restating that order, or Jev following the order the hero already
@@ -81,18 +98,22 @@ export class HeroCommands {
       // The hero already does this (e.g. Jev chose the same move a moment before, or the LLM
       // restates the order Jev follows): nothing changes, but a commander's order is still
       // remembered so Jev can follow it (D15), and a restated order keeps its age but takes the
-      // commander's latest reason
+      // commander's latest reason and fallback
       if (source === 'llm') {
         if (hero.lastLlmCommand && sameCommand(hero.lastLlmCommand, command)) {
-          hero.lastLlmCommand = { ...hero.lastLlmCommand, reason: command.reason };
+          hero.lastLlmCommand = {
+            ...hero.lastLlmCommand,
+            reason: command.reason,
+            fallback: command.fallback,
+          };
         } else {
           // The LLM orders what the hero already does on Jev's order: it takes over that order
           // with its point (a retreat's), so following it later sends the hero to the same place
-          hero.lastLlmCommand = { ...running, reason: command.reason };
+          hero.lastLlmCommand = { ...running, reason: command.reason, fallback: command.fallback };
           hero.lastLlmTime = this.sm.getBattlefield().elapsedTime;
         }
         if (hero.command && hero.commandSource === 'llm')
-          hero.command = { ...hero.command, reason: command.reason };
+          hero.command = { ...hero.command, reason: command.reason, fallback: command.fallback };
       }
       return;
     }
@@ -172,8 +193,43 @@ export class HeroCommands {
   applyAll(): void {
     for (const hero of this.sm.getHeroes()) {
       if (hero.hp <= 0) continue;
-      hero.taskPoint = this.target(hero, this.running(hero, hero.command));
+      hero.taskPoint = this.target(hero, this.running(hero, hero.command), orderTime(hero));
     }
+  }
+
+  // A move walks its via points in order, then to its target (D60); a via point the hero cannot
+  // reach (another walkable region) is passed over. The hero keeps the points it reached and when:
+  // a route goes on from the points reached since its order was given (`since`), so the commander
+  // restating the order, or Jev going back to it after a way around enemies that passed some of
+  // its points, goes on from there, and a new order starts over
+  private moveTarget(
+    hero: IHero,
+    command: HeroCommand & { type: 'move' },
+    since: number
+  ): Position {
+    const via = command.via;
+    if (!via || via.length === 0) return command.target;
+    let i = viaReached(hero, via, since);
+    const grid = this.sm.getBattlefield().grid;
+    const here = tileOf(hero.position);
+    const now = this.sm.getBattlefield().elapsedTime;
+    for (; i < via.length; i++) {
+      const p = via[i];
+      // A hero standing behind its soldiers (D48) stays HERO_BEHIND_TILES back from their middle:
+      // the point is reached when they are there
+      const stand = hero.standPoint;
+      const near =
+        Math.hypot(p.x - hero.position.x, p.y - hero.position.y) <= VIA_ARRIVE_TILES ||
+        (stand !== null &&
+          Math.hypot(p.x - stand.x, p.y - stand.y) <= VIA_ARRIVE_TILES + HERO_BEHIND_TILES);
+      if (!near && Pathfinder.sameRegion(grid, here.x, here.y, Math.floor(p.x), Math.floor(p.y)))
+        return p;
+      const reached = hero.viaReached ?? [];
+      reached.push({ x: p.x, y: p.y, t: now });
+      if (reached.length > VIA_REACHED_KEPT) reached.shift();
+      hero.viaReached = reached;
+    }
+    return command.target;
   }
 
   // Orders that send the hero somewhere: move, retreat, regroup, attack base, or resuming one of
@@ -184,6 +240,7 @@ export class HeroCommands {
       c?.type === 'move' ||
       c?.type === 'retreat' ||
       c?.type === 'regroup' ||
+      c?.type === 'regroupOne' ||
       c?.type === 'attackBase'
     );
   }
@@ -192,11 +249,11 @@ export class HeroCommands {
   // as blocked (next to a mountain, after cutting a path's corner); a target on one would leave
   // the hero without a path, so targets that follow units are snapped to the nearest reachable
   // tile, like move orders.
-  private target(hero: IHero, command: HeroCommand | null): Position | null {
+  private target(hero: IHero, command: HeroCommand | null, since: number): Position | null {
     if (!command) return null;
     switch (command.type) {
       case 'move':
-        return command.target;
+        return this.moveTarget(hero, command, since);
       case 'hold':
         return command.at;
       case 'retreat':
@@ -220,6 +277,14 @@ export class HeroCommands {
         const cluster = regroupTarget(this.straysOf(hero.faction), hero);
         return cluster ? nearestReachableTile(this.sm, regroupPoint(cluster, hero)) : null;
       }
+      case 'regroupOne': {
+        // The group near the point while it has soldiers left; then the LLM's latest order, as
+        // "follow the LLM" (nothing, without one)
+        const group = groupNear(this.straysOf(hero.faction), command.at);
+        if (group) return nearestReachableTile(this.sm, regroupPoint(group, hero));
+        const llm = hero.lastLlmCommand;
+        return llm && llm.type !== 'regroupOne' ? this.target(hero, llm, hero.lastLlmTime) : null;
+      }
       case 'attackBase': {
         const base = enemyBase(this.sm, hero.faction);
         return base && base.hp > 0 ? base.position : null;
@@ -239,16 +304,57 @@ export function sameCommand(a: HeroCommand, b: HeroCommand): boolean {
   if (a.type === 'hold' && b.type === 'hold') {
     return Math.hypot(a.at.x - b.at.x, a.at.y - b.at.y) <= HOLD_SAME_TILES;
   }
-  if (a.type === 'move' && b.type === 'move') {
-    return a.target.x === b.target.x && a.target.y === b.target.y;
-  }
+  if (a.type === 'move' && b.type === 'move') return routeKey(a) === routeKey(b);
   if (a.type === 'attackHero' && b.type === 'attackHero') return a.heroIndex === b.heroIndex;
+  // The same group: its centre moves as soldiers join the hero
+  if (a.type === 'regroupOne' && b.type === 'regroupOne')
+    return Math.hypot(a.at.x - b.at.x, a.at.y - b.at.y) <= REGROUP_ONE_TILES;
   return true;
 }
 
 function finitePoint(command: HeroCommand): boolean {
-  const p = command.type === 'move' ? command.target : command.type === 'hold' ? command.at : null;
-  return !p || (Number.isFinite(p.x) && Number.isFinite(p.y));
+  const points =
+    command.type === 'move'
+      ? [command.target, ...(command.via ?? [])]
+      : command.type === 'hold' || command.type === 'regroupOne'
+        ? [command.at]
+        : [];
+  return points.every((p) => Number.isFinite(p.x) && Number.isFinite(p.y));
+}
+
+// The stray group a regroupOne order collects: the one whose centre is nearest its point, within
+// REGROUP_ONE_TILES of it (D60)
+export function groupNear(clusters: StrayCluster[], at: Position): StrayCluster | null {
+  let best: StrayCluster | null = null;
+  let bestD = REGROUP_ONE_TILES;
+  for (const c of clusters) {
+    const d = Math.hypot(c.center.x - at.x, c.center.y - at.y);
+    if (d <= bestD) {
+      bestD = d;
+      best = c;
+    }
+  }
+  return best;
+}
+
+// How many of a route's via points the hero reached in order since `since` (D60)
+export function viaReached(hero: IHero, via: Position[], since: number): number {
+  let i = 0;
+  for (const r of hero.viaReached ?? []) {
+    if (i >= via.length) break;
+    if (r.t >= since && r.x === via[i].x && r.y === via[i].y) i++;
+  }
+  return i;
+}
+
+// When the order a hero runs was given: Jev's "follow the LLM" runs the LLM's order (D15)
+export function orderTime(hero: IHero): number {
+  return hero.command?.type === 'continueLlm' ? hero.lastLlmTime : hero.commandTime;
+}
+
+// A move's route as text: its via points and its target, e.g. "40,30;55,32>75,45"
+export function routeKey(c: HeroCommand & { type: 'move' }): string {
+  return `${(c.via ?? []).map((p) => `${p.x},${p.y}`).join(';')}>${c.target.x},${c.target.y}`;
 }
 
 // The order a command runs: Jev's "follow the LLM" runs the LLM's latest order

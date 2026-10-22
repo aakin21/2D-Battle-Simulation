@@ -30,7 +30,7 @@ export function clock(seconds: number): string {
 export function describeCommand(c: HeroCommand): string {
   switch (c.type) {
     case 'move':
-      return `move to ${positionToSubsector(c.target)}`;
+      return `move to ${positionToSubsector(c.target)}${c.via?.length ? ` via ${c.via.length} point${c.via.length > 1 ? 's' : ''}` : ''}`;
     case 'hold':
       return `hold in ${positionToSubsector(c.at)}`;
     case 'retreat':
@@ -43,6 +43,8 @@ export function describeCommand(c: HeroCommand): string {
       return `attack enemy hero ${c.heroIndex}`;
     case 'regroup':
       return 'regroup strays';
+    case 'regroupOne':
+      return `collect strays near ${positionToSubsector(c.at)}, then the LLM's order`;
     case 'attackBase':
       return 'attack the enemy base';
     case 'continueLlm':

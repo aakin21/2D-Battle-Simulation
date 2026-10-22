@@ -87,3 +87,8 @@ export const CONTROL_TIME_LIMIT = 480; // seconds (8 min; 300 until 2026-10-18)
 export const MATCH_TIME_LIMIT = 500; // seconds: elimination and base modes
 export const BASE_HP = 3000;
 export const BASE_RADIUS = 3; // tiles: units within BASE_RADIUS + COMBAT_RANGE can hit the base
+
+// D60: a move order's via points: at most MAX_VIA are kept; a commander (the LLM) gives at most
+// MAX_LLM_VIA, which leaves room for the tactical layer's way around enemies before them
+export const MAX_VIA = 8;
+export const MAX_LLM_VIA = 3;

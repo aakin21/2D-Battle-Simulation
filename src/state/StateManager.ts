@@ -150,6 +150,7 @@ export class StateManager {
       standPoint: null,
       standUntil: 0,
       attackTargetId: null,
+      viaReached: null,
     };
   }
 
