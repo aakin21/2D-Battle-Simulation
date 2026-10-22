@@ -1,7 +1,13 @@
 import { StateManager } from '../state/StateManager';
 import { IUnit, TerrainType, GRID_SIZE, UnitType } from '../types/types';
 import { canStep } from './UnitHelpers';
-import { SEPARATION_DEAD_ZONE, SEPARATION_RADIUS, SEPARATION_SPEED } from './Rules';
+import {
+  SEPARATION_DEAD_ZONE,
+  SEPARATION_MARCH_ENEMY_TILES,
+  SEPARATION_MARCH_PUSH,
+  SEPARATION_RADIUS,
+  SEPARATION_SPEED,
+} from './Rules';
 
 // Battle mode: units take up room. Every unit is pushed away from the units closer than
 // SEPARATION_RADIUS, at most SEPARATION_SPEED tiles/s, so a crowd spreads out instead of
@@ -10,12 +16,19 @@ import { SEPARATION_DEAD_ZONE, SEPARATION_RADIUS, SEPARATION_SPEED } from './Rul
 // soldiers beat 500 losing only 79 (CASES 14.x; melee should lose about as many as it kills,
 // Lanchester's linear law). Never into a mountain or a tile next to one (the pathfinder's
 // blocked tiles), and no random numbers: units on the very same spot part in a direction
-// worked out from their ids.
+// worked out from their ids. A unit walking with no enemy within SEPARATION_MARCH_ENEMY_TILES
+// pushes and is pushed by its own side only SEPARATION_MARCH_PUSH as hard: pushed at full
+// strength, 600 marching soldiers jammed at mountain passes and about half of them never got
+// through (281-350 in 3 minutes, 592-595 with a tenth of the push; no push at all piled up to
+// 250 on one tile). Standing units push as usual, so an army spreads out where it stops, and
+// near enemies nothing changes.
 
 // The pushes of a frame, reused: unit i moves by (moveX[i], moveY[i])
 const moved: IUnit[] = [];
 const moveX: number[] = [];
 const moveY: number[] = [];
+// Units walking with no enemy within SEPARATION_MARCH_ENEMY_TILES this frame
+const marching = new Set<IUnit>();
 
 export function separateUnits(
   sm: StateManager,
@@ -30,6 +43,15 @@ export function separateUnits(
   moved.length = 0;
   moveX.length = 0;
   moveY.length = 0;
+  marching.clear();
+  for (const u of units) {
+    if (
+      u.hp > 0 &&
+      u.path.length > 0 &&
+      !sm.hasEnemyInRadius(u.position.x, u.position.y, SEPARATION_MARCH_ENEMY_TILES, u.faction)
+    )
+      marching.add(u);
+  }
   for (const unit of units) {
     if (unit.hp <= 0) continue;
     let px = 0;
@@ -42,20 +64,23 @@ export function separateUnits(
       // followers (50 within 1.5 tiles), a hero could not walk at all, whatever its order.
       const ownHero = other.faction === unit.faction;
       if (ownHero && unit.unitType === UnitType.HERO) continue;
+      // Marching (this unit or the other): a weaker push between units of one side
+      const strength =
+        ownHero && (marching.has(unit) || marching.has(other)) ? SEPARATION_MARCH_PUSH : 1;
       const dx = unit.position.x - other.position.x;
       const dy = unit.position.y - other.position.y;
       const d2 = dx * dx + dy * dy;
       if (d2 >= r2) continue;
       if (d2 < 1e-12) {
         const a = partingAngle(unit.id, other.id);
-        px += Math.cos(a);
-        py += Math.sin(a);
+        px += strength * Math.cos(a);
+        py += strength * Math.sin(a);
         continue;
       }
       const d = Math.sqrt(d2);
       // 1 on top, 0 at the radius; twice as strong from one's own hero, so the way opens fast
       const yieldTo = ownHero && other.unitType === UnitType.HERO ? 2 : 1;
-      const weight = (yieldTo * (SEPARATION_RADIUS - d)) / SEPARATION_RADIUS;
+      const weight = (strength * yieldTo * (SEPARATION_RADIUS - d)) / SEPARATION_RADIUS;
       px += (dx / d) * weight;
       py += (dy / d) * weight;
     }
