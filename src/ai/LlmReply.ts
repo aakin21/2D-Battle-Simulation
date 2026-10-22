@@ -1,7 +1,8 @@
 import { StateManager } from '../state/StateManager';
 import { sectorTarget } from '../engine/Sectors';
 import { enemyBase } from '../engine/Objectives';
-import { HeroCommand, IHero } from '../types/types';
+import { MAX_LLM_VIA } from '../engine/Rules';
+import { FALLBACK_ORDERS, HeroCommand, IHero, OrderFallback, Position } from '../types/types';
 import type { LlmDecision, LlmUsage } from './LlmController';
 
 // Reading the LLM's answer: its free-form reply is validated before anything is used (hero
@@ -9,6 +10,7 @@ import type { LlmDecision, LlmUsage } from './LlmController';
 // guessed. Also what the answer cost, as the dev server reports it.
 
 const MAX_REASON = 300; // characters of an order's reason that are kept
+const MAX_FALLBACK_WHEN = 200; // characters of a fallback's condition that are kept
 
 interface RawOrder {
   reason?: unknown;
@@ -16,6 +18,8 @@ interface RawOrder {
   command?: unknown;
   place?: unknown;
   sector?: unknown;
+  via?: unknown;
+  fallback?: unknown;
   target_hero?: unknown;
 }
 
@@ -80,7 +84,40 @@ export function readOrder(
   if (typeof parsed === 'string') return `hero ${hero.heroIndex}: ${parsed}`;
   // The order's reason travels with it: Jev reads it, the panel and the log show it
   const reason = typeof raw.reason === 'string' ? raw.reason.trim().slice(0, MAX_REASON) : '';
-  return { hero, command: reason ? { ...parsed, reason } : parsed, reason };
+  // D60: so does its fallback, a hint for the tactical layer; a bad one refuses the order
+  const fallback = readFallback(raw.fallback);
+  if (typeof fallback === 'string') return `hero ${hero.heroIndex}: ${fallback}`;
+  const command: HeroCommand = { ...parsed };
+  if (reason) command.reason = reason;
+  if (fallback) command.fallback = fallback;
+  return { hero, command, reason };
+}
+
+// An order's fallback: {"when": "<condition>", "do": "retreat|regroup|hold"}; null when none is
+// given, the reason when it cannot be used
+function readFallback(raw: unknown): OrderFallback | null | string {
+  if (raw === undefined || raw === null) return null;
+  if (typeof raw !== 'object') return `invalid fallback ${String(raw)}`;
+  const f = raw as { when?: unknown; do?: unknown };
+  const when = typeof f.when === 'string' ? f.when.trim().slice(0, MAX_FALLBACK_WHEN) : '';
+  const order = typeof f.do === 'string' ? f.do.trim().toLowerCase() : '';
+  if (!when) return 'fallback without a "when"';
+  const known = FALLBACK_ORDERS.find((o) => o === order);
+  if (!known)
+    return `fallback "do" must be one of ${FALLBACK_ORDERS.join(', ')} (got ${String(f.do)})`;
+  return { when, do: known };
+}
+
+// A place the LLM names: "A", or "point A" as the report names it (way_to_objectives), or a
+// sector or sub-sector ("D4", "D4-NE"); null when it is none of these
+function placeTarget(sm: StateManager, place: unknown): Position | null {
+  if (typeof place !== 'string') return null;
+  const pointName = place
+    .trim()
+    .toUpperCase()
+    .replace(/^POINT\s+/, '');
+  const point = sm.getBattlefield().objective.points.find((p) => p.name === pointName);
+  return point ? point.position : sectorTarget(place);
 }
 
 // Returns a command, or a reason why the order cannot be used.
@@ -90,21 +127,21 @@ function toCommand(sm: StateManager, hero: IHero, raw: RawOrder): HeroCommand | 
   switch (command) {
     case 'move': {
       const place = typeof raw.place === 'string' ? raw.place : raw.sector;
-      // "A", or "point A" as the report names it (way_to_objectives)
-      const pointName =
-        typeof place === 'string'
-          ? place
-              .trim()
-              .toUpperCase()
-              .replace(/^POINT\s+/, '')
-          : '';
-      const point = sm.getBattlefield().objective.points.find((p) => p.name === pointName);
-      const target = point
-        ? point.position
-        : typeof place === 'string'
-          ? sectorTarget(place)
-          : null;
-      return target ? { type: 'move', target } : `invalid place ${String(place)}`;
+      const target = placeTarget(sm, place);
+      if (!target) return `invalid place ${String(place)}`;
+      // D60: places walked to first, in order; one bad place refuses the order (never guessed)
+      if (raw.via === undefined || raw.via === null) return { type: 'move', target };
+      const list = typeof raw.via === 'string' ? [raw.via] : raw.via;
+      if (!Array.isArray(list)) return `invalid via ${String(raw.via)}`;
+      if (list.length > MAX_LLM_VIA)
+        return `at most ${MAX_LLM_VIA} via places (${list.length} given)`;
+      const via: Position[] = [];
+      for (const v of list) {
+        const p = placeTarget(sm, v);
+        if (!p) return `invalid via place ${String(v)}`;
+        via.push(p);
+      }
+      return via.length ? { type: 'move', target, via } : { type: 'move', target };
     }
     case 'hold':
       return {
