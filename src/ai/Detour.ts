@@ -107,10 +107,11 @@ export function detourFor(sm: StateManager, hero: IHero, costs: Uint8Array): Det
   const grid = sm.getBattlefield().grid;
   const here = tileOf(hero.position);
   const direct = Pathfinder.findPath(grid, here, next);
-  if (direct.length === 0 || nearEnemies(here, direct, costs) === 0) return null;
+  if (direct.length === 0) return null;
+  const nearDirect = nearEnemies(here, direct, costs);
+  if (nearDirect === 0) return null;
   const around = Pathfinder.findPathAvoiding(grid, here, next, costs);
   if (around.length === 0) return null;
-  const nearDirect = nearEnemies(here, direct, costs);
   // The way around the hero already walks, if Jev chose it before and the rest of it still keeps
   // away: offered again unchanged, so choosing it again is no new order (a new one each request
   // made a fighting hero break off every 4 s, D27)
@@ -138,7 +139,8 @@ export function detourFor(sm: StateManager, hero: IHero, costs: Uint8Array): Det
   }
   const nearAround = nearEnemies(here, around, costs);
   // Offered only when clearly better: in a real match ways that passed nearly as close (19 points
-  // near enemies against 17) were offered, a longer walk for little (out/probe-around.ts)
+  // near enemies against 17) were offered, a longer walk for little
+  // (tests/smoke/out/probe-around.ts, outside the repository)
   if (nearAround * 2 > nearDirect) return null;
   // The corners before the point become via points, then the commander's remaining via points.
   // The way around comes first: cut short, it would lead back into the enemies; a commander's
