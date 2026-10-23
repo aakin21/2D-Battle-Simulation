@@ -12,6 +12,15 @@ function appVersion(): string {
   }
 }
 
+// The request headers the decision-model proxies forward (host is the service's, changeOrigin)
+const PROXY_REQUEST_HEADERS = new Set([
+  'host',
+  'content-type',
+  'content-length',
+  'transfer-encoding',
+  'accept',
+]);
+
 export default defineConfig(({ mode }) => {
   // TYPESAFE_API_KEY, SUBQ_API_KEY and OPENROUTER_API_KEY come from .env.local (not
   // committed). They are added here, on the dev server, so no key reaches the browser (D7, P1).
@@ -23,9 +32,24 @@ export default defineConfig(({ mode }) => {
     changeOrigin: true,
     rewrite: () => '/v1/systemone',
     headers: key ? { Authorization: `Bearer ${key}` } : ({} as Record<string, string>),
-    // Server-to-server call: drop the browser's Origin so the service's CORS check never applies.
     configure: (proxy) => {
-      proxy.on('proxyReq', (proxyReq) => proxyReq.removeHeader('origin'));
+      // Server-to-server call: only what the service needs goes on. The browser's Origin (so the
+      // service's CORS check never applies), the AI password (x-ai-key, D37), cookies, the
+      // referrer and the browser's own Authorization stay here; Authorization is the server's key.
+      proxy.on('proxyReq', (proxyReq) => {
+        for (const name of proxyReq.getHeaderNames()) {
+          if (!PROXY_REQUEST_HEADERS.has(name) && !(key && name === 'authorization'))
+            proxyReq.removeHeader(name);
+        }
+      });
+      // The service's cookies and CORS headers are not passed back: the guard's CORS headers
+      // (server/aiAccess.ts) are the ones the browser sees.
+      proxy.on('proxyRes', (proxyRes) => {
+        for (const name of Object.keys(proxyRes.headers)) {
+          if (name === 'set-cookie' || name.startsWith('access-control-'))
+            delete proxyRes.headers[name];
+        }
+      });
     },
   });
 

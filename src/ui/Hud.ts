@@ -64,6 +64,7 @@ function unitName(unit: IUnit, battle: boolean): string {
 }
 
 export class Hud {
+  private replaying = false;
   private elBanner = document.getElementById('match-banner')!;
   private elArmies = document.getElementById('armies-body')!;
   private elArmiesTitle = document.getElementById('armies-title')!;
@@ -256,6 +257,16 @@ export class Hud {
     return html;
   }
 
+  // While a replay is watched (ReplayController): the units shown are a battle's, also over a
+  // classic run
+  setReplaying(on: boolean): void {
+    this.replaying = on;
+  }
+
+  private battleView(): boolean {
+    return this.replaying || this.engine.isBattleMode();
+  }
+
   // --- Selected unit ---
 
   showUnit(unit: IUnit | null): void {
@@ -264,7 +275,7 @@ export class Hud {
       this.portraitOf = null;
       return;
     }
-    const battle = this.engine.isBattleMode();
+    const battle = this.battleView();
     this.elCard.hidden = false;
     if (this.portraitOf !== unit.id) {
       this.portraitOf = unit.id;
@@ -298,7 +309,7 @@ export class Hud {
   // --- Area counts (drag on the map) ---
 
   showArea(units: IUnit[]): void {
-    const battle = this.engine.isBattleMode();
+    const battle = this.battleView();
     const soldiers = [0, 0];
     const heroes = [0, 0];
     for (const u of units) {

@@ -147,16 +147,8 @@ export async function encodeReplay(replay: Replay): Promise<Blob> {
 // --- Loading ---
 
 export async function decodeReplay(file: Blob): Promise<Replay> {
-  let buffer: ArrayBuffer;
-  try {
-    buffer = await new Response(
-      file.stream().pipeThrough(new DecompressionStream('gzip'))
-    ).arrayBuffer();
-  } catch {
-    throw new Error('This file is not a replay (it could not be decompressed).');
-  }
+  const buffer = await decompress(file);
   const view = new DataView(buffer);
-  const dec = new TextDecoder();
   let at = 0;
   const need = (n: number) => {
     if (at + n > buffer.byteLength) throw new Error('The replay file is cut short.');
@@ -165,12 +157,14 @@ export async function decodeReplay(file: Blob): Promise<Replay> {
   const headerLen = view.getUint32(at, true);
   at += 4;
   need(headerLen);
-  const header = JSON.parse(dec.decode(new Uint8Array(buffer, at, headerLen))) as ReplayHeader;
+  const header = parseJson(new Uint8Array(buffer, at, headerLen)) as ReplayHeader;
   at += headerLen;
-  if (header?.format !== REPLAY_FORMAT) throw new Error('This file is not a replay.');
-  if (header.version > REPLAY_VERSION)
+  if (typeof header !== 'object' || header === null || header.format !== REPLAY_FORMAT)
+    throw new Error('This file is not a replay.');
+  if (typeof header.version === 'number' && header.version > REPLAY_VERSION)
     throw new Error('This replay was saved by a newer version of the simulation.');
-  const grid = decodeGrid(header.grid);
+  if (!Number.isInteger(header.version) || header.version < 1) throw new Error(DAMAGED);
+  const grid = typeof header.grid === 'string' ? decodeGrid(header.grid) : null;
   if (!grid) throw new Error('The replay has no readable map.');
   if (!validHeader(header)) throw new Error(DAMAGED);
 
@@ -179,14 +173,18 @@ export async function decodeReplay(file: Blob): Promise<Replay> {
   const lastX = new Int16Array(units);
   const lastY = new Int16Array(units);
   const seen = new Uint8Array(units);
+  let lastT = -Infinity;
   for (let i = 0; i < header.frameCount; i++) {
     need(16);
     const t = view.getFloat64(at, true);
+    // Frame times are finite and in order (the player searches them)
+    if (!Number.isFinite(t) || t < lastT) throw new Error(DAMAGED);
+    lastT = t;
     const n = view.getUint32(at + 8, true);
     const metaLen = view.getUint32(at + 12, true);
     at += 16;
     need(metaLen + n * 10);
-    const meta = JSON.parse(dec.decode(new Uint8Array(buffer, at, metaLen))) as Pick<
+    const meta = parseJson(new Uint8Array(buffer, at, metaLen)) as Pick<
       ReplayFrame,
       'heroes' | 'objective'
     >;
@@ -233,6 +231,74 @@ export async function decodeReplay(file: Blob): Promise<Replay> {
 }
 
 const DAMAGED = 'The replay file is damaged.';
+// A replay of a long match is a few MB; a file that unpacks to more is refused while it is read
+// (a small gzip file can unpack to gigabytes)
+const MAX_REPLAY_BYTES = 200 * 1024 * 1024;
+
+async function decompress(file: Blob): Promise<ArrayBuffer> {
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  try {
+    const reader = file.stream().pipeThrough(new DecompressionStream('gzip')).getReader();
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > MAX_REPLAY_BYTES) {
+        void reader.cancel();
+        throw new Error('too large');
+      }
+      chunks.push(value);
+    }
+  } catch {
+    if (size > MAX_REPLAY_BYTES)
+      throw new Error('This replay is too large to open (over 200 MB unpacked).');
+    throw new Error('This file is not a replay (it could not be decompressed).');
+  }
+  const all = new Uint8Array(size);
+  let at = 0;
+  for (const c of chunks) {
+    all.set(c, at);
+    at += c.byteLength;
+  }
+  return all.buffer;
+}
+
+function parseJson(bytes: Uint8Array): unknown {
+  try {
+    return JSON.parse(new TextDecoder().decode(bytes));
+  } catch {
+    throw new Error(DAMAGED);
+  }
+}
+
+const isFiniteNumber = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+const isPosition = (p: unknown): p is Position =>
+  typeof p === 'object' &&
+  p !== null &&
+  isFiniteNumber((p as Position).x) &&
+  isFiniteNumber((p as Position).y);
+const isFaction = (f: unknown) => f === Faction.FRIENDLY || f === Faction.ENEMY;
+const isUnitType = (t: unknown) =>
+  t === UnitType.WARRIOR || t === UnitType.HERO || t === UnitType.BERSERKER;
+
+function validUnit(u: ReplayUnit, units: number): boolean {
+  return (
+    typeof u === 'object' &&
+    u !== null &&
+    typeof u.id === 'string' &&
+    isUnitType(u.type) &&
+    isFaction(u.faction) &&
+    isFiniteNumber(u.maxHp) &&
+    u.maxHp > 0 &&
+    isFiniteNumber(u.sight) &&
+    u.sight >= 0 &&
+    (u.charismaRadius === undefined ||
+      (isFiniteNumber(u.charismaRadius) && u.charismaRadius >= 0)) &&
+    (u.heroIndex === undefined ||
+      (Number.isInteger(u.heroIndex) && u.heroIndex >= 0 && u.heroIndex <= units))
+  );
+}
 
 // A replay file can come from anyone: the lists and indexes the player reads are checked, so a
 // damaged or edited file is refused instead of breaking the view
@@ -240,13 +306,13 @@ function validHeader(h: ReplayHeader): boolean {
   const o = h.objective;
   return (
     Array.isArray(h.units) &&
-    h.units.every((u) => typeof u === 'object' && u !== null) &&
+    h.units.every((u) => validUnit(u, h.units.length)) &&
     Array.isArray(h.panels) &&
     h.panels.every(
       (p) =>
         typeof p === 'object' &&
         p !== null &&
-        typeof p.t === 'number' &&
+        isFiniteNumber(p.t) &&
         typeof p.key === 'string' &&
         typeof p.html === 'string'
     ) &&
@@ -254,45 +320,151 @@ function validHeader(h: ReplayHeader): boolean {
     h.frameCount >= 0 &&
     typeof o === 'object' &&
     o !== null &&
+    (o.mode === undefined ||
+      o.mode === 'elimination' ||
+      o.mode === 'control' ||
+      o.mode === 'base') &&
+    (o.timeLimit === null ||
+      o.timeLimit === undefined ||
+      (isFiniteNumber(o.timeLimit) && o.timeLimit >= 0)) &&
     Array.isArray(o.points) &&
-    Array.isArray(o.bases)
+    o.points.every(
+      (p) =>
+        typeof p === 'object' && p !== null && typeof p.name === 'string' && isPosition(p.position)
+    ) &&
+    Array.isArray(o.bases) &&
+    o.bases.every(
+      (b) =>
+        typeof b === 'object' &&
+        b !== null &&
+        isFaction(b.faction) &&
+        isPosition(b.position) &&
+        isFiniteNumber(b.maxHp) &&
+        b.maxHp > 0
+    )
   );
 }
 
 function validFrameMeta(m: Pick<ReplayFrame, 'heroes' | 'objective'>, units: number): boolean {
   const o = m?.objective;
   return (
+    typeof m === 'object' &&
+    m !== null &&
     Array.isArray(m.heroes) &&
     m.heroes.every(
-      (h) => typeof h === 'object' && h !== null && Number.isInteger(h.i) && h.i >= 0 && h.i < units
+      (h) =>
+        typeof h === 'object' &&
+        h !== null &&
+        Number.isInteger(h.i) &&
+        h.i >= 0 &&
+        h.i < units &&
+        (h.taskPoint === null || isPosition(h.taskPoint)) &&
+        (h.command === null ||
+          (typeof h.command === 'object' && typeof h.command.type === 'string')) &&
+        isFiniteNumber(h.commandTime)
     ) &&
     typeof o === 'object' &&
     o !== null &&
     Array.isArray(o.holders) &&
+    o.holders.every((f) => f === null || isFaction(f)) &&
     Array.isArray(o.baseHp) &&
+    o.baseHp.every(isFiniteNumber) &&
     typeof o.scores === 'object' &&
-    o.scores !== null
+    o.scores !== null &&
+    isFiniteNumber(o.scores.friendly) &&
+    isFiniteNumber(o.scores.enemy)
   );
 }
 
-// A replay file can come from anyone: its panel HTML is cleaned before it is shown (no scripts,
-// no event handlers, no links or frames). The panels themselves only use plain markup.
-function sanitizeHtml(html: string): string {
-  const doc = new DOMParser().parseFromString(`<body>${html}</body>`, 'text/html');
-  doc.body
-    .querySelectorAll('script, style, iframe, object, embed, link, meta, form, a, img, svg')
-    .forEach((el) => el.remove());
-  doc.body.querySelectorAll('*').forEach((el) => {
-    for (const attr of Array.from(el.attributes)) {
-      const bad =
-        /^on/i.test(attr.name) ||
-        /^(href|src|srcset|action|formaction|xlink:href)$/i.test(attr.name) ||
-        // inline styles stay (bar widths and colours) unless they load something
-        (attr.name.toLowerCase() === 'style' && /url\(|expression|@import/i.test(attr.value));
-      if (bad) el.removeAttribute(attr.name);
+// A replay file can come from anyone: its panel HTML is rebuilt from an allowlist before it is
+// shown. The panels (Hud, AiPanel) use only plain markup: these elements, with classes, titles,
+// data-* and inline bar widths and colours. Everything else is dropped with its content (scripts,
+// links, images, media, frames, forms, SVG and MathML, and the raw-text elements such as noscript,
+// xmp or noembed, whose content a page reads differently than the parser here: mXSS). The tree is
+// built anew in an inert template, so what is serialized is only what was allowed.
+const ALLOWED_TAGS = new Set([
+  'div',
+  'span',
+  'i',
+  'b',
+  'em',
+  'strong',
+  'small',
+  'br',
+  'h2',
+  'h3',
+  'table',
+  'thead',
+  'tbody',
+  'tr',
+  'th',
+  'td',
+]);
+const ALLOWED_ATTRS = new Set(['class', 'title', 'hidden', 'aria-hidden', 'colspan', 'rowspan']);
+// Inline styles: these properties, with plain values (numbers, units, names, colours, var())
+const STYLE_PROPS = new Set([
+  'width',
+  'height',
+  'background',
+  'background-color',
+  'color',
+  'opacity',
+]);
+const STYLE_VALUE_MAX = 200;
+const STYLE_VALUE = /^[\w\s.,#%-]*(?:(?:rgba?|hsla?|var)\([\w\s.,#%-]*\)[\w\s.,#%-]*)*$/i;
+
+export function sanitizeHtml(html: string): string {
+  const parsed = new DOMParser().parseFromString(`<body>${html}</body>`, 'text/html');
+  const out = document.createElement('template').content;
+  const copy = (from: Node, to: Node) => {
+    for (const node of Array.from(from.childNodes)) {
+      if (node.nodeType === Node.TEXT_NODE) {
+        to.appendChild(out.ownerDocument.createTextNode(node.textContent ?? ''));
+        continue;
+      }
+      if (node.nodeType !== Node.ELEMENT_NODE) continue; // comments and the rest
+      const el = node as Element;
+      // Only HTML elements (no SVG or MathML namespace) of the allowed kinds
+      if (el.namespaceURI !== 'http://www.w3.org/1999/xhtml') continue;
+      const tag = el.localName;
+      if (!ALLOWED_TAGS.has(tag)) continue;
+      const clean = out.ownerDocument.createElement(tag);
+      for (const attr of Array.from(el.attributes)) {
+        const name = attr.name.toLowerCase();
+        if (ALLOWED_ATTRS.has(name) || /^data-[a-z0-9-]+$/.test(name)) {
+          clean.setAttribute(name, attr.value);
+        } else if (name === 'style') {
+          const style = cleanStyle(attr.value);
+          if (style) clean.setAttribute('style', style);
+        }
+      }
+      copy(el, clean);
+      to.appendChild(clean);
     }
-  });
-  return doc.body.innerHTML;
+  };
+  copy(parsed.body, out);
+  const host = out.ownerDocument.createElement('div');
+  host.appendChild(out);
+  return host.innerHTML;
+}
+
+// The declarations of an inline style that are allowed (property and value), or ''
+function cleanStyle(style: string): string {
+  const kept: string[] = [];
+  for (const decl of style.split(';')) {
+    const colon = decl.indexOf(':');
+    if (colon < 0) continue;
+    const prop = decl.slice(0, colon).trim().toLowerCase();
+    const value = decl.slice(colon + 1).trim();
+    if (
+      STYLE_PROPS.has(prop) &&
+      value &&
+      value.length <= STYLE_VALUE_MAX &&
+      STYLE_VALUE.test(value)
+    )
+      kept.push(`${prop}:${value}`);
+  }
+  return kept.join(';');
 }
 
 function u32(n: number): ArrayBuffer {
