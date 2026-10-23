@@ -8,6 +8,7 @@ import {
   failureInfo,
   unreachableStatus,
   FAILURES_IN_A_ROW,
+  attemptsOf,
 } from './AiServer';
 import { AiExchange, finishExchange } from './Exchange';
 
@@ -80,7 +81,13 @@ export abstract class AiLayer implements AIController {
       this.skippedRequests++;
       return;
     }
-    void this.decide(elapsed);
+    // A throw while the request is prepared (the report, Jev's state) must not leave the layer
+    // waiting, which in paused AI timing would hold the battle: the layer stops and says why
+    void this.decide(elapsed).catch((err: unknown) => {
+      this.pending = false;
+      if (this.disposed || this.failed) return;
+      this.fail(`error while preparing the request: ${String(err)}`, '');
+    });
   }
 
   protected abstract decide(time: number): Promise<void>;
@@ -151,6 +158,8 @@ export abstract class AiLayer implements AIController {
         : String(err);
       if (exchange.latencyMs === null)
         finishExchange(exchange, performance.now() - started, null, reason);
+      const attempts = attemptsOf(err);
+      if (attempts !== undefined) exchange.attempts = attempts;
       // A lost connection may come back (a tunnel hiccup; Jev has already retried it twice);
       // no answer within the whole time budget stops the layer, as in paused mode it holds the
       // battle, and the LLM's server gives up and says so first.
