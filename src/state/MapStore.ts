@@ -1,8 +1,8 @@
 import { TerrainType, GRID_SIZE } from '../types/types';
 
-// Saved maps (D5). A map is stored as text: one row per line-group, each row as
-// run-length pairs "<terrain><count>" separated by commas, rows separated by "/".
-// Example row: "012,25,07" = 12 open, 5 forest, 7 open.
+// Saved maps (D5). A map is stored as text: each row as run-length pairs "<terrain><count>"
+// separated by commas (terrain is the TerrainType number), rows separated by "/".
+// Example row: "012,15,07" = 12 open, 5 forest, 7 open.
 
 const LS_MAPS = 'sim_maps';
 const VERSION = 'v1';

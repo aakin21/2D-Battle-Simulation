@@ -62,11 +62,11 @@ export function separateUnits(
       if (other === unit || other.hp <= 0) continue;
       // A hero is never pushed by its own side: its soldiers make way. Pushed by its crowd of
       // followers (50 within 1.5 tiles), a hero could not walk at all, whatever its order.
-      const ownHero = other.faction === unit.faction;
-      if (ownHero && unit.unitType === UnitType.HERO) continue;
+      const sameSide = other.faction === unit.faction;
+      if (sameSide && unit.unitType === UnitType.HERO) continue;
       // Marching (this unit or the other): a weaker push between units of one side
       const strength =
-        ownHero && (marching.has(unit) || marching.has(other)) ? SEPARATION_MARCH_PUSH : 1;
+        sameSide && (marching.has(unit) || marching.has(other)) ? SEPARATION_MARCH_PUSH : 1;
       const dx = unit.position.x - other.position.x;
       const dy = unit.position.y - other.position.y;
       const d2 = dx * dx + dy * dy;
@@ -79,7 +79,7 @@ export function separateUnits(
       }
       const d = Math.sqrt(d2);
       // 1 on top, 0 at the radius; twice as strong from one's own hero, so the way opens fast
-      const yieldTo = ownHero && other.unitType === UnitType.HERO ? 2 : 1;
+      const yieldTo = sameSide && other.unitType === UnitType.HERO ? 2 : 1;
       const weight = (strength * yieldTo * (SEPARATION_RADIUS - d)) / SEPARATION_RADIUS;
       px += (dx / d) * weight;
       py += (dy / d) * weight;

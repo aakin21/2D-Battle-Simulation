@@ -53,8 +53,9 @@ export interface IUnit {
 export type HeroController = 'user' | 'rule' | 'ai';
 
 // Which AI layers command a side in battle mode: the LLM alone, or the LLM with a tactical layer
-// (Jev or SubQ Snap, D51; the model is chosen separately). Jev alone was dropped: it sees only each hero's surroundings, so it cannot
-// command a side by itself. 'none': the user (west) or the rule layer (east).
+// (Jev or SubQ Snap, D51; the model is chosen separately). Jev alone was dropped: it sees only
+// each hero's surroundings, so it cannot command a side by itself. 'none': the user (west) or the
+// rule layer (east).
 export type SideAI = 'none' | 'llm' | 'jev+llm';
 
 // D4: 'realtime' keeps the battle running and applies AI answers when they arrive;

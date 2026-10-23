@@ -14,7 +14,10 @@ import {
 } from '../types/types';
 
 // Classic mode (Phase 1, D19): berserker waves from the map edges, and how a wave berserker
-// chases its target or patrols with its group. Battle mode never runs this code.
+// chases its target or patrols with its group. Battle mode spawns no berserkers, but it still
+// calls updateWaves, with a wave multiplier of 0 (BATTLE_CONFIG): each wave's time then draws
+// random numbers and finds one path for its single spawn point, and spawns nobody. Those draws
+// are part of every battle's random sequence, so leaving them out would change battle results.
 
 // Wave spawn points along an edge: tiles EDGE_MARGIN..EDGE_MARGIN_MAX
 const EDGE_SPAN = EDGE_MARGIN_MAX - EDGE_MARGIN + 1;
