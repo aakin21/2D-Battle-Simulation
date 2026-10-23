@@ -35,7 +35,9 @@ const HOLD_SAME_TILES = 2;
 // D60: a via point counts as reached once the hero is this close (its soldiers crowd the point,
 // and a hero behind them, D48, stands ~3.5 tiles back)
 const VIA_ARRIVE_TILES = 5;
-const VIA_REACHED_KEPT = 2 * MAX_VIA; // via points a hero remembers having reached
+// Via points a hero remembers having reached, at most: only the ones that can still count are
+// kept (keptReached), so this is a guard, far above what a route and a way around need
+const VIA_REACHED_KEPT = 64;
 // regroupOne (D60): the stray group it collects is the one whose centre is nearest its point and
 // within this distance of it; the centre moves as soldiers join the hero
 const REGROUP_ONE_TILES = 8;
@@ -142,8 +144,15 @@ export class HeroCommands {
     hero.commandSource = command ? source : null;
     hero.commandTime = this.sm.getBattlefield().elapsedTime;
     if (source === 'llm' && command) {
+      // The LLM restating its order while another one ran (Jev's) takes over as before (D15), but
+      // it is no new order: it keeps its age and the via points reached since it was given, so
+      // its route goes on instead of starting over
+      const restated =
+        hero.lastLlmCommand !== null &&
+        sameCommand(hero.lastLlmCommand, command) &&
+        !(running && sameCommand(running, hero.lastLlmCommand));
       hero.lastLlmCommand = command;
-      hero.lastLlmTime = hero.commandTime;
+      if (!restated) hero.lastLlmTime = hero.commandTime;
     }
 
     const movement = command !== null && this.isMovement(hero, command);
@@ -224,7 +233,7 @@ export class HeroCommands {
           Math.hypot(p.x - stand.x, p.y - stand.y) <= VIA_ARRIVE_TILES + HERO_BEHIND_TILES);
       if (!near && Pathfinder.sameRegion(grid, here.x, here.y, Math.floor(p.x), Math.floor(p.y)))
         return p;
-      const reached = hero.viaReached ?? [];
+      const reached = keptReached(hero);
       reached.push({ x: p.x, y: p.y, t: now });
       if (reached.length > VIA_REACHED_KEPT) reached.shift();
       hero.viaReached = reached;
@@ -318,7 +327,9 @@ function finitePoint(command: HeroCommand): boolean {
       ? [command.target, ...(command.via ?? [])]
       : command.type === 'hold' || command.type === 'regroupOne'
         ? [command.at]
-        : [];
+        : command.type === 'retreat' && command.to
+          ? [command.to]
+          : [];
   return points.every((p) => Number.isFinite(p.x) && Number.isFinite(p.y));
 }
 
@@ -347,9 +358,24 @@ export function viaReached(hero: IHero, via: Position[], since: number): number 
   return i;
 }
 
-// When the order a hero runs was given: Jev's "follow the LLM" runs the LLM's order (D15)
+// When the order a hero runs was given: Jev's "follow the LLM" runs the LLM's order (D15), and an
+// LLM order restated after another one ran keeps the time it was first given
 export function orderTime(hero: IHero): number {
-  return hero.command?.type === 'continueLlm' ? hero.lastLlmTime : hero.commandTime;
+  return hero.command?.type === 'continueLlm' || hero.commandSource === 'llm'
+    ? hero.lastLlmTime
+    : hero.commandTime;
+}
+
+// The via points reached that can still count: since the hero's order was given (its own route,
+// or Jev's way around), or since the LLM's order was given if they are on its route (followed
+// again later, viaReached); any other can never count again
+function keptReached(hero: IHero): Array<{ x: number; y: number; t: number }> {
+  const llmVia = hero.lastLlmCommand?.type === 'move' ? (hero.lastLlmCommand.via ?? []) : [];
+  return (hero.viaReached ?? []).filter(
+    (r) =>
+      r.t >= hero.commandTime ||
+      (r.t >= hero.lastLlmTime && llmVia.some((p) => p.x === r.x && p.y === r.y))
+  );
 }
 
 // A move's route as text: its via points and its target, e.g. "40,30;55,32>75,45"
