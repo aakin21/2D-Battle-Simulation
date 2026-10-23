@@ -3,9 +3,8 @@ import { TerrainType, Position, GRID_SIZE } from '../types/types';
 interface AStarNode {
   x: number;
   y: number;
-  g: number;
-  h: number;
-  f: number;
+  g: number; // steps (and extra cost) from the start
+  f: number; // g plus the distance left to the end
   parent: AStarNode | null;
 }
 
@@ -193,7 +192,7 @@ export class Pathfinder {
     const tracked = (k: number): boolean => k >= 0 && k < TILE_COUNT;
 
     const sh = heuristic(sx, sy);
-    heap.push({ x: sx, y: sy, g: 0, h: sh, f: sh, parent: null });
+    heap.push({ x: sx, y: sy, g: 0, f: sh, parent: null });
     const startKey = key(sx, sy);
     if (tracked(startKey)) {
       scoredIn[startKey] = search;
@@ -228,7 +227,7 @@ export class Pathfinder {
           scoredIn[nk] = search;
           gScore[nk] = ng;
           const nh = heuristic(nx, ny);
-          heap.push({ x: nx, y: ny, g: ng, h: nh, f: ng + nh, parent: cur });
+          heap.push({ x: nx, y: ny, g: ng, f: ng + nh, parent: cur });
         }
       }
     }
