@@ -289,7 +289,9 @@ export class AiPanel {
         const a = jev.assessmentFor(h.heroIndex);
         const applied = d.applied
           ? '<span class="ai-agree">applied</span>'
-          : `<span class="ai-warn">not applied: below ${percent(jev.minConfidence)}</span>`;
+          : d.stale
+            ? '<span class="ai-warn">not applied: the LLM gave a new order meanwhile</span>'
+            : `<span class="ai-warn">not applied: below ${percent(jev.minConfidence)}</span>`;
         const notes = [
           a.threat === undefined ? '' : `threat ${a.threat.toFixed(1)}/3`,
           a.surrounded === undefined ? '' : `surrounded ${percent(a.surrounded)}`,
