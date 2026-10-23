@@ -116,8 +116,8 @@ export function regroupTarget(clusters: StrayCluster[], hero: IHero): StrayClust
 // centre left heroes standing next to a spread-out group for minutes (author's live tests,
 // 2026-10-10: the centre was the hero's own tile while every soldier was out of its sight);
 // walking to the nearest soldier fixed that but was slower with real start positions. Measured
-// (tests/smoke/out/probe-regroup.ts, 572 per side, all three heroes regrouping): every stray
-// collected in 106 s, against 149 s (centre) and 175 s (nearest soldier).
+// (tests/smoke/out/probe-regroup.ts, outside the repository; 572 per side, all three heroes
+// regrouping): every stray collected in 106 s, against 149 s (centre) and 175 s (nearest soldier).
 const SPOT_CANDIDATES = 48; // soldiers tried as spots per group (evenly spread over its members)
 // Tiles added to every walk when weighing spots, so a spot within the hero's sight already (a walk
 // of 0) does not win by dividing by zero, and near spots are weighed by their gain

@@ -41,7 +41,7 @@ npm install
 npm run dev
 ```
 
-Requires Node.js 18+.
+Requires Node.js 18+. The simulation runs without any keys. The AI layers read their keys from a `.env.local` file in the project folder (not committed; the keys stay on the dev server): `TYPESAFE_API_KEY` for Jev, `SUBQ_API_KEY` for SubQ Snap, `OPENROUTER_API_KEY` for LLMs through OpenRouter. The Claude LLM uses the developer's Claude login instead of a key.
 
 ## Tech
 

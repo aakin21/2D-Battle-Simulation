@@ -22,9 +22,6 @@ type JevDecision = JevController['decisions'][number];
 
 const STATS_EVERY_MS = 500; // followers are counted at most this often (every unit is visited)
 
-// Kept here for code that imports it from the AI panel
-export { escapeHtml } from './format';
-
 function ago(now: number, then: number): string {
   return `${Math.max(0, Math.round(now - then))} s ago`;
 }
@@ -68,7 +65,7 @@ function line(label: string, value: string): string {
 // open it in place (it stays open while the panel is redrawn)
 const LONG_TEXT = 90;
 
-const SOURCE_NAME: Record<string, string> = { llm: 'LLM', jev: 'Jev', rule: 'rules', user: 'user' };
+const SOURCE_NAME: Record<string, string> = { llm: 'LLM', rule: 'rules', user: 'user' };
 
 interface Panel {
   el: HTMLElement;
@@ -340,7 +337,7 @@ export class AiPanel {
       const last = jev.decisions[jev.decisions.length - 1];
       const model = last.model ? ` · ${escapeHtml(last.model)}` : '';
       parts.push(
-        `Jev: ${count(requests, 'request')}, ${jev.skippedRequests} skipped${failed}${model}`
+        `${jev.name}: ${count(requests, 'request')}, ${jev.skippedRequests} skipped${failed}${model}`
       );
     }
     return parts.map((p) => `<div class="ai-meta faint">${p}</div>`).join('');

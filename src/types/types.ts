@@ -53,8 +53,9 @@ export interface IUnit {
 export type HeroController = 'user' | 'rule' | 'ai';
 
 // Which AI layers command a side in battle mode: the LLM alone, or the LLM with a tactical layer
-// (Jev or SubQ Snap, D51; the model is chosen separately). Jev alone was dropped: it sees only each hero's surroundings, so it cannot
-// command a side by itself. 'none': the user (west) or the rule layer (east).
+// (Jev or SubQ Snap, D51; the model is chosen separately). Jev alone was dropped: it sees only
+// each hero's surroundings, so it cannot command a side by itself. 'none': the user (west) or the
+// rule layer (east).
 export type SideAI = 'none' | 'llm' | 'jev+llm';
 
 // D4: 'realtime' keeps the battle running and applies AI answers when they arrive;
@@ -174,11 +175,11 @@ export const UNIT_STATS = {
   BERSERKER: { hp: 80, courage: 100, sight: 12, speed: 2.5, damage: 25 },
 };
 
+// No mountain entry: only fleeing units cross mountains, at UnitHelpers' MOUNTAIN_ESCAPE_SPEED
 export const TERRAIN_SPEED: Record<string, number> = {
   OPEN: 1.0,
   FOREST: 0.7,
   SWAMP: 0.5,
-  MOUNTAIN: 0,
 };
 
 export const TERRAIN_SIGHT: Record<string, number> = {
@@ -215,7 +216,7 @@ export type TerrainDensity = 'light' | 'normal' | 'dense';
 
 // 'classic': Phase 1 game (one hero vs berserker waves).
 // 'battle': symmetric sides, each with several heroes and soldiers that use courage.
-export type GameMode = 'classic' | 'battle';
+type GameMode = 'classic' | 'battle';
 
 export interface SimConfig {
   mode: GameMode;

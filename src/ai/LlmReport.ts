@@ -36,7 +36,7 @@ export interface ReportMemory {
   followers: Map<number, number>; // soldiers following each of this side's heroes
 }
 
-export interface ReportInput {
+interface ReportInput {
   time: number;
   previous: LlmDecision | undefined; // the LLM's last decision
   memory: ReportMemory;
