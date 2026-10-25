@@ -1231,6 +1231,13 @@ Problems encountered during the project, how they were found, and how they were 
 - **Resolution:** D44: every menu model maps to a pinned model id of the 5.5 generation. The diagnostics in the dev server output stay, so the model actually running is visible in every session.
 - **Status:** Resolved (2026-10-10); a live check that Haiku 5.5 answers on the author's account is pending.
 
+### P9: Simulation results depend on the speed setting and the frame rate (2026-10-25)
+- **Context:** second agent hunt of the engine (`tests/smoke/agents/hunt-1025/engine/speed.ts`, `speedmatch.ts`), fake AIs only.
+- **Problem:** the engine advances by the real frame time times the speed setting (`deltaTime = min(frame time, 0.1) × speed`, `SimulationEngine` loop), a variable time step kept from Phase 1. Rules that act "every X seconds" lose the time that passed beyond X at each event: an attack resets its cooldown to 1 s (`Combat.ts`, `Objectives.ts`) instead of carrying the overshoot, so with larger steps hits come late and the delays add up (with 0.4 s steps a unit hits at 1.2, 2.4, 3.6 s instead of 1, 2, 3 s). Measured in a 60 s duel: 60 hits at 60 Hz 1x, 59 with the tests' 1/30 s step, 57 at 4x (−5%), 50 at 4x with slow frames (−17%); walking scales correctly (20.00 tiles at every step). The same seeds at another speed also play different matches (6 rule matches: 529 losses at 1x, 925 at 4x), partly through this bias and partly because any change in step size changes a chaotic battle (R19). Even at 1x the step follows the real frame time, so the same match can end differently on two runs or machines.
+- **Impact:** matches played at different speeds or on a loaded machine are not comparable (Q11, the D4 Paused/Real-time comparison); seeded experiments are not reproducible outside the headless tests, which use a fixed step. Points can also be scored past the time limit within the last step (up to 0.6 at a 0.4 s step).
+- **Resolution:** proposed: a fixed time step (the simulation always steps 1/60 s; a higher speed runs more steps per frame, a slow machine slows the game instead of enlarging the step), the standard game-loop practice ("Fix Your Timestep", Glenn Fiedler); battle results change once, classic mode (D19) to be decided. A one-line carry of the cooldown overshoot was rejected by the author as a patch. The author will research it before deciding.
+- **Status:** Open
+
 ---
 
 ## Open questions
