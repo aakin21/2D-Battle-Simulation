@@ -1238,6 +1238,13 @@ Problems encountered during the project, how they were found, and how they were 
 - **Resolution:** proposed: a fixed time step (the simulation always steps 1/60 s; a higher speed runs more steps per frame, a slow machine slows the game instead of enlarging the step), the standard game-loop practice ("Fix Your Timestep", Glenn Fiedler); battle results change once, classic mode (D19) to be decided. A one-line carry of the cooldown overshoot was rejected by the author as a patch. The author will research it before deciding.
 - **Status:** Open
 
+### P10: Classic mode is not identical to Phase 1 (2026-10-27)
+- **Context:** third agent hunt of the engine: Phase 1 (`5a96495`) and the current code run side by side with the same seeds and no orders, every unit compared every step (`tests/smoke/agents/hunt-1027/engine/phase1.ts`), fake AIs only.
+- **Problem:** since commit `3e1e78e` (2026-10-02, Phase 2 step 3) a unit standing on a mountain tile walks out at half speed (`MOUNTAIN_ESCAPE_SPEED` in `src/engine/UnitHelpers.ts`), in classic mode too; in Phase 1 its speed there was 0 and it stayed. A smoothed path can cut a mountain corner, so 0–10 of about 900 units per 300 s classic match step on one. 10 of 12 seeded runs (classic and stress) were identical to Phase 1; with only that speed set as in Phase 1, 12 of 12 were identical over 400 s (up to 3,594 units, 10 waves), also with user orders. `same.ts` could not show it, since it compares the code with its own earlier versions, not with Phase 1.
+- **Impact:** D19 (Classic keeps Phase 1 behaviour) does not hold exactly; Phase 1 results reproduced in classic mode can differ. No other difference to Phase 1 was found.
+- **Resolution:** to be decided by the author: restore Phase 1 in classic mode (speed 0 on mountains outside battle mode), or record the escape speed as an accepted exception to D19. Nothing changed yet.
+- **Status:** Open
+
 ---
 
 ## Open questions
