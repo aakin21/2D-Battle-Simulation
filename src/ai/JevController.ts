@@ -3,7 +3,7 @@ import { StateManager } from '../state/StateManager';
 import { Faction, HeroCommand, IHero, Position } from '../types/types';
 import { jevGameRules, JEV_INTERVAL_SEC } from './GameRules';
 import { groupStats, GroupStats, localForce } from './Observations';
-import type { JevAssessment } from './LlmController';
+import type { JevAssessment } from './types';
 import { strayClusters, type StrayCluster } from '../engine/Strays';
 import { sameCommand } from '../engine/HeroCommands';
 import { opponent, sideName } from '../engine/Sides';
@@ -72,6 +72,7 @@ export class JevController extends AiLayer {
   protected opts: JevOptions;
   protected readonly nextAsk = 'decision';
   protected readonly stoppedText = 'tactical layer stopped';
+  protected readonly commander = false;
   readonly decisions: JevDecision[] = [];
   private lastForce = new Map<number, number>(); // force ratio per hero at the previous request
   private lastChoice = new Map<number, string>();
@@ -254,18 +255,11 @@ export class JevController extends AiLayer {
 
       const choice = a[key];
       const option = asked.options.get(hero.heroIndex)?.find((o) => o.key === choice?.choice);
+      // The hero may have died, or been taken over by the user, while the request was open
       if (!choice || !option || hero.hp <= 0) continue;
+      if (hero.controller !== 'ai' || hero.faction !== this.faction) continue;
 
       const confidence = num(choice.confidence) ?? 0;
-      // The LLM gave the hero a new order while the request was open: Jev chose for the old one
-      // (and continue_around's way leads to its point), so the choice is not applied and the
-      // LLM's latest order runs (D15). Following the LLM, directly or after one stray group,
-      // takes its order when it runs, so those still are.
-      const stale =
-        llmOrderChanged(hero, asked.llmOrders.get(hero.heroIndex)) &&
-        option.command.type !== 'continueLlm' &&
-        option.command.type !== 'regroupOne';
-      const applied = confidence >= this.opts.minConfidence && !stale;
       // A repeated order is ignored by the command interface (D27).
       // An option that does what the commander ordered (e.g. its own regroup while the
       // LLM's order is regroup) is following that order: it runs as "follow the LLM", so the
@@ -279,6 +273,18 @@ export class JevController extends AiLayer {
         sameCommand(option.command, hero.lastLlmCommand)
           ? ({ type: 'continueLlm' } as const)
           : option.command;
+      // The LLM gave the hero a new order while the request was open: Jev chose for the old one
+      // (and continue_around's way leads to its point), so the choice is not applied and the
+      // LLM's latest order runs (D15). Following the LLM takes its latest order when it runs, so
+      // it still is, also when the choice is the LLM's new order itself. regroup_short collects
+      // one stray group, then follows the LLM: still applied while the LLM's new order is of the
+      // kind it was chosen for, not when it now says to retreat or hold, or to do something else
+      const seen = asked.llmOrders.get(hero.heroIndex);
+      const stale =
+        llmOrderChanged(hero, seen) &&
+        command.type !== 'continueLlm' &&
+        !(command.type === 'regroupOne' && sameKindOfOrder(seen?.command ?? null, hero));
+      const applied = confidence >= this.opts.minConfidence && !stale;
       if (applied) {
         this.engine.issueCommand(hero, command, 'jev');
         this.lastChoice.set(hero.heroIndex, option.key);
@@ -362,6 +368,20 @@ function llmOrderChanged(hero: IHero, seen: LlmOrderSeen | undefined): boolean {
   if (now === seen.command) return false;
   if (!now || !seen.command) return true;
   return hero.lastLlmTime !== seen.time || !sameCommand(now, seen.command);
+}
+
+// The LLM's order now is of the same kind as the one a regroup_short was chosen for, so the
+// regroup still leads on to what it was chosen for; a retreat or hold never is (the group was
+// to be collected on the way)
+function sameKindOfOrder(seen: HeroCommand | null, hero: IHero): boolean {
+  const now = hero.lastLlmCommand;
+  return (
+    seen !== null &&
+    now !== null &&
+    now.type === seen.type &&
+    now.type !== 'retreat' &&
+    now.type !== 'hold'
+  );
 }
 
 // Jev's (and Snap's) answer, as far as it is used; every value is checked before use

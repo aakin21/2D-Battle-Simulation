@@ -1,7 +1,7 @@
 import { StateManager } from '../state/StateManager';
 import { Renderer } from '../rendering/Renderer';
 import { MinimapRenderer } from '../rendering/MinimapRenderer';
-import { HeroCommands, runningCommand } from './HeroCommands';
+import { HeroCommands } from './HeroCommands';
 import { GroupPatrol } from './GroupPatrol';
 import { separateUnits } from './Separation';
 import { updateHeroStand } from './HeroPosition';
@@ -179,6 +179,11 @@ export class SimulationEngine {
     this.controllers = controllers;
   }
 
+  // The AI controllers of the current match (a layer finds the other layers of its side)
+  getControllers(): readonly AIController[] {
+    return this.controllers;
+  }
+
   // Entry point for hero orders from outside the frame (D20): user clicks, Jev and the LLM. Rule
   // heroes give theirs inside the frame through the same HeroCommands.issue (without breaking
   // off a fight, D27), so a hero behaves the same whoever gave the order.
@@ -207,6 +212,7 @@ export class SimulationEngine {
     this.battleMode = stress ? false : this.stateManager.isBattleMode();
     this.renderer.setBattleMode(this.battleMode);
     this.patrol.clear();
+    this.commands.reset();
     this.paused = false;
     this.speedMultiplier = 1;
     this.start();
@@ -225,7 +231,7 @@ export class SimulationEngine {
     // D48: a hero with enemies near stands behind its soldiers (battle mode)
     if (battleMode)
       for (const hero of sm.getHeroes())
-        updateHeroStand(sm, hero, runningCommand(hero), elapsedTime);
+        updateHeroStand(sm, hero, this.commands.effective(hero), elapsedTime);
 
     for (const unit of units) updateCourage(sm, unit, battleMode, this.factionCounts);
     for (const unit of units) updateBehavior(sm, unit, battleMode);

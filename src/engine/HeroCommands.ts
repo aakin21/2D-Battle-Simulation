@@ -50,6 +50,11 @@ export class HeroCommands {
 
   constructor(private sm: StateManager) {}
 
+  // A new match: stray groups cached from the last one must not be used (its clock starts again)
+  reset(): void {
+    this.strayCache.clear();
+  }
+
   private straysOf(faction: Faction): StrayCluster[] {
     const now = this.sm.getBattlefield().elapsedTime;
     const cached = this.strayCache.get(faction);
@@ -80,8 +85,8 @@ export class HeroCommands {
     // Orders are compared by what they make the hero do: Jev's "follow the LLM" runs the LLM's
     // latest order, so the LLM restating that order, or Jev following the order the hero already
     // runs, is a repeat like any other
-    const running = this.running(hero, hero.command);
-    const next = this.running(hero, command);
+    const running = runningCommand(hero, hero.command);
+    const next = runningCommand(hero, command);
     // A retreat repeated once the hero has reached its point falls back further, from the enemies
     // near it now (D39); repeated on the way, while the survival reflex is moving the hero away,
     // or where it cannot fall back any further (no enemy, the map edge), it changes nothing like
@@ -162,11 +167,6 @@ export class HeroCommands {
       (command?.type === 'retreat' || hero.state === BehaviorState.ATTACK);
   }
 
-  // The order a command runs: Jev's "follow the LLM" runs the LLM's latest order
-  private running(hero: IHero, command: HeroCommand | null): HeroCommand | null {
-    return runningCommand(hero, command);
-  }
-
   // The hero stands at (or next to) the point of the retreat order it runs
   private atRetreatPoint(hero: IHero, retreat: HeroCommand): boolean {
     const to = retreat.type === 'retreat' ? retreat.to : undefined;
@@ -202,8 +202,26 @@ export class HeroCommands {
   applyAll(): void {
     for (const hero of this.sm.getHeroes()) {
       if (hero.hp <= 0) continue;
-      hero.taskPoint = this.target(hero, this.running(hero, hero.command), orderTime(hero));
+      const running = runningCommand(hero, hero.command);
+      const effective = this.effective(hero, running);
+      // The LLM's order run after a regroupOne goes on from where the LLM's route had got to
+      hero.taskPoint = this.target(
+        hero,
+        effective,
+        effective === running ? orderTime(hero) : hero.lastLlmTime
+      );
     }
+  }
+
+  // The order a hero's command makes it do now: Jev's "follow the LLM" runs the LLM's latest
+  // order, and so does a regroupOne once its stray group is gone (D60). The task point and where
+  // the hero stands (D48, HeroPosition.ts) both follow it.
+  effective(hero: IHero, running = runningCommand(hero, hero.command)): HeroCommand | null {
+    if (running?.type !== 'regroupOne') return running;
+    const llm = hero.lastLlmCommand;
+    if (!llm || llm.type === 'regroupOne' || groupNear(this.straysOf(hero.faction), running.at))
+      return running;
+    return llm;
   }
 
   // A move walks its via points in order, then to its target (D60); a via point the hero cannot
@@ -244,7 +262,7 @@ export class HeroCommands {
   // Orders that send the hero somewhere: move, retreat, regroup, attack base, or resuming one of
   // the LLM's.
   private isMovement(hero: IHero, command: HeroCommand): boolean {
-    const c = this.running(hero, command);
+    const c = runningCommand(hero, command);
     return (
       c?.type === 'move' ||
       c?.type === 'retreat' ||
@@ -287,12 +305,10 @@ export class HeroCommands {
         return cluster ? nearestReachableTile(this.sm, regroupPoint(cluster, hero)) : null;
       }
       case 'regroupOne': {
-        // The group near the point while it has soldiers left; then the LLM's latest order, as
-        // "follow the LLM" (nothing, without one)
+        // The group near the point while it has soldiers left (then the LLM's latest order runs,
+        // effective(); nothing, without one)
         const group = groupNear(this.straysOf(hero.faction), command.at);
-        if (group) return nearestReachableTile(this.sm, regroupPoint(group, hero));
-        const llm = hero.lastLlmCommand;
-        return llm && llm.type !== 'regroupOne' ? this.target(hero, llm, hero.lastLlmTime) : null;
+        return group ? nearestReachableTile(this.sm, regroupPoint(group, hero)) : null;
       }
       case 'attackBase': {
         const base = enemyBase(this.sm, hero.faction);

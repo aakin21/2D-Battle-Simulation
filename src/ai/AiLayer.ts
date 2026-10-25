@@ -51,6 +51,8 @@ export abstract class AiLayer implements AIController {
   protected abstract readonly nextAsk: string;
   // What a failure without fallback to the rule layer stops ("tactical layer stopped")
   protected abstract readonly stoppedText: string;
+  // The side's commander (the LLM): a tactical layer cannot go on without it (D38)
+  protected abstract readonly commander: boolean;
 
   constructor(
     protected engine: SimulationEngine,
@@ -65,6 +67,11 @@ export abstract class AiLayer implements AIController {
 
   isWaiting(): boolean {
     return this.pending;
+  }
+
+  // The layer is over (stopped, or the match ended): a late answer is dropped
+  protected over(): boolean {
+    return this.disposed || this.failed;
   }
 
   // The match ended or restarted: no more requests, and a late answer is dropped.
@@ -85,7 +92,7 @@ export abstract class AiLayer implements AIController {
     // waiting, which in paused AI timing would hold the battle: the layer stops and says why
     void this.decide(elapsed).catch((err: unknown) => {
       this.pending = false;
-      if (this.disposed || this.failed) return;
+      if (this.over()) return;
       this.fail(`error while preparing the request: ${String(err)}`, '');
     });
   }
@@ -123,11 +130,11 @@ export abstract class AiLayer implements AIController {
     try {
       const { res, attempts } = await post(abort.signal);
       const latencyMs = performance.now() - started;
-      if (this.disposed) return;
+      if (this.over()) return;
 
       if (!res.ok) {
         const info = await failureInfo(res);
-        if (this.disposed) return;
+        if (this.over()) return;
         const reason = `HTTP ${res.status}${info.detail}${attempts !== undefined && attempts > 1 ? ` after ${attempts} tries` : ''}`;
         finishExchange(exchange, latencyMs, null, reason);
         if (attempts !== undefined) exchange.attempts = attempts;
@@ -144,15 +151,23 @@ export abstract class AiLayer implements AIController {
       }
 
       const body: unknown = await res.json();
-      if (this.disposed) return;
+      if (this.over()) return;
       finishExchange(exchange, latencyMs, body);
       if (attempts !== undefined) exchange.attempts = attempts;
-      delivered?.();
-      this.failuresInARow = 0;
-      this.lastError = null;
-      answered(body, latencyMs, attempts);
+      // A throw while the answer is used is an error here, not a lost connection: it would come
+      // again with every answer, so the layer stops and says why (as when preparing a request)
+      try {
+        delivered?.();
+        this.failuresInARow = 0;
+        this.lastError = null;
+        answered(body, latencyMs, attempts);
+      } catch (err) {
+        const reason = `error while applying the answer: ${String(err)}`;
+        exchange.error = reason;
+        this.fail(reason, '');
+      }
     } catch (err) {
-      if (this.disposed) return;
+      if (this.over()) return;
       const reason = abort.signal.aborted
         ? `no answer within ${this.opts.timeoutMs / 1000} s`
         : String(err);
@@ -188,15 +203,42 @@ export abstract class AiLayer implements AIController {
   }
 
   // The layer is unavailable: stop asking. If no other AI layer commands these heroes, hand
-  // them back to the rule layer so the game goes on.
+  // them back to the rule layer so the game goes on. The layers of one side are the ones attached
+  // to the engine: when the LLM stops, its tactical layer stops with it, as a tactical layer alone
+  // is not offered (D38); when the tactical layer stops, the LLM goes on alone; when no layer of
+  // the side is left, its heroes go to the rule layer.
   protected fail(reason: string, hint: string): void {
     this.failed = true;
-    if (this.opts.fallbackToRules) for (const hero of this.ownHeroes()) hero.controller = 'rule';
-    const what = this.opts.fallbackToRules
-      ? 'heroes switched to rule-based control'
-      : this.stoppedText;
+    const side = this.sideLayers();
+    const stopped = this.commander ? side.filter((l) => !l.failed) : [];
+    for (const layer of stopped) layer.stopWithCommander(this.logName);
+    const toRules = this.opts.fallbackToRules || (side.length > 0 && side.every((l) => l.failed));
+    if (toRules) for (const hero of this.ownHeroes()) hero.controller = 'rule';
+    const parts: string[] = [];
+    if (stopped.length || !toRules) parts.push(this.stoppedText);
+    if (stopped.length)
+      parts[0] += ', and the tactical layer with it (D38: it does not command alone)';
+    if (toRules) parts.push('heroes switched to rule-based control');
+    const what = parts.join('; ');
     // The hint says what to do; it is shown in the AI panel and kept in the match log
     this.failure = hint ? `${reason}; ${what}. ${hint}` : `${reason}; ${what}`;
     console.warn(`${this.logName} unavailable (${reason}); ${what}. ${hint}`);
+  }
+
+  // The other AI layers of this side attached to the engine
+  private sideLayers(): AiLayer[] {
+    return this.engine
+      .getControllers()
+      .filter(
+        (c): c is AiLayer => c instanceof AiLayer && c !== this && c.faction === this.faction
+      );
+  }
+
+  // The side's commander stopped: this tactical layer stops too, and its open request is dropped
+  private stopWithCommander(commander: string): void {
+    this.failed = true;
+    this.inFlight?.abort();
+    this.failure = `${commander} stopped; ${this.stoppedText} with it (D38: it does not command alone)`;
+    console.warn(`${this.logName}: ${this.failure}.`);
   }
 }

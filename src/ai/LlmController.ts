@@ -11,44 +11,12 @@ import { startExchange } from './Exchange';
 import { describeCommand } from './Describe';
 import { buildReport, type ReportMemory } from './LlmReport';
 import { readOrder, readReply, usageOf } from './LlmReply';
+import type { JevAssessment, LlmDecision, LlmUsage } from './types';
 
 // Layer 3 (D1, D10): the LLM plans the overall strategy every 15 s (D50) from a computed summary
 // of the whole map (D16, R5). It runs in the dev server through the Claude Agent SDK.
 
-type Stance = 'aggressive' | 'defensive' | 'regroup';
-
-export interface LlmDecision {
-  time: number; // simulation time when the request was sent
-  model: string; // the model that answered
-  latencyMs: number;
-  situation: string;
-  change: string;
-  stance: Stance | '';
-  plan: string;
-  orders: string[]; // orders that were valid and applied, e.g. "hero 1: move D4-NE"
-  rejected: string[]; // orders that could not be used, with the reason
-  raw: string;
-  usage: LlmUsage | null; // cost and tokens of this answer, as the dev server reports them
-}
-
-// What one answer cost (Q11). Estimates from the Agent SDK, not a bill.
-export interface LlmUsage {
-  costUsd: number | null;
-  inputTokens: number | null; // not counting cached input
-  outputTokens: number | null;
-  cacheReadTokens: number | null;
-  cacheWriteTokens: number | null;
-  apiMs: number | null; // time in API calls, part of latencyMs
-  modelIds: string[]; // the full model ids behind the menu's alias
-}
-
-// What Jev reports upward about one hero (R5: lower layers report to the commander).
-export interface JevAssessment {
-  recentDecisions: string[];
-  surrounded?: number; // 0–1
-  threat?: number; // 0–3
-  orderStillFits?: number; // 0–1
-}
+export type { JevAssessment, LlmDecision, LlmUsage } from './types';
 
 export interface LlmOptions {
   intervalSec: number;
@@ -76,6 +44,7 @@ export class LlmController extends AiLayer {
   protected opts: LlmOptions;
   protected readonly nextAsk = 'report';
   protected readonly stoppedText = 'strategic layer stopped';
+  protected readonly commander = true;
   // Not from Math.random: the simulation draws from it, and creating a controller must not
   // change the battle
   private readonly matchId = `match_${Date.now()}_${crypto.getRandomValues(new Uint32Array(1))[0].toString(36)}`;
