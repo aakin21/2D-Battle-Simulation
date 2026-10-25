@@ -1,6 +1,6 @@
 import { SimulationEngine } from '../engine/SimulationEngine';
 import { StateManager } from '../state/StateManager';
-import { Faction, IHero, Position } from '../types/types';
+import { Faction, HeroCommand, IHero, Position } from '../types/types';
 import { jevGameRules, JEV_INTERVAL_SEC } from './GameRules';
 import { groupStats, GroupStats, localForce } from './Observations';
 import type { JevAssessment } from './LlmController';
@@ -17,10 +17,12 @@ import { threatCosts } from './Detour';
 import { heroQuestions, jevOptions, type JevOption } from './JevQuestions';
 import {
   enemyGroupsOf,
+  heroGroups,
   heroSituation,
   localMap,
   objectiveState,
   type EnemyGroup,
+  type HeroContext,
 } from './JevSituation';
 
 // Layer 2 (D6, D21, D26): Jev makes tactical decisions for each hero of one side every few
@@ -33,7 +35,8 @@ export interface JevDecision {
   heroIndex: number;
   choice: string;
   confidence: number;
-  applied: boolean; // false when confidence was below the threshold
+  applied: boolean; // false when confidence was below the threshold, or the answer was stale
+  stale?: boolean; // the LLM gave the hero a new order while the request was open: not applied
   latencyMs: number;
   surrounded?: number;
   threat?: number;
@@ -135,6 +138,14 @@ export class JevController extends AiLayer {
       this.faction,
       groupStats(this.stateManager, opponent(this.faction))
     );
+    const ownGroups = heroGroups(this.stateManager, this.faction);
+    // Each hero's local force, taken once: every hero's description counts its allies' too
+    const forces = new Map<IHero, { allies: number; enemies: number; ratio: number }>();
+    const forceOf = (h: IHero) => {
+      let f = forces.get(h);
+      if (!f) forces.set(h, (f = localForce(this.stateManager, h)));
+      return f;
+    };
     let costs: Uint8Array | undefined; // tiles near enemies, only when a hero has a way to check
     const threats = () => (costs ??= threatCosts(this.stateManager, this.faction));
     const options = new Map<number, JevOption[]>();
@@ -150,13 +161,19 @@ export class JevController extends AiLayer {
       your_side: sideName(this.faction),
     };
 
+    // The LLM's order each hero's options were built for, to tell a stale answer (applyAnswers)
+    const llmOrders = new Map<number, LlmOrderSeen>();
     for (const hero of heroes) {
       const key = `hero${hero.heroIndex}`;
+      llmOrders.set(hero.heroIndex, { command: hero.lastLlmCommand, time: hero.lastLlmTime });
       const opts = this.optionsFor(hero, strays, threats);
       options.set(hero.heroIndex, opts);
-      const force = localForce(this.stateManager, hero);
+      const force = forceOf(hero);
       forceNow.set(hero.heroIndex, force.ratio);
-      state[key] = this.describeHero(hero, time, force, groups, strays, enemyGroups);
+      state[key] = this.describeHero(hero, time, force, groups, strays, enemyGroups, {
+        ownGroups,
+        forceOf,
+      });
       Object.assign(questions, heroQuestions(key, hero, opts));
     }
     this.lastPositions = {
@@ -192,17 +209,18 @@ export class JevController extends AiLayer {
       exchange,
       started,
       (signal) =>
-        fetchWithRetries(this.opts.fetchFn, this.opts.endpoint, {
-          method: 'POST',
-          headers: aiHeaders(),
-          signal,
-          body,
-        }),
+        fetchWithRetries(
+          this.opts.fetchFn,
+          this.opts.endpoint,
+          { method: 'POST', headers: aiHeaders(), signal, body },
+          started + this.opts.timeoutMs
+        ),
       (reply, latencyMs, attempts) =>
         this.applyAnswers(reply as JevAnswer | null, time, latencyMs, attempts, {
           heroes,
           options,
           forceNow,
+          llmOrders,
         })
     );
   }
@@ -214,7 +232,12 @@ export class JevController extends AiLayer {
     time: number,
     latencyMs: number,
     attempts: number | undefined,
-    asked: { heroes: IHero[]; options: Map<number, JevOption[]>; forceNow: Map<number, number> }
+    asked: {
+      heroes: IHero[];
+      options: Map<number, JevOption[]>;
+      forceNow: Map<number, number>;
+      llmOrders: Map<number, LlmOrderSeen>;
+    }
   ): void {
     const model = typeof answer?.model === 'string' ? answer.model : undefined;
     const inputTokens = num(answer?.usage?.input_tokens);
@@ -234,7 +257,15 @@ export class JevController extends AiLayer {
       if (!choice || !option || hero.hp <= 0) continue;
 
       const confidence = num(choice.confidence) ?? 0;
-      const applied = confidence >= this.opts.minConfidence;
+      // The LLM gave the hero a new order while the request was open: Jev chose for the old one
+      // (and continue_around's way leads to its point), so the choice is not applied and the
+      // LLM's latest order runs (D15). Following the LLM, directly or after one stray group,
+      // takes its order when it runs, so those still are.
+      const stale =
+        llmOrderChanged(hero, asked.llmOrders.get(hero.heroIndex)) &&
+        option.command.type !== 'continueLlm' &&
+        option.command.type !== 'regroupOne';
+      const applied = confidence >= this.opts.minConfidence && !stale;
       // A repeated order is ignored by the command interface (D27).
       // An option that does what the commander ordered (e.g. its own regroup while the
       // LLM's order is regroup) is following that order: it runs as "follow the LLM", so the
@@ -263,6 +294,7 @@ export class JevController extends AiLayer {
         model,
         inputTokens,
         attempts,
+        ...(stale ? { stale } : {}),
       });
     }
   }
@@ -294,7 +326,8 @@ export class JevController extends AiLayer {
     force: { allies: number; enemies: number; ratio: number },
     groups: Map<string, GroupStats>,
     strays: StrayCluster[],
-    enemyGroups: EnemyGroup[]
+    enemyGroups: EnemyGroup[],
+    perRequest: Pick<HeroContext, 'ownGroups' | 'forceOf'>
   ): Record<string, unknown> {
     return heroSituation(this.stateManager, hero, {
       time,
@@ -302,6 +335,7 @@ export class JevController extends AiLayer {
       groups,
       strays,
       enemyGroups,
+      ...perRequest,
       previousPositions: this.lastPositions,
       previousForce: this.lastForce.get(hero.heroIndex),
       previousChoice: this.lastChoice.get(hero.heroIndex),
@@ -312,6 +346,22 @@ export class JevController extends AiLayer {
   private localMap(hero: IHero): Record<string, unknown> {
     return localMap(this.stateManager, hero);
   }
+}
+
+// The LLM's order for a hero when a request was sent
+interface LlmOrderSeen {
+  command: HeroCommand | null;
+  time: number;
+}
+
+// The LLM gave the hero a new order since `seen`; restating the same one (the LLM does every
+// report, keeping its time, HeroCommands.issue) changes nothing
+function llmOrderChanged(hero: IHero, seen: LlmOrderSeen | undefined): boolean {
+  if (!seen) return false;
+  const now = hero.lastLlmCommand;
+  if (now === seen.command) return false;
+  if (!now || !seen.command) return true;
+  return hero.lastLlmTime !== seen.time || !sameCommand(now, seen.command);
 }
 
 // Jev's (and Snap's) answer, as far as it is used; every value is checked before use

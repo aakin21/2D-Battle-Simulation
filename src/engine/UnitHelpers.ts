@@ -26,10 +26,18 @@ export const NEAR_TILE_DISTANCE = 1.5;
 // nearestReachableTile looks this many tiles around the target (Chebyshev rings) before giving up
 const REACHABLE_SEARCH_TILES = 40;
 
+// TERRAIN_SPEED and TERRAIN_SIGHT indexed by terrain number, so the hot paths need no name lookup
+const TERRAINS = [TerrainType.OPEN, TerrainType.FOREST, TerrainType.SWAMP, TerrainType.MOUNTAIN];
+const SPEED_BY_TERRAIN: number[] = [];
+const SIGHT_BY_TERRAIN: number[] = [];
+for (const t of TERRAINS) {
+  SPEED_BY_TERRAIN[t] =
+    t === TerrainType.MOUNTAIN ? MOUNTAIN_ESCAPE_SPEED : TERRAIN_SPEED[TerrainType[t]];
+  SIGHT_BY_TERRAIN[t] = TERRAIN_SIGHT[TerrainType[t]] ?? 1.0;
+}
+
 export function terrainSpeed(terrain: TerrainType): number {
-  return terrain === TerrainType.MOUNTAIN
-    ? MOUNTAIN_ESCAPE_SPEED
-    : TERRAIN_SPEED[TerrainType[terrain]];
+  return SPEED_BY_TERRAIN[terrain];
 }
 
 // Sight reduced by the terrain the unit stands on.
@@ -38,7 +46,7 @@ export function effectiveSight(sm: StateManager, unit: IUnit): number {
   const tx = Math.floor(unit.position.x);
   const ty = Math.floor(unit.position.y);
   const terrain = grid[ty]?.[tx] ?? TerrainType.OPEN;
-  return unit.sight * (TERRAIN_SIGHT[TerrainType[terrain]] ?? 1.0);
+  return unit.sight * SIGHT_BY_TERRAIN[terrain];
 }
 
 // Nearest living enemy within the unit's sight. Uses the fast ring search (D31); only
@@ -164,6 +172,18 @@ export function canStep(
 
 // A fleeing soldier looks this far ahead (or one flight step, if longer) for a blocked way
 const FLEE_LOOK_TILES = 0.6;
+// The turns fleeWayOpen tries, in steps of 22.5 degrees up to FLEE_MAX_TURN_DEGREES
+const FLEE_TURNS: number[] = [];
+for (let turn = 0; turn <= (FLEE_MAX_TURN_DEGREES * Math.PI) / 180 + 1e-9; turn += Math.PI / 8)
+  FLEE_TURNS.push(turn);
+
+// Whether the point `look` tiles away in this direction is on the map and not blocked
+function fleePointOpen(unit: IUnit, angle: number, look: number, grid: TerrainType[][]): boolean {
+  const x = unit.position.x + Math.cos(angle) * look;
+  const y = unit.position.y + Math.sin(angle) * look;
+  if (x < POS_MIN || y < POS_MIN || x > POS_MAX || y > POS_MAX) return false;
+  return !Pathfinder.isBlocked(grid, Math.floor(x), Math.floor(y));
+}
 
 // D57: whether a flight in this direction can go on, turning at most FLEE_MAX_TURN_DEGREES (in
 // steps of 22.5 degrees): the point a step ahead must be on the map and not blocked (a mountain
@@ -180,17 +200,28 @@ export function fleeWayOpen(
     FLEE_LOOK_TILES,
     unit.baseSpeed * terrainSpeed(terrain) * FLEE_SPEED_MULT * deltaTime
   );
-  const max = (FLEE_MAX_TURN_DEGREES * Math.PI) / 180;
-  for (let turn = 0; turn <= max + 1e-9; turn += Math.PI / 8) {
-    for (const angle of turn === 0 ? [baseAngle] : [baseAngle + turn, baseAngle - turn]) {
-      const x = unit.position.x + Math.cos(angle) * look;
-      const y = unit.position.y + Math.sin(angle) * look;
-      if (x < POS_MIN || y < POS_MIN || x > POS_MAX || y > POS_MAX) continue;
-      if (!Pathfinder.isBlocked(grid, Math.floor(x), Math.floor(y))) return true;
-    }
+  for (const turn of FLEE_TURNS) {
+    if (turn === 0) {
+      if (fleePointOpen(unit, baseAngle, look, grid)) return true;
+    } else if (
+      fleePointOpen(unit, baseAngle + turn, look, grid) ||
+      fleePointOpen(unit, baseAngle - turn, look, grid)
+    )
+      return true;
   }
   return false;
 }
+
+// The angles stepToward tries, in this order, when the way straight ahead is blocked
+const STEP_OFFSETS = [
+  0,
+  Math.PI / 8,
+  -Math.PI / 8,
+  Math.PI / 4,
+  -Math.PI / 4,
+  Math.PI / 2,
+  -Math.PI / 2,
+];
 
 // Flee-speed step in the given direction, trying nearby angles if the way is blocked.
 export function stepToward(
@@ -206,16 +237,7 @@ export function stepToward(
   const terrain = grid[yi]?.[xi] ?? TerrainType.MOUNTAIN;
   const step = unit.baseSpeed * terrainSpeed(terrain) * FLEE_SPEED_MULT * deltaTime;
 
-  const offsets = [
-    0,
-    Math.PI / 8,
-    -Math.PI / 8,
-    Math.PI / 4,
-    -Math.PI / 4,
-    Math.PI / 2,
-    -Math.PI / 2,
-  ];
-  for (const offset of offsets) {
+  for (const offset of STEP_OFFSETS) {
     const angle = baseAngle + offset;
     const newX = Math.max(POS_MIN, Math.min(POS_MAX, unit.position.x + Math.cos(angle) * step));
     const newY = Math.max(POS_MIN, Math.min(POS_MAX, unit.position.y + Math.sin(angle) * step));

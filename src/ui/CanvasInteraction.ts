@@ -5,6 +5,7 @@ import { InputHandler } from './InputHandler';
 import { Hud } from './Hud';
 import { Sound } from './Sound';
 import { IUnit, IHero, UnitType, Faction, BehaviorState, GRID_SIZE } from '../types/types';
+import { escapeHtml } from './format';
 
 // The mouse on the battlefield: selecting a unit (left click), ordering a hero (right click),
 // the tooltip, zoom and pan, the area-count rectangle and the minimap click. Keeps which unit
@@ -177,7 +178,8 @@ export class CanvasInteraction {
       return;
     }
 
-    const battle = this.engine.isBattleMode();
+    // A replay is always a battle, also when watched over a classic run
+    const battle = this.engine.isBattleMode() || this.replayUnits !== null;
     const stateLabel =
       closest.state === BehaviorState.IDLE && closest.path.length > 0
         ? 'Moving'
@@ -190,10 +192,11 @@ export class CanvasInteraction {
         : battle
           ? 'soldier'
           : UnitType[closest.unitType].toLowerCase();
+    // A replay's units come from a file: every value is escaped
     this.elTooltip.innerHTML =
-      `<span class="${closest.faction === Faction.FRIENDLY ? 'west' : 'east'}-text">${side}${kind}</span><br>` +
-      `HP ${Math.ceil(closest.hp)}/${closest.maxHp}<br>` +
-      `<span class="dim">${stateLabel}</span>`;
+      `<span class="${closest.faction === Faction.FRIENDLY ? 'west' : 'east'}-text">${escapeHtml(side + kind)}</span><br>` +
+      `HP ${escapeHtml(`${Math.ceil(closest.hp)}/${closest.maxHp}`)}<br>` +
+      `<span class="dim">${escapeHtml(String(stateLabel))}</span>`;
 
     // Position near the cursor; flip to the other side near the right or bottom edge
     this.elTooltip.style.display = 'block';

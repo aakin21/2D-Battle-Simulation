@@ -9,6 +9,7 @@
 ## Conventions
 
 - Add and remove units only through `addUnit` / `removeUnit`, so the spatial grid, unit map and hero list stay in sync. After moving a unit, call `syncPosition`.
+- `removeUnit` swap-removes: the last unit takes the removed unit's place in `units`. Unit order decides the order units are updated in, so changing how units are removed changes results (the `same.ts` smoke test shows it).
 - `getHero()` returns the first friendly hero (the only hero in classic mode); use `getHeroes()` for anything multi-hero.
 - Battle-mode units spawn at tile centres and only inside the main walkable region (`isInMainRegion`), never in pockets enclosed by mountains.
 - `reset(config)` rebuilds everything; a `presetGrid` in the config is copied, never mutated.

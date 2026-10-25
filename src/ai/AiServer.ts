@@ -140,23 +140,51 @@ const RETRIES = 2;
 const BACKOFF_MS = 500;
 const BACKOFF_MAX_MS = 5000;
 
+// `deadline` (performance.now() time) is when the request's time budget ends: a try is not made
+// when the wait and another try as long as the last one would not fit before it, so a slow
+// failure (the deployed proxy's 504 after its own timeout) comes back as that failure, which may
+// pass later, instead of as the whole budget running out, which stops the layer
 export async function fetchWithRetries(
   fetchFn: typeof fetch,
   url: string,
-  init: RequestInit & { signal: AbortSignal }
+  init: RequestInit & { signal: AbortSignal },
+  deadline = Infinity
 ): Promise<{ res: Response; attempts: number }> {
   for (let attempt = 0; ; attempt++) {
     let wait: number;
+    const tried = performance.now();
     try {
       const res = await fetchFn(url, init);
       if (attempt >= RETRIES || !transientStatus(res)) return { res, attempts: attempt + 1 };
-      wait = retryAfterMs(res) ?? backoff(attempt);
+      wait = Math.min(retryAfterMs(res) ?? backoff(attempt), BACKOFF_MAX_MS);
+      if (!fits(tried, wait, deadline)) return { res, attempts: attempt + 1 };
     } catch (err) {
-      if (init.signal.aborted || attempt >= RETRIES) throw err;
+      if (init.signal.aborted || attempt >= RETRIES) throw withAttempts(err, attempt + 1);
       wait = backoff(attempt);
+      if (!fits(tried, wait, deadline)) throw withAttempts(err, attempt + 1);
     }
-    await sleep(Math.min(wait, BACKOFF_MAX_MS), init.signal);
+    await sleep(wait, init.signal);
   }
+}
+
+// Another try, as long as the one that started at `tried`, fits after `wait` before `deadline`
+function fits(tried: number, wait: number, deadline: number): boolean {
+  const now = performance.now();
+  return now + wait + (now - tried) < deadline;
+}
+
+// The tries a request made, on the error it ends with, so its exchange records them like an
+// answer's (AiLayer.request reads them with attemptsOf)
+function withAttempts(err: unknown, attempts: number): unknown {
+  if (err instanceof Error || (typeof err === 'object' && err !== null))
+    (err as { attempts?: number }).attempts = attempts;
+  return err;
+}
+
+export function attemptsOf(err: unknown): number | undefined {
+  const n =
+    typeof err === 'object' && err !== null ? (err as { attempts?: unknown }).attempts : null;
+  return typeof n === 'number' ? n : undefined;
 }
 
 function backoff(attempt: number): number {

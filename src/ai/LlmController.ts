@@ -112,8 +112,10 @@ export class LlmController extends AiLayer {
     return `LLM (${this.side})`;
   }
 
-  // Hero events are noted every step, before the base class decides whether to ask
+  // Hero events are noted every step, before the base class decides whether to ask; a layer
+  // that stopped sends no more reports, so it notes none
   tick(elapsed: number): void {
+    if (this.failed || this.disposed) return;
     this.watchEvents(elapsed);
     super.tick(elapsed);
   }
@@ -163,7 +165,6 @@ export class LlmController extends AiLayer {
     const heroes = this.myHeroes();
     if (heroes.length === 0) return;
 
-    this.pending = true;
     const started = performance.now();
     const { report, remember } = this.report(time);
     // The rulebook is the same in every request; the log keeps it once, in `system`
@@ -173,6 +174,8 @@ export class LlmController extends AiLayer {
       model: this.opts.model,
       prompt: report,
     });
+    // Set once the report is built: a throw before (AiLayer.tick) leaves no request waiting
+    this.pending = true;
     await this.request(
       exchange,
       started,

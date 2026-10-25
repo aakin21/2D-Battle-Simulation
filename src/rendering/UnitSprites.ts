@@ -167,6 +167,7 @@ export class UnitSprites {
     if (unitType === UnitType.WARRIOR) return this.warrior!;
     if (unitType === UnitType.BERSERKER) return this.berserker!;
     const list = this.heroes[faction];
-    return list[heroIndex % list.length];
+    // Wraps negative and large indexes too (a hero index 0 from a replay file gives -1)
+    return list[(((heroIndex % list.length) + list.length) % list.length) | 0];
   }
 }

@@ -78,7 +78,8 @@ export function readOrder(
   if (!entry || typeof entry !== 'object')
     return `order is not an object: ${JSON.stringify(entry)}`;
   const raw = entry as RawOrder;
-  const hero = heroes.find((h) => h.heroIndex === Number(raw.hero));
+  const index = heroNumber(raw.hero);
+  const hero = heroes.find((h) => h.heroIndex === index);
   if (!hero) return `unknown or dead hero ${String(raw.hero)}`;
   const parsed = toCommand(sm, hero, raw);
   if (typeof parsed === 'string') return `hero ${hero.heroIndex}: ${parsed}`;
@@ -91,6 +92,14 @@ export function readOrder(
   if (reason) command.reason = reason;
   if (fallback) command.fallback = fallback;
   return { hero, command, reason };
+}
+
+// A hero's number as the LLM writes it: an integer, or a string of digits ("2", " 2 "); anything
+// else (true, [1], "0x1", "1e0", "1.0") is no hero, not coerced into one
+function heroNumber(raw: unknown): number | null {
+  if (typeof raw === 'number') return Number.isInteger(raw) ? raw : null;
+  if (typeof raw === 'string' && /^\d+$/.test(raw.trim())) return Number(raw.trim());
+  return null;
 }
 
 // An order's fallback: {"when": "<condition>", "do": "retreat|regroup|hold"}; null when none is
@@ -161,11 +170,11 @@ function toCommand(sm: StateManager, hero: IHero, raw: RawOrder): HeroCommand | 
         ? { type: 'attackBase' }
         : 'there is no enemy base in this mode';
     case 'attack_hero': {
-      const index = Number(raw.target_hero);
+      const index = heroNumber(raw.target_hero);
       const alive = sm
         .getHeroes()
         .some((h) => h.faction !== hero.faction && h.heroIndex === index && h.hp > 0);
-      return alive
+      return alive && index !== null
         ? { type: 'attackHero', heroIndex: index }
         : `enemy hero ${String(raw.target_hero)} does not exist or is dead`;
     }
