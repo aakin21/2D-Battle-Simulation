@@ -97,10 +97,25 @@ function matches(given: string | string[] | undefined, password: string): boolea
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
+// How long a refused request's connection may still send (its unread body) after the answer
+const DENIED_LINGER_MS = 1000;
+
 // x-ai-access tells the browser the refusal came from here, not from TypeSafe or the LLM.
+// The connection is closed after the answer: a refused request's body is never read, and its
+// socket must not stay open until Node's own timeouts (300 s) end it.
 function deny(res: ServerResponse, status: number, error: string): void {
   res.statusCode = status;
   res.setHeader('x-ai-access', 'denied');
   res.setHeader('Content-Type', 'application/json');
-  res.end(JSON.stringify({ error }));
+  res.setHeader('Connection', 'close');
+  const socket = res.socket; // detached from the response once it is sent
+  res.end(JSON.stringify({ error }), () => {
+    if (!socket) return;
+    // The body still arriving is read and dropped (unread data would make the close a reset,
+    // which can lose the answer on the way), the socket ended, and destroyed if the other side
+    // goes on sending
+    res.req?.resume();
+    socket.end();
+    setTimeout(() => socket.destroy(), DENIED_LINGER_MS).unref();
+  });
 }

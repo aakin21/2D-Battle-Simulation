@@ -10,7 +10,7 @@ import {
 } from '../types/types';
 import { clock } from '../ui/format';
 import { icon } from '../ui/icons';
-import { PANEL_SELECTORS, POS_SCALE, Replay, ReplayFrame } from './Replay';
+import { isPanelKey, PANEL_SELECTORS, POS_SCALE, Replay, ReplayFrame } from './Replay';
 
 // Plays a Replay: builds the battlefield for the replay's current time (positions between two
 // frames are interpolated) for the renderer and the minimap, puts the side panels back as they
@@ -106,10 +106,13 @@ export class ReplayPlayer {
       stats: { totalSpawned: 0, casualties: 0 },
     };
     for (const p of h.panels) {
+      if (!isPanelKey(p.key)) continue;
       const list = this.panelsByKey.get(p.key) ?? [];
       list.push({ t: p.t, html: p.html });
       this.panelsByKey.set(p.key, list);
     }
+    // In time order (applyPanels searches them); a file may list them in any order
+    for (const list of this.panelsByKey.values()) list.sort((a, b) => a.t - b.t);
     this.bar = this.buildBar(callbacks.exit);
   }
 
@@ -249,6 +252,7 @@ export class ReplayPlayer {
   }
 
   private showPanel(key: string, html: string): void {
+    if (!isPanelKey(key)) return;
     if (key === 'layout') {
       let layout = { west: false, east: false, two: false };
       try {
@@ -261,8 +265,15 @@ export class ReplayPlayer {
       document.getElementById('side-panel')!.classList.toggle('ai-two', layout.two);
       return;
     }
-    const el = document.querySelector<HTMLElement>(PANEL_SELECTORS[key] ?? '');
+    const el = document.querySelector<HTMLElement>(PANEL_SELECTORS[key]);
     if (!el) return;
+    // The Armies title is text in the panel's heading (Hud sets its text): only the text is shown
+    if (key === 'armiesTitle') {
+      const parsed = document.createElement('template');
+      parsed.innerHTML = html;
+      el.textContent = parsed.content.textContent ?? '';
+      return;
+    }
     el.innerHTML = html;
     // Long LLM texts the viewer opened in the replay stay open
     el.querySelectorAll<HTMLElement>('[data-toggle]').forEach((t) => {

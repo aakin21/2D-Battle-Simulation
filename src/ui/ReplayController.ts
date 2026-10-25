@@ -11,20 +11,24 @@ import type { LoadingScreen } from './LoadingScreen';
 
 // Match replays in the page (src/replay): records the current battle-mode match, the Replay
 // button in Armies, Watch a replay in the menu, and watching a replay over the live run, which
-// waits paused behind it and goes on after Exit. While a replay is watched, UIController sends
-// the top bar's pause, speed and restart to `player`.
+// waits paused behind it and goes on after Exit as it was before (running if it was running).
+// A replay opened before any run was started goes back to the menu on Exit. While a replay is
+// watched, UIController sends the top bar's pause, speed and restart to `player`.
 
 // What the replay needs from UIController
 export interface ReplayHost {
   resetView(): void; // clears the selection and the terrain drawn for the old map
   closeMenu(): void;
   showRunState(): void; // the top bar's pause button and speed follow the replay or the run
+  afterExit(): void; // a replay was left with Exit (no run started yet: back to the menu)
 }
 
 export class ReplayController {
   private recorder: ReplayRecorder | null = null;
   private watched: ReplayPlayer | null = null;
   private resultShownBeforeReplay = false;
+  // The live run was running when the replay was opened (from the menu: when the menu opened)
+  private runningBeforeReplay = false;
 
   constructor(
     private engine: SimulationEngine,
@@ -97,8 +101,12 @@ export class ReplayController {
   // Watch a replay over the live run, which stays paused behind it
   watch(replay: Replay): void {
     if (this.loading.isActive()) return;
-    if (this.watched) this.exit();
-    else this.resultShownBeforeReplay = !document.getElementById('match-result')!.hidden;
+    // Another replay in place of the one watched: the live run's state from before stays
+    if (this.watched) this.stop();
+    else {
+      this.resultShownBeforeReplay = !document.getElementById('match-result')!.hidden;
+      this.runningBeforeReplay = !this.engine.isPaused() && !this.engine.getResult();
+    }
     this.engine.pause();
     this.hud.hideResult();
     this.host.resetView();
@@ -115,7 +123,21 @@ export class ReplayController {
     this.host.showRunState();
   }
 
-  exit(): void {
+  // Leaves the replay: the live run is shown again as it was before (`restore`), or, when a new
+  // run is about to start (Start in the menu), only the replay is closed
+  exit(restore = true): void {
+    if (!this.watched) return;
+    this.stop();
+    if (restore) {
+      if (this.resultShownBeforeReplay) document.getElementById('match-result')!.hidden = false;
+      if (this.runningBeforeReplay && !this.engine.getResult()) this.engine.resume();
+    }
+    this.host.showRunState();
+    if (restore) this.host.afterExit();
+  }
+
+  // Closes the replay and puts the live run's view back
+  private stop(): void {
     if (!this.watched) return;
     this.watched.dispose();
     this.watched = null;
@@ -127,7 +149,5 @@ export class ReplayController {
     this.renderer.setBattleMode(this.engine.isBattleMode());
     this.hud.redraw();
     this.aiPanel.redraw();
-    if (this.resultShownBeforeReplay) document.getElementById('match-result')!.hidden = false;
-    this.host.showRunState();
   }
 }
