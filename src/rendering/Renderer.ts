@@ -6,6 +6,7 @@ import {
   TerrainType,
   Camera,
   TERRAIN_COLORS,
+  terrainName,
   GRID_SIZE,
   TILE_SIZE,
   Position,
@@ -252,7 +253,7 @@ export class Renderer {
 
     for (let y = 0; y < GRID_SIZE; y++) {
       for (let x = 0; x < GRID_SIZE; x++) {
-        octx.fillStyle = TERRAIN_COLORS[TerrainType[grid[y][x]]] ?? '#000';
+        octx.fillStyle = TERRAIN_COLORS[terrainName(grid[y][x])] ?? '#000';
         octx.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
       }
     }

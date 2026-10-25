@@ -9,6 +9,8 @@ import {
   Objective,
   Position,
   UNIT_STATS,
+  UnitStats,
+  unitTypeName,
   GRID_SIZE,
   SimConfig,
   TerrainDensity,
@@ -107,7 +109,7 @@ export class StateManager {
   private createUnit(
     type: UnitType,
     faction: Faction,
-    stats = UNIT_STATS[UnitType[type] as keyof typeof UNIT_STATS]
+    stats: UnitStats = UNIT_STATS[unitTypeName(type)]
   ): IUnit {
     return {
       id: `unit_${this.nextId++}`,

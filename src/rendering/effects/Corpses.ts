@@ -1,4 +1,11 @@
-import { Camera, Faction, UnitType, UNIT_COLORS } from '../../types/types';
+import {
+  Camera,
+  Faction,
+  UnitType,
+  UnitTypeName,
+  unitTypeName,
+  UNIT_COLORS,
+} from '../../types/types';
 import { UnitSprites, FRAME, COL_LEFT, COL_RIGHT, ROW_DEAD } from '../UnitSprites';
 import { Pool } from './Pool';
 import { fxRandom } from './fxRandom';
@@ -21,7 +28,7 @@ const FADE_TIME = 1.5; // last part of CORPSE_LIFE spent fading out
 // Enough for mass casualties in stress mode; extra deaths beyond this are not drawn
 const MAX_CORPSES = 1500;
 
-const DARK_COLORS: Record<string, string> = {
+const DARK_COLORS: Record<UnitTypeName, string> = {
   WARRIOR: '#7a6600',
   HERO: '#3d0000', // darker than blood pools so the hero's body stays visible
   BERSERKER: '#1f3270',
@@ -110,9 +117,9 @@ export class Corpses {
   prepare(warmTarget?: CanvasRenderingContext2D): void {
     if (this.sprites) return;
     this.sprites = makeCorpseSprites([
-      DARK_COLORS[UnitType[UnitType.WARRIOR]],
-      DARK_COLORS[UnitType[UnitType.HERO]],
-      DARK_COLORS[UnitType[UnitType.BERSERKER]],
+      DARK_COLORS.WARRIOR,
+      DARK_COLORS.HERO,
+      DARK_COLORS.BERSERKER,
     ]);
     if (!warmTarget) return;
     for (const row of this.sprites) for (const sp of row) warmTarget.drawImage(sp, 0, 0, 4, 4);
@@ -162,7 +169,7 @@ export class Corpses {
 
       // Falling (few at a time): square tips over toward its final angle and the
       // unit color fades to dark. The angle is animated, so it is drawn as a path.
-      const name = UnitType[c.unitType];
+      const name = unitTypeName(c.unitType);
       const t = c.age / FALL_TIME;
       const a = CORPSE_TILTS[c.tilt] * t;
       ctx.beginPath();

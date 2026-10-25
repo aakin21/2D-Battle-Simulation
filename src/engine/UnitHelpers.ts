@@ -7,6 +7,7 @@ import {
   TerrainType,
   TERRAIN_SPEED,
   TERRAIN_SIGHT,
+  terrainName,
   GRID_SIZE,
   INNER_MIN,
   INNER_MAX,
@@ -31,9 +32,9 @@ const TERRAINS = [TerrainType.OPEN, TerrainType.FOREST, TerrainType.SWAMP, Terra
 const SPEED_BY_TERRAIN: number[] = [];
 const SIGHT_BY_TERRAIN: number[] = [];
 for (const t of TERRAINS) {
-  SPEED_BY_TERRAIN[t] =
-    t === TerrainType.MOUNTAIN ? MOUNTAIN_ESCAPE_SPEED : TERRAIN_SPEED[TerrainType[t]];
-  SIGHT_BY_TERRAIN[t] = TERRAIN_SIGHT[TerrainType[t]] ?? 1.0;
+  const name = terrainName(t);
+  SPEED_BY_TERRAIN[t] = name === 'MOUNTAIN' ? MOUNTAIN_ESCAPE_SPEED : TERRAIN_SPEED[name];
+  SIGHT_BY_TERRAIN[t] = TERRAIN_SIGHT[name];
 }
 
 export function terrainSpeed(terrain: TerrainType): number {
