@@ -3,7 +3,7 @@ import { sectorTarget } from '../engine/Sectors';
 import { enemyBase } from '../engine/Objectives';
 import { MAX_LLM_VIA } from '../engine/Rules';
 import { FALLBACK_ORDERS, HeroCommand, IHero, OrderFallback, Position } from '../types/types';
-import type { LlmDecision, LlmUsage } from './LlmController';
+import type { LlmDecision, LlmUsage } from './types';
 
 // Reading the LLM's answer: its free-form reply is validated before anything is used (hero
 // exists, place valid, target alive); what cannot be used is rejected with a reason, never

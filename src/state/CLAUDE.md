@@ -2,7 +2,7 @@
 
 | File | Role |
 |---|---|
-| `StateManager.ts` | Owns the battlefield: terrain, units, heroes, spatial grid, unit lookup. Spawns units for classic, stress and battle modes, computes the map's main walkable region (the largest of the pathfinder's regions). |
+| `StateManager.ts` | Owns the battlefield: terrain, units, heroes, spatial grid (and its neighbour queries), unit lookup, the berserker pool. Spawns units for classic, stress and battle modes and classic wave berserkers (`spawnBerserker`), places the battle objectives (D30; positions and hero columns named at the top), computes the map's main walkable region (the largest of the pathfinder's regions). |
 | `TerrainGen.ts` | Random terrain (`generateTerrain`): forest, swamp and mountain blobs; `StateManager.initGrid` uses it. |
 | `MapStore.ts` | Encodes maps as compact text and saves/loads them in browser local storage (D5). |
 
@@ -13,6 +13,7 @@
 - `getHero()` returns the first friendly hero (the only hero in classic mode); use `getHeroes()` for anything multi-hero.
 - Battle-mode units spawn at tile centres and only inside the main walkable region (`isInMainRegion`), never in pockets enclosed by mountains.
 - `reset(config)` rebuilds everything; a `presetGrid` in the config is copied, never mutated.
+- Dead berserkers go back into the pool (`BerserkerPool`) only in classic mode outside the stress test, the only mode that runs waves; the pool starts empty, and `acquire` sets every field a unit can change, so which object is handed out never decides anything.
 - Local storage can be unavailable: every access in `MapStore` is wrapped and falls back safely.
 - Battle mode spawns exactly `warriorCount` soldiers per side (as many as fit in the side's area); classic mode spawns the hero on any clear tile if its usual area has none, and none at all on a map without clear tiles.
 - `decodeGrid` refuses anything malformed (not a string, wrong size, a run longer than the row) without allocating it.

@@ -9,6 +9,8 @@ import {
   Objective,
   Position,
   UNIT_STATS,
+  UnitStats,
+  unitTypeName,
   GRID_SIZE,
   SimConfig,
   TerrainDensity,
@@ -17,6 +19,7 @@ import {
 import { Pathfinder, NO_REGION } from '../engine/Pathfinder';
 import { SpatialGrid } from '../engine/SpatialGrid';
 import { BerserkerPool } from '../engine/BerserkerPool';
+import { FIRST_WAVE_TIME } from '../engine/ClassicWaves';
 import { generateTerrain } from './TerrainGen';
 import {
   CHARISMA_RADIUS,
@@ -26,13 +29,22 @@ import {
   BASE_HP,
 } from '../engine/Rules';
 
+// Battle mode: the column each side's heroes start on (west = friendly, east = enemy)
+const WEST_HERO_COLUMN = 20;
+const EAST_HERO_COLUMN = 129;
 // Battle mode: soldiers start at random tiles within this many columns of their side's
-// hero column (west x = 20, east x = 129), over the full height of the map.
+// hero column, over the full height of the map.
 const SPAWN_AREA_HALF_WIDTH = 20;
 // Battle mode: a hero starts on a clear tile in a square around its slot on the side's edge,
 // grown from this half-width up to the maximum until it holds one.
 const HERO_SPOT_RADIUS = 3;
 const HERO_SPOT_MAX_RADIUS = 40;
+// D30: where the objectives go (each on the nearest tile of the main walkable region): control
+// points A (north) and B (south) on the centre line, one base per side at its start area
+const CONTROL_POINT_A: Position = { x: 75, y: 45 };
+const CONTROL_POINT_B: Position = { x: 75, y: 105 };
+const WEST_BASE: Position = { x: 14, y: 75 };
+const EAST_BASE: Position = { x: 135, y: 75 };
 
 export class StateManager {
   private battlefield: IBattlefield;
@@ -44,6 +56,9 @@ export class StateManager {
   private heroRef: IHero | undefined;
   private heroes: IHero[] = [];
   private battleMode: boolean = false;
+  // Classic mode outside the stress test: the only mode that runs berserker waves, and so the
+  // only one whose dead berserkers go back into the pool
+  private wavesRun: boolean = false;
   private mainRegion = new Uint8Array(GRID_SIZE * GRID_SIZE);
 
   constructor() {
@@ -104,7 +119,7 @@ export class StateManager {
   private createUnit(
     type: UnitType,
     faction: Faction,
-    stats = UNIT_STATS[UnitType[type] as keyof typeof UNIT_STATS]
+    stats: UnitStats = UNIT_STATS[unitTypeName(type)]
   ): IUnit {
     return {
       id: `unit_${this.nextId++}`,
@@ -168,13 +183,13 @@ export class StateManager {
       {
         faction: Faction.FRIENDLY,
         type: UnitType.WARRIOR,
-        x: 20,
+        x: WEST_HERO_COLUMN,
         controller: (config.friendlyAI ?? 'none') === 'none' ? 'user' : 'ai',
       },
       {
         faction: Faction.ENEMY,
         type: UnitType.BERSERKER,
-        x: 129,
+        x: EAST_HERO_COLUMN,
         controller: (config.enemyAI ?? 'none') === 'none' ? 'rule' : 'ai',
       },
     ];
@@ -300,12 +315,12 @@ export class StateManager {
 
   // Nearest living unit not of `faction` within radius (D31). When several share the
   // minimum distance, wasNearestTied() is true and the caller resolves it.
-  nearestEnemyInRadius(cx: number, cy: number, radius: number, faction: number): IUnit | null {
+  nearestEnemyInRadius(cx: number, cy: number, radius: number, faction: Faction): IUnit | null {
     return this.spatialGrid.nearestEnemy(cx, cy, radius, faction);
   }
 
   // Whether a living unit not of `faction` is within radius
-  hasEnemyInRadius(cx: number, cy: number, radius: number, faction: number): boolean {
+  hasEnemyInRadius(cx: number, cy: number, radius: number, faction: Faction): boolean {
     return this.spatialGrid.hasEnemy(cx, cy, radius, faction);
   }
 
@@ -314,7 +329,7 @@ export class StateManager {
   }
 
   // The same, by a plain scan in the spatial grid's order: on a tie, the unit scanned first
-  nearestEnemyByScan(cx: number, cy: number, radius: number, faction: number): IUnit | null {
+  nearestEnemyByScan(cx: number, cy: number, radius: number, faction: Faction): IUnit | null {
     return this.spatialGrid.scanNearestEnemy(cx, cy, radius, faction);
   }
 
@@ -374,8 +389,9 @@ export class StateManager {
         this.heroRef = this.heroes.find((h) => h.faction === Faction.FRIENDLY);
       }
     }
-    // Battle-mode berserkers use warrior stats, so they must not go back into the pool.
-    if (unit.unitType === UnitType.BERSERKER && !this.battleMode) this.berserkerPool.release(unit);
+    // Only where waves run: battle-mode berserkers use warrior stats, and the stress test's are
+    // never handed out again.
+    if (unit.unitType === UnitType.BERSERKER && this.wavesRun) this.berserkerPool.release(unit);
   }
 
   getBattlefield(): IBattlefield {
@@ -395,6 +411,7 @@ export class StateManager {
     this.heroRef = undefined;
     this.heroes = [];
     this.battleMode = config.mode === 'battle' && !this.stressMode;
+    this.wavesRun = !this.battleMode && !this.stressMode;
     if (config.presetGrid) this.battlefield.grid = config.presetGrid.map((row) => row.slice());
     else this.initGrid(config.terrainDensity);
     this.computeMainRegion();
@@ -410,7 +427,7 @@ export class StateManager {
       units: [],
       elapsedTime: 0,
       waveNumber: 0,
-      nextWaveTime: 30,
+      nextWaveTime: FIRST_WAVE_TIME,
       stats: { totalSpawned: 0, casualties: 0 },
       objective: {
         mode: 'elimination',
@@ -422,8 +439,7 @@ export class StateManager {
     };
   }
 
-  // D30: control points A (north) and B (south) on the centre line, or one base per side at
-  // its start area. Placed on the nearest tile of the main walkable region.
+  // D30: control points A and B, or one base per side (CONTROL_POINT_A ... EAST_BASE)
   private setupObjective(mode: Objective): void {
     const o = this.battlefield.objective;
     o.mode = mode;
@@ -432,14 +448,14 @@ export class StateManager {
       o.points = [
         {
           name: 'A',
-          position: this.nearestMainTile(75, 45),
+          position: this.nearestMainTile(CONTROL_POINT_A.x, CONTROL_POINT_A.y),
           holder: null,
           leader: null,
           leaderSince: 0,
         },
         {
           name: 'B',
-          position: this.nearestMainTile(75, 105),
+          position: this.nearestMainTile(CONTROL_POINT_B.x, CONTROL_POINT_B.y),
           holder: null,
           leader: null,
           leaderSince: 0,
@@ -449,13 +465,13 @@ export class StateManager {
       o.bases = [
         {
           faction: Faction.FRIENDLY,
-          position: this.nearestMainTile(14, 75),
+          position: this.nearestMainTile(WEST_BASE.x, WEST_BASE.y),
           hp: BASE_HP,
           maxHp: BASE_HP,
         },
         {
           faction: Faction.ENEMY,
-          position: this.nearestMainTile(135, 75),
+          position: this.nearestMainTile(EAST_BASE.x, EAST_BASE.y),
           hp: BASE_HP,
           maxHp: BASE_HP,
         },

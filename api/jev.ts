@@ -5,11 +5,12 @@
 
 const TYPESAFE_URL = 'https://api.typesafe.ai/v1/systemone';
 // Literals, not imports: Vercel bundles this function on its own. Keep them in step with
-// src/ai/Limits.ts (JEV_MAX_REQUEST_SIZE, JEV_TIMEOUT_MS).
+// src/ai/Limits.ts (JEV_MAX_REQUEST_SIZE, JEV_TIMEOUT_MS, JEV_PROXY_TIMEOUT_MS).
 const MAX_BODY_BYTES = 100_000; // characters of the body text, not bytes; a battle request is ~20–23 KB
 // The browser gives up after 30 s and retries a 504 (fetchWithRetries): this leaves room for one
 // more try of the same length, so a silent TypeSafe ends as a 504 the browser counts and asks
-// again, not as the browser's own timeout, which stops the layer
+// again, not as the browser's own timeout, which stops the layer. The dev server's proxy uses
+// the same limit (JEV_PROXY_TIMEOUT_MS in src/ai/Limits.ts): change both together
 const UPSTREAM_TIMEOUT_MS = 14_000;
 // TypeSafe's wait hints, passed on so the browser's retry honours them
 const PASSED_HEADERS = ['retry-after', 'retry-after-ms'];
@@ -29,20 +30,28 @@ export async function POST(request: Request): Promise<Response> {
   if (body.length > MAX_BODY_BYTES) return json(413, { error: 'request too large' });
 
   // TypeSafe unreachable or silent: say so (the browser counts it and asks again), and answer
-  // before the browser gives up at 30 s rather than leaving the function hanging
+  // before the browser gives up at 30 s rather than leaving the function hanging. The body is
+  // read within the same time, so a body that stalls is a 504 too, not a 200 cut short.
   let res: Response;
+  let answer: ArrayBuffer;
   try {
     res = await fetch(TYPESAFE_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
       body,
+      // A redirect is not followed (the key would go with it) and not passed on
+      redirect: 'manual',
       signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
     });
+    answer = await res.arrayBuffer();
   } catch (err) {
     const timedOut = err instanceof Error && err.name === 'TimeoutError';
     return timedOut
       ? json(504, { error: `TypeSafe did not answer within ${UPSTREAM_TIMEOUT_MS / 1000} s` })
       : json(502, { error: `cannot reach TypeSafe: ${String(err)}` });
+  }
+  if (res.type === 'opaqueredirect' || (res.status >= 300 && res.status < 400)) {
+    return json(502, { error: `TypeSafe answered with a redirect (${res.status})` });
   }
   const headers: Record<string, string> = {
     'Content-Type': res.headers.get('content-type') ?? 'application/json',
@@ -51,7 +60,7 @@ export async function POST(request: Request): Promise<Response> {
     const value = res.headers.get(name);
     if (value !== null) headers[name] = value;
   }
-  return new Response(res.body, { status: res.status, headers });
+  return new Response(answer, { status: res.status, headers });
 }
 
 function json(status: number, body: unknown): Response {

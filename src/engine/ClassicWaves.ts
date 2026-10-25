@@ -21,19 +21,23 @@ import {
 // Wave spawn points along an edge: tiles EDGE_MARGIN..EDGE_MARGIN_MAX
 const EDGE_SPAN = EDGE_MARGIN_MAX - EDGE_MARGIN + 1;
 
+// The wave schedule: three fixed waves, the first at FIRST_WAVE_TIME (a new battlefield's
+// nextWaveTime, StateManager), each of FIXED_WAVE_SIZES berserkers, the next one at the time
+// after it in FIXED_WAVE_NEXT_TIMES; then random ones (sizes and gaps drawn in updateWaves)
+export const FIRST_WAVE_TIME = 30;
+const FIXED_WAVE_SIZES = [100, 150, 200];
+const FIXED_WAVE_NEXT_TIMES = [90, 180, 210];
+
 // Spawns the next wave when its time has come: three fixed waves, then random ones.
 export function updateWaves(sm: StateManager, bf: IBattlefield, waveMultiplier: number): void {
   const { elapsedTime, waveNumber } = bf;
 
-  if (waveNumber < 3) {
+  if (waveNumber < FIXED_WAVE_SIZES.length) {
     if (elapsedTime < bf.nextWaveTime) return;
 
-    const sizes = [100, 150, 200];
-    const nextTimes = [90, 180, 210];
+    spawnBerserkerWave(sm, Math.round(FIXED_WAVE_SIZES[waveNumber] * waveMultiplier));
 
-    spawnBerserkerWave(sm, Math.round(sizes[waveNumber] * waveMultiplier));
-
-    bf.nextWaveTime = nextTimes[waveNumber];
+    bf.nextWaveTime = FIXED_WAVE_NEXT_TIMES[waveNumber];
     bf.waveNumber++;
   } else {
     if (elapsedTime < bf.nextWaveTime) return;
