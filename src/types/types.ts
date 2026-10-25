@@ -169,34 +169,54 @@ export interface Camera {
   zoom: number; // pixels per tile
 }
 
+// The enum names ('OPEN', 'WARRIOR', ...) that key the tables below
+export type TerrainName = keyof typeof TerrainType;
+export type UnitTypeName = keyof typeof UnitType;
+// A value's enum name, to look it up in those tables. A terrain number outside the enum (a
+// damaged saved map) has no name: the lookup gives undefined, so callers keep a fallback.
+export function terrainName(t: TerrainType): TerrainName {
+  return TerrainType[t] as TerrainName;
+}
+export function unitTypeName(t: UnitType): UnitTypeName {
+  return UnitType[t] as UnitTypeName;
+}
+
+export interface UnitStats {
+  readonly hp: number;
+  readonly courage: number;
+  readonly sight: number;
+  readonly speed: number;
+  readonly damage: number;
+}
+
 export const UNIT_STATS = {
   WARRIOR: { hp: 110, courage: 70, sight: 10, speed: 2.0, damage: 20 },
   HERO: { hp: 200, courage: 100, sight: 15, speed: 3.0, damage: 40 },
   BERSERKER: { hp: 80, courage: 100, sight: 12, speed: 2.5, damage: 25 },
-};
+} as const satisfies Record<UnitTypeName, UnitStats>;
 
 // No mountain entry: only fleeing units cross mountains, at UnitHelpers' MOUNTAIN_ESCAPE_SPEED
-export const TERRAIN_SPEED: Record<string, number> = {
+export const TERRAIN_SPEED: Record<Exclude<TerrainName, 'MOUNTAIN'>, number> = {
   OPEN: 1.0,
   FOREST: 0.7,
   SWAMP: 0.5,
 };
 
-export const TERRAIN_SIGHT: Record<string, number> = {
+export const TERRAIN_SIGHT: Record<TerrainName, number> = {
   OPEN: 1.0,
   FOREST: 0.8,
   SWAMP: 0.7,
   MOUNTAIN: 0,
 };
 
-export const TERRAIN_COLORS: Record<string, string> = {
+export const TERRAIN_COLORS: Record<TerrainName, string> = {
   OPEN: '#90EE90',
   FOREST: '#228B22',
   SWAMP: '#8FBC8F',
   MOUNTAIN: '#808080',
 };
 
-export const UNIT_COLORS: Record<string, string> = {
+export const UNIT_COLORS: Record<UnitTypeName, string> = {
   WARRIOR: '#FFD700',
   HERO: '#FF0000',
   BERSERKER: '#4169E1',

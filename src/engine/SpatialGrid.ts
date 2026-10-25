@@ -1,4 +1,4 @@
-import { IUnit, Position, GRID_SIZE } from '../types/types';
+import { IUnit, Position, Faction, GRID_SIZE } from '../types/types';
 
 const CELL_SIZE = 15;
 const CELL_COUNT = Math.ceil(GRID_SIZE / CELL_SIZE); // 10
@@ -296,9 +296,22 @@ export class SpatialGrid {
     out[1] = 0;
     const r2 = radius * radius;
     if (this.coarseCount(cx, cy, radius) <= SPARSE_LIMIT) {
-      this.forEach(cx, cy, radius, (unit) => {
-        if (unit.hp > 0) out[unit.faction]++;
-      });
+      // The forEach() scan, written out (no closure per query)
+      const minCx = coarseMin(cx, radius);
+      const maxCx = coarseMax(cx, radius);
+      const minCy = coarseMin(cy, radius);
+      const maxCy = coarseMax(cy, radius);
+      for (let gy = minCy; gy <= maxCy; gy++) {
+        for (let gx = minCx; gx <= maxCx; gx++) {
+          const cell = this.cell(this.key(gx, gy));
+          if (!cell) continue;
+          for (const unit of cell) {
+            const dx = unit.position.x - cx;
+            const dy = unit.position.y - cy;
+            if (dx * dx + dy * dy <= r2 && unit.hp > 0) out[unit.faction]++;
+          }
+        }
+      }
       return;
     }
     const inside2 = r2 * INSIDE_MARGIN;
@@ -339,7 +352,7 @@ export class SpatialGrid {
 
   // Whether a living unit of another faction is within radius: the same answer as
   // nearestEnemy() !== null, but it stops at the first one (separation asks it per unit, D53)
-  hasEnemy(cx: number, cy: number, radius: number, faction: number): boolean {
+  hasEnemy(cx: number, cy: number, radius: number, faction: Faction): boolean {
     const r2 = radius * radius;
     const inside2 = r2 * INSIDE_MARGIN;
     const outside2 = r2 * OUTSIDE_MARGIN;
@@ -379,7 +392,7 @@ export class SpatialGrid {
   // outward and stopping once no closer unit can exist. When several units share the
   // minimum distance, wasNearestTied() is true: the scan order then decides, so the caller
   // reproduces the forEach() scan to pick the same unit as before.
-  nearestEnemy(cx: number, cy: number, radius: number, faction: number): IUnit | null {
+  nearestEnemy(cx: number, cy: number, radius: number, faction: Faction): IUnit | null {
     const r2 = radius * radius;
     if (this.coarseCount(cx, cy, radius) <= SPARSE_LIMIT) {
       this.nearestTied = false;
@@ -433,19 +446,31 @@ export class SpatialGrid {
   }
 
   // The plain scan in forEach() order, the reference result: on a tie, the unit scanned first
-  scanNearestEnemy(cx: number, cy: number, radius: number, faction: number): IUnit | null {
+  // (written out, no closure per query)
+  scanNearestEnemy(cx: number, cy: number, radius: number, faction: Faction): IUnit | null {
     let nearest: IUnit | null = null;
     let minD2 = Infinity;
-    this.forEach(cx, cy, radius, (unit) => {
-      if (unit.faction === faction || unit.hp <= 0) return;
-      const dx = unit.position.x - cx;
-      const dy = unit.position.y - cy;
-      const d2 = dx * dx + dy * dy;
-      if (d2 < minD2) {
-        minD2 = d2;
-        nearest = unit;
+    const r2 = radius * radius;
+    const minCx = coarseMin(cx, radius);
+    const maxCx = coarseMax(cx, radius);
+    const minCy = coarseMin(cy, radius);
+    const maxCy = coarseMax(cy, radius);
+    for (let gy = minCy; gy <= maxCy; gy++) {
+      for (let gx = minCx; gx <= maxCx; gx++) {
+        const cell = this.cell(this.key(gx, gy));
+        if (!cell) continue;
+        for (const unit of cell) {
+          const dx = unit.position.x - cx;
+          const dy = unit.position.y - cy;
+          const d2 = dx * dx + dy * dy;
+          if (d2 > r2 || unit.faction === faction || unit.hp <= 0) continue;
+          if (d2 < minD2) {
+            minD2 = d2;
+            nearest = unit;
+          }
+        }
       }
-    });
+    }
     return nearest;
   }
 
