@@ -115,6 +115,11 @@ export class UIController {
           this.updatePauseButton();
           this.updateSpeedDisplay();
         },
+        // Without a run there is nothing behind the replay but the page's idle default
+        // battlefield: back to the menu, where Start begins a run
+        afterExit: () => {
+          if (!this.runStarted) this.openMenu();
+        },
       }
     );
 
@@ -216,7 +221,7 @@ export class UIController {
       if (this.loading.isActive()) return;
       const choice = this.menu.readStart();
       if (!choice) return;
-      this.replays.exit();
+      this.replays.exit(false); // the new run replaces the one behind the replay
       this.resetView();
       this.closeMenu();
 

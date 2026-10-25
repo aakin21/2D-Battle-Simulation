@@ -59,6 +59,14 @@ export const PANEL_SELECTORS: Record<string, string> = {
   east: '#ai-col-east .ai-col-main',
 };
 
+// A key of PANEL_SELECTORS or `layout` (own keys only: never a name like "constructor")
+export function isPanelKey(key: unknown): key is string {
+  return (
+    typeof key === 'string' &&
+    (key === 'layout' || Object.prototype.hasOwnProperty.call(PANEL_SELECTORS, key))
+  );
+}
+
 // A side panel's HTML from time t on (key: banner, armies, armiesTitle, west, east, layout)
 export interface PanelSnapshot {
   t: number;
@@ -177,8 +185,8 @@ export async function decodeReplay(file: Blob): Promise<Replay> {
   for (let i = 0; i < header.frameCount; i++) {
     need(16);
     const t = view.getFloat64(at, true);
-    // Frame times are finite and in order (the player searches them)
-    if (!Number.isFinite(t) || t < lastT) throw new Error(DAMAGED);
+    // Frame times are in order (the player searches them) and within a match's length
+    if (!(t >= 0 && t <= MAX_REPLAY_SECONDS) || t < lastT) throw new Error(DAMAGED);
     lastT = t;
     const n = view.getUint32(at + 8, true);
     const metaLen = view.getUint32(at + 12, true);
@@ -231,6 +239,14 @@ export async function decodeReplay(file: Blob): Promise<Replay> {
 }
 
 const DAMAGED = 'The replay file is damaged.';
+// Frame times: a match lasts minutes (CONTROL_TIME_LIMIT, MATCH_TIME_LIMIT); more than a day is
+// not a recording
+const MAX_REPLAY_SECONDS = 24 * 60 * 60;
+// Panel snapshots: a real panel is a few KB and a long match has some tens of thousands of
+// snapshots. They are checked before any is parsed (a small file could otherwise make the
+// sanitizer parse gigabytes, or markup that keeps the browser busy for minutes)
+const MAX_PANEL_HTML = 64 * 1024;
+const MAX_PANEL_SNAPSHOTS = 100_000;
 // A replay of a long match is a few MB; a file that unpacks to more is refused while it is read
 // (a small gzip file can unpack to gigabytes)
 const MAX_REPLAY_BYTES = 200 * 1024 * 1024;
@@ -308,13 +324,15 @@ function validHeader(h: ReplayHeader): boolean {
     Array.isArray(h.units) &&
     h.units.every((u) => validUnit(u, h.units.length)) &&
     Array.isArray(h.panels) &&
+    h.panels.length <= MAX_PANEL_SNAPSHOTS &&
     h.panels.every(
       (p) =>
         typeof p === 'object' &&
         p !== null &&
         isFiniteNumber(p.t) &&
-        typeof p.key === 'string' &&
-        typeof p.html === 'string'
+        isPanelKey(p.key) &&
+        typeof p.html === 'string' &&
+        p.html.length <= MAX_PANEL_HTML
     ) &&
     Number.isInteger(h.frameCount) &&
     h.frameCount >= 0 &&
@@ -377,8 +395,8 @@ function validFrameMeta(m: Pick<ReplayFrame, 'heroes' | 'objective'>, units: num
 }
 
 // A replay file can come from anyone: its panel HTML is rebuilt from an allowlist before it is
-// shown. The panels (Hud, AiPanel) use only plain markup: these elements, with classes, titles,
-// data-* and inline bar widths and colours. Everything else is dropped with its content (scripts,
+// shown. The panels (Hud, AiPanel) use only plain markup: these elements, with their own classes,
+// titles, data-* and inline bar widths and colours. Everything else is dropped with its content (scripts,
 // links, images, media, frames, forms, SVG and MathML, and the raw-text elements such as noscript,
 // xmp or noembed, whose content a page reads differently than the parser here: mXSS). The tree is
 // built anew in an inert template, so what is serialized is only what was allowed.
@@ -400,7 +418,70 @@ const ALLOWED_TAGS = new Set([
   'th',
   'td',
 ]);
-const ALLOWED_ATTRS = new Set(['class', 'title', 'hidden', 'aria-hidden', 'colspan', 'rowspan']);
+const ALLOWED_ATTRS = new Set(['title', 'hidden', 'aria-hidden', 'colspan', 'rowspan']);
+// The class names the panels use (Hud: banner and armies; AiPanel: the AI columns). Any other
+// class is dropped: a page class such as `overlay` would let a replay cover the page.
+const ALLOWED_CLASSES = new Set([
+  // Hud
+  'banner',
+  'well',
+  'side',
+  'side-name',
+  'side-val',
+  'mid',
+  'clock',
+  'low',
+  'flag',
+  'base-bar',
+  'bar',
+  'west',
+  'east',
+  'west-text',
+  'east-text',
+  'army',
+  'army-head',
+  'army-who',
+  'army-row',
+  'hero-row',
+  'hero-state',
+  'lbl',
+  'val',
+  'dead',
+  'faint',
+  // AiPanel
+  'ai-head',
+  'ai-side-name',
+  'ai-status',
+  'ai-k',
+  'ai-kv',
+  'ai-busy',
+  'ai-fail',
+  'ai-warn',
+  'ai-strategy',
+  'stance',
+  'stance-aggressive',
+  'stance-defensive',
+  'stance-regroup',
+  'ai-plan',
+  'ai-situation',
+  'ai-why',
+  'ai-clamp',
+  'ai-more',
+  'ai-hero',
+  'ai-hero-head',
+  'ai-hero-name',
+  'override',
+  'ai-src',
+  'ai-src-llm',
+  'ai-src-jev',
+  'ai-src-rule',
+  'ai-src-user',
+  'ai-agree',
+  'ai-override',
+  'ai-meta',
+]);
+// Elements nested deeper than this are dropped with their content (the panels nest a few levels)
+const MAX_DEPTH = 32;
 // Inline styles: these properties, with plain values (numbers, units, names, colours, var())
 const STYLE_PROPS = new Set([
   'width',
@@ -416,7 +497,7 @@ const STYLE_VALUE = /^[\w\s.,#%-]*(?:(?:rgba?|hsla?|var)\([\w\s.,#%-]*\)[\w\s.,#
 export function sanitizeHtml(html: string): string {
   const parsed = new DOMParser().parseFromString(`<body>${html}</body>`, 'text/html');
   const out = document.createElement('template').content;
-  const copy = (from: Node, to: Node) => {
+  const copy = (from: Node, to: Node, depth: number) => {
     for (const node of Array.from(from.childNodes)) {
       if (node.nodeType === Node.TEXT_NODE) {
         to.appendChild(out.ownerDocument.createTextNode(node.textContent ?? ''));
@@ -427,22 +508,28 @@ export function sanitizeHtml(html: string): string {
       // Only HTML elements (no SVG or MathML namespace) of the allowed kinds
       if (el.namespaceURI !== 'http://www.w3.org/1999/xhtml') continue;
       const tag = el.localName;
-      if (!ALLOWED_TAGS.has(tag)) continue;
+      if (!ALLOWED_TAGS.has(tag) || depth >= MAX_DEPTH) continue;
       const clean = out.ownerDocument.createElement(tag);
       for (const attr of Array.from(el.attributes)) {
         const name = attr.name.toLowerCase();
         if (ALLOWED_ATTRS.has(name) || /^data-[a-z0-9-]+$/.test(name)) {
           clean.setAttribute(name, attr.value);
+        } else if (name === 'class') {
+          // Kept as written when every name is allowed (Hud writes "bar " for a plain bar)
+          const names = attr.value.split(/\s+/).filter(Boolean);
+          const kept = names.filter((c) => ALLOWED_CLASSES.has(c));
+          if (kept.length === names.length) clean.setAttribute('class', attr.value);
+          else if (kept.length) clean.setAttribute('class', kept.join(' '));
         } else if (name === 'style') {
           const style = cleanStyle(attr.value);
           if (style) clean.setAttribute('style', style);
         }
       }
-      copy(el, clean);
+      copy(el, clean, depth + 1);
       to.appendChild(clean);
     }
   };
-  copy(parsed.body, out);
+  copy(parsed.body, out, 0);
   const host = out.ownerDocument.createElement('div');
   host.appendChild(out);
   return host.innerHTML;
