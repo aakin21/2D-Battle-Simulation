@@ -44,6 +44,9 @@ export class StateManager {
   private heroRef: IHero | undefined;
   private heroes: IHero[] = [];
   private battleMode: boolean = false;
+  // Classic mode outside the stress test: the only mode that runs berserker waves, and so the
+  // only one whose dead berserkers go back into the pool
+  private wavesRun: boolean = false;
   private mainRegion = new Uint8Array(GRID_SIZE * GRID_SIZE);
 
   constructor() {
@@ -300,12 +303,12 @@ export class StateManager {
 
   // Nearest living unit not of `faction` within radius (D31). When several share the
   // minimum distance, wasNearestTied() is true and the caller resolves it.
-  nearestEnemyInRadius(cx: number, cy: number, radius: number, faction: number): IUnit | null {
+  nearestEnemyInRadius(cx: number, cy: number, radius: number, faction: Faction): IUnit | null {
     return this.spatialGrid.nearestEnemy(cx, cy, radius, faction);
   }
 
   // Whether a living unit not of `faction` is within radius
-  hasEnemyInRadius(cx: number, cy: number, radius: number, faction: number): boolean {
+  hasEnemyInRadius(cx: number, cy: number, radius: number, faction: Faction): boolean {
     return this.spatialGrid.hasEnemy(cx, cy, radius, faction);
   }
 
@@ -314,7 +317,7 @@ export class StateManager {
   }
 
   // The same, by a plain scan in the spatial grid's order: on a tie, the unit scanned first
-  nearestEnemyByScan(cx: number, cy: number, radius: number, faction: number): IUnit | null {
+  nearestEnemyByScan(cx: number, cy: number, radius: number, faction: Faction): IUnit | null {
     return this.spatialGrid.scanNearestEnemy(cx, cy, radius, faction);
   }
 
@@ -374,8 +377,9 @@ export class StateManager {
         this.heroRef = this.heroes.find((h) => h.faction === Faction.FRIENDLY);
       }
     }
-    // Battle-mode berserkers use warrior stats, so they must not go back into the pool.
-    if (unit.unitType === UnitType.BERSERKER && !this.battleMode) this.berserkerPool.release(unit);
+    // Only where waves run: battle-mode berserkers use warrior stats, and the stress test's are
+    // never handed out again.
+    if (unit.unitType === UnitType.BERSERKER && this.wavesRun) this.berserkerPool.release(unit);
   }
 
   getBattlefield(): IBattlefield {
@@ -395,6 +399,7 @@ export class StateManager {
     this.heroRef = undefined;
     this.heroes = [];
     this.battleMode = config.mode === 'battle' && !this.stressMode;
+    this.wavesRun = !this.battleMode && !this.stressMode;
     if (config.presetGrid) this.battlefield.grid = config.presetGrid.map((row) => row.slice());
     else this.initGrid(config.terrainDensity);
     this.computeMainRegion();
