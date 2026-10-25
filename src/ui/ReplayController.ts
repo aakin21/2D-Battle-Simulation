@@ -108,6 +108,7 @@ export class ReplayController {
     });
     this.watched = player;
     this.engine.setViewSource(() => player.battlefield());
+    this.hud.setReplaying(true);
     this.canvas.setReplayUnits(() => player.units());
     this.renderer.setBattleMode(true);
     document.body.classList.add('replaying');
@@ -119,6 +120,7 @@ export class ReplayController {
     this.watched.dispose();
     this.watched = null;
     this.engine.setViewSource(null);
+    this.hud.setReplaying(false);
     this.canvas.setReplayUnits(null);
     document.body.classList.remove('replaying');
     this.host.resetView();

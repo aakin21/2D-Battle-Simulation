@@ -29,15 +29,18 @@ const MODEL_IDS: Record<Model, string> = {
   sonnet: 'claude-sonnet-5-5',
   opus: 'claude-opus-5-5',
 };
-const DEFAULT_MODEL: Model = (CLAUDE_MODELS as readonly string[]).includes(
-  process.env.LLM_MODEL ?? ''
-)
-  ? (process.env.LLM_MODEL as Model)
-  : 'sonnet';
+// The model of a request that names none: LLM_MODEL from .env.local or the shell (read in
+// llmPlugin, from the env vite.config.ts loads)
+function defaultModel(value: string | undefined): Model {
+  return (CLAUDE_MODELS as readonly string[]).includes(value ?? '') ? (value as Model) : 'sonnet';
+}
 
 // A session's estimated spend (the SDK's total_cost_usd) above which it stops answering, so a
-// runaway session cannot spend without limit. A match makes ~33 requests per side (every 15 s, D50).
-const MAX_BUDGET_USD = Number(process.env.LLM_MAX_BUDGET_USD) || 5;
+// runaway session cannot spend without limit. A match makes ~33 requests per side (every 15 s,
+// D50). LLM_MAX_BUDGET_USD from .env.local or the shell, 5 by default.
+function maxBudget(value: string | undefined): number {
+  return Number(value) || 5;
+}
 
 // What one answer cost and how long the model took, from the SDK's result message, for the
 // cost and latency metrics of the experiments (Q11). Estimates, not a bill.
@@ -114,6 +117,7 @@ class Session implements LlmSession {
     readonly matchId: string,
     readonly model: Model,
     systemPrompt: string,
+    maxBudgetUsd: number,
     private readonly side = ''
   ) {
     this.q = query({
@@ -124,7 +128,7 @@ class Session implements LlmSession {
         tools: [],
         settingSources: [],
         persistSession: false,
-        maxBudgetUsd: MAX_BUDGET_USD,
+        maxBudgetUsd,
         env: { ...process.env, CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1' },
       },
     });
@@ -260,6 +264,7 @@ class OpenRouterSession implements LlmSession {
     private readonly id: string,
     systemPrompt: string,
     private readonly key: string,
+    private readonly maxBudgetUsd: number,
     private readonly side = ''
   ) {
     this.messages = [{ role: 'system', content: systemPrompt }];
@@ -278,9 +283,9 @@ class OpenRouterSession implements LlmSession {
 
   private async send(prompt: string): Promise<Answer> {
     if (this.closed) throw sessionClosed();
-    if (this.costSoFar >= MAX_BUDGET_USD)
+    if (this.costSoFar >= this.maxBudgetUsd)
       throw new LlmError(
-        `this session spent its budget of $${MAX_BUDGET_USD} (LLM_MAX_BUDGET_USD)`,
+        `this session spent its budget of $${this.maxBudgetUsd} (LLM_MAX_BUDGET_USD)`,
         false,
         true
       );
@@ -363,28 +368,71 @@ class OpenRouterSession implements LlmSession {
 
 const sessions = new Map<string, LlmSession>();
 
-// Reached through the tunnel too (D37), so requests are bounded (in characters of the body
-// text): a request is ~20 KB, half of it the rulebook, half the report.
+// Reached through the tunnel too (D37), so requests are bounded: a request is ~20 KB, half of it
+// the rulebook, half the report. A body that has not fully come within BODY_TIMEOUT_MS is
+// refused too, so a client that stops sending cannot hold a request open.
 const MAX_BODY_BYTES = 1_000_000;
+const BODY_TIMEOUT_MS = 30_000;
 const SIDES = ['west', 'east'];
 
 class TooLarge extends Error {}
+class TooSlow extends Error {}
 
+// The body as UTF-8 text, decoded once it is whole (a character can be split between chunks)
 function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
-    let data = '';
-    req.on('data', (chunk) => {
-      data += chunk;
-      if (data.length > MAX_BODY_BYTES) {
-        reject(new TooLarge());
-        req.destroy();
-      }
+    // A body the client says is too large is refused before it is read
+    if (Number(req.headers['content-length']) > MAX_BODY_BYTES) return reject(new TooLarge());
+    const chunks: Buffer[] = [];
+    let size = 0;
+    let done = false;
+    const finish = (err: Error | null) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      if (err) reject(err);
+      else resolve(Buffer.concat(chunks, size).toString('utf8'));
+    };
+    const timer = setTimeout(() => finish(new TooSlow()), BODY_TIMEOUT_MS);
+    req.on('data', (data: Buffer | string) => {
+      if (done) return; // the rest of a refused body is read and dropped
+      const chunk = typeof data === 'string' ? Buffer.from(data) : data; // text once decoded
+      size += chunk.length;
+      if (size > MAX_BODY_BYTES) finish(new TooLarge());
+      else chunks.push(chunk);
     });
-    req.on('end', () => resolve(data));
-    req.on('error', reject);
+    req.on('end', () => finish(null));
+    req.on('error', (err) => finish(err));
     // A client that goes away mid-body sends no 'end' (after 'end' this changes nothing)
-    req.on('close', () => reject(new Error('the request was closed before its body ended')));
+    req.on('close', () => finish(new Error('the request was closed before its body ended')));
   });
+}
+
+// A refusal sent before the whole body was read. Node closes the connection as soon as the
+// answer is sent, and closing it while the client still sends resets it, which can lose the
+// answer; so the rest of the body is read and dropped first, and the answer goes out when it has
+// ended, or after REFUSED_BODY_MS for a client that keeps sending or has stopped
+const REFUSED_BODY_MS = 1000;
+
+function refuseBody(
+  req: IncomingMessage,
+  res: ServerResponse,
+  status: number,
+  error: string
+): void {
+  let sent = false;
+  const answer = () => {
+    if (sent) return;
+    sent = true;
+    clearTimeout(timer);
+    res.setHeader('Connection', 'close');
+    send(res, status, { error });
+  };
+  const timer = setTimeout(answer, REFUSED_BODY_MS);
+  if (req.complete || req.readableEnded) return answer();
+  req.on('end', answer);
+  req.on('close', answer);
+  req.resume();
 }
 
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
@@ -415,6 +463,8 @@ function send(res: ServerResponse, status: number, body: unknown): void {
 
 export function llmPlugin(env: Record<string, string> = {}): Plugin {
   const openRouterKey = env.OPENROUTER_API_KEY ?? process.env.OPENROUTER_API_KEY ?? '';
+  const DEFAULT_MODEL = defaultModel(env.LLM_MODEL ?? process.env.LLM_MODEL);
+  const MAX_BUDGET_USD = maxBudget(env.LLM_MAX_BUDGET_USD ?? process.env.LLM_MAX_BUDGET_USD);
   return {
     name: 'battle-llm',
     configureServer(server) {
@@ -431,7 +481,14 @@ export function llmPlugin(env: Record<string, string> = {}): Plugin {
         try {
           body = JSON.parse(await readBody(req));
         } catch (err) {
-          if (err instanceof TooLarge) return send(res, 413, { error: 'request too large' });
+          if (err instanceof TooLarge) return refuseBody(req, res, 413, 'request too large');
+          if (err instanceof TooSlow)
+            return refuseBody(
+              req,
+              res,
+              408,
+              `the body did not come within ${BODY_TIMEOUT_MS / 1000} s`
+            );
           return send(res, 400, { error: 'body must be JSON' });
         }
         const { side, matchId, system, prompt, model: requested } = body ?? {};
@@ -443,7 +500,9 @@ export function llmPlugin(env: Record<string, string> = {}): Plugin {
           let session = sessions.get(side);
           // A Claude alias or "openrouter:<id>" (D52); a request without a model gets the
           // default, and an unknown one is refused so a typo never runs another model
-          const model: string = requested === undefined ? DEFAULT_MODEL : String(requested);
+          if (requested !== undefined && typeof requested !== 'string')
+            return send(res, 400, { error: 'model must be text' });
+          const model: string = requested ?? DEFAULT_MODEL;
           const routerId = openRouterId(model);
           if (!isLlmModel(model))
             return send(res, 400, { error: `unknown model ${model.slice(0, 80)}` });
@@ -461,8 +520,16 @@ export function llmPlugin(env: Record<string, string> = {}): Plugin {
             session?.close();
             session =
               routerId !== null
-                ? new OpenRouterSession(matchId, model, routerId, system, openRouterKey, side)
-                : new Session(matchId, model as Model, system, side);
+                ? new OpenRouterSession(
+                    matchId,
+                    model,
+                    routerId,
+                    system,
+                    openRouterKey,
+                    MAX_BUDGET_USD,
+                    side
+                  )
+                : new Session(matchId, model as Model, system, MAX_BUDGET_USD, side);
             sessions.set(side, session);
           }
 

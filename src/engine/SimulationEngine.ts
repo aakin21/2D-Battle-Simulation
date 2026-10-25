@@ -251,7 +251,8 @@ export class SimulationEngine {
     removeDeadUnits(sm);
     if (battleMode) this.checkMatchEnd();
     // Classic berserker waves (ClassicWaves.ts); the stress test has none
-    if (!this.stressMode) updateWaves(sm, sm.getBattlefield(), this.waveMultiplier);
+    // Classic waves only: battle mode spawns no berserkers (D19)
+    if (!this.stressMode && !battleMode) updateWaves(sm, sm.getBattlefield(), this.waveMultiplier);
   }
 
   // Ends the match when one side has no units left or on its objective or time limit (D30),

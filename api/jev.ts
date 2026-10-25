@@ -7,7 +7,12 @@ const TYPESAFE_URL = 'https://api.typesafe.ai/v1/systemone';
 // Literals, not imports: Vercel bundles this function on its own. Keep them in step with
 // src/ai/Limits.ts (JEV_MAX_REQUEST_SIZE, JEV_TIMEOUT_MS).
 const MAX_BODY_BYTES = 100_000; // characters of the body text, not bytes; a battle request is ~20–23 KB
-const UPSTREAM_TIMEOUT_MS = 25_000; // the browser gives up after 30 s
+// The browser gives up after 30 s and retries a 504 (fetchWithRetries): this leaves room for one
+// more try of the same length, so a silent TypeSafe ends as a 504 the browser counts and asks
+// again, not as the browser's own timeout, which stops the layer
+const UPSTREAM_TIMEOUT_MS = 14_000;
+// TypeSafe's wait hints, passed on so the browser's retry honours them
+const PASSED_HEADERS = ['retry-after', 'retry-after-ms'];
 
 export async function POST(request: Request): Promise<Response> {
   const key = process.env.TYPESAFE_API_KEY;
@@ -39,10 +44,14 @@ export async function POST(request: Request): Promise<Response> {
       ? json(504, { error: `TypeSafe did not answer within ${UPSTREAM_TIMEOUT_MS / 1000} s` })
       : json(502, { error: `cannot reach TypeSafe: ${String(err)}` });
   }
-  return new Response(res.body, {
-    status: res.status,
-    headers: { 'Content-Type': res.headers.get('content-type') ?? 'application/json' },
-  });
+  const headers: Record<string, string> = {
+    'Content-Type': res.headers.get('content-type') ?? 'application/json',
+  };
+  for (const name of PASSED_HEADERS) {
+    const value = res.headers.get(name);
+    if (value !== null) headers[name] = value;
+  }
+  return new Response(res.body, { status: res.status, headers });
 }
 
 function json(status: number, body: unknown): Response {

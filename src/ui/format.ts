@@ -1,4 +1,4 @@
-import type { HeroCommand } from '../types/types';
+import type { HeroCommand, Position } from '../types/types';
 import type { Side } from '../engine/Sides';
 import { positionToSubsector } from '../engine/Sectors';
 
@@ -26,13 +26,14 @@ export function clock(seconds: number): string {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
 
-// A hero's order as the UI shows it (the AI layers describe orders in their own words)
+// A hero's order as the UI shows it (the AI layers describe orders in their own words). An order
+// from a replay file can be of any shape: an unknown type or a missing place is still shown as text.
 export function describeCommand(c: HeroCommand): string {
   switch (c.type) {
     case 'move':
-      return `move to ${positionToSubsector(c.target)}${c.via?.length ? ` via ${c.via.length} point${c.via.length > 1 ? 's' : ''}` : ''}`;
+      return `move to ${place(c.target)}${Array.isArray(c.via) && c.via.length ? ` via ${c.via.length} point${c.via.length > 1 ? 's' : ''}` : ''}`;
     case 'hold':
-      return `hold in ${positionToSubsector(c.at)}`;
+      return `hold in ${place(c.at)}`;
     case 'retreat':
       return 'retreat a short way';
     case 'attack':
@@ -44,10 +45,17 @@ export function describeCommand(c: HeroCommand): string {
     case 'regroup':
       return 'regroup strays';
     case 'regroupOne':
-      return `collect strays near ${positionToSubsector(c.at)}, then the LLM's order`;
+      return `collect strays near ${place(c.at)}, then the LLM's order`;
     case 'attackBase':
       return 'attack the enemy base';
     case 'continueLlm':
       return "follow the LLM's order";
+    default:
+      return `unknown order (${String((c as { type: unknown }).type)})`;
   }
+}
+
+// A place as its subsector, or "?" when it is not a place
+function place(p: Position | undefined): string {
+  return p && Number.isFinite(p.x) && Number.isFinite(p.y) ? positionToSubsector(p) : '?';
 }

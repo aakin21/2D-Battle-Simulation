@@ -22,7 +22,6 @@ import {
   formatRatio,
   GroupStats,
   hpPercent,
-  localForce,
   LOCAL_RADIUS,
   VIEW_RADIUS,
   secondsLeft,
@@ -134,14 +133,17 @@ function groupName(g: EnemyGroup): string {
   return `${heroes} with ${g.soldiers} soldiers`;
 }
 
-// What one hero's description is computed from besides the hero itself. `groups` and `strays`
-// are taken once per request; the previous values are the Jev layer's memory of its last request.
+// What one hero's description is computed from besides the hero itself. `groups`, `strays`,
+// `ownGroups` and `forceOf` are taken once per request; the previous values are the Jev layer's
+// memory of its last request.
 export interface HeroContext {
   time: number;
   force: { allies: number; enemies: number; ratio: number };
   groups: Map<string, GroupStats>;
   strays: StrayCluster[];
   enemyGroups: EnemyGroup[];
+  ownGroups: IHero[][]; // heroGroups of the hero's side
+  forceOf: (hero: IHero) => { allies: number; enemies: number; ratio: number }; // localForce
   previousForce: number | undefined; // force ratio at the previous request
   previousChoice: string | undefined; // the last option applied for this hero
   // Where every hero was at the previous request and when, to tell how enemy heroes move
@@ -196,7 +198,7 @@ export function heroSituation(
       : 'none in sight',
     enemy_groups_in_view: enemyGroupsInView(sm, hero, ctx),
     way_ahead: wayAhead(sm, hero, ctx.enemyGroups),
-    allied_heroes: alliedHeroes(sm, hero, groups),
+    allied_heroes: alliedHeroes(sm, hero, groups, ctx.forceOf),
     stray_soldiers_nearby: nearbyStrays(hero, ctx.strays)
       .slice(0, VIEW_STRAYS)
       .map(
@@ -228,12 +230,13 @@ export function alliesOf(sm: StateManager, hero: IHero): IHero[] {
 function alliedHeroes(
   sm: StateManager,
   hero: IHero,
-  groups: Map<string, GroupStats>
+  groups: Map<string, GroupStats>,
+  forceOf: HeroContext['forceOf']
 ): string[] | string {
   const lines: string[] = [];
   for (const ally of alliesOf(sm, hero)) {
     const d = distance(hero.position, ally.position);
-    const enemies = localForce(sm, ally).enemies;
+    const enemies = forceOf(ally).enemies;
     lines.push(
       `hero ${ally.heroIndex}, ${Math.round(d)} tiles ${towards(hero.position, ally.position)} in ${positionToSubsector(ally.position)}, ${hpPercent(ally)}% HP, ${groups.get(ally.id)?.followers ?? 0} soldiers, ${enemies > 0 ? `${enemies} enemies within ${LOCAL_RADIUS} tiles of it` : 'no enemies near it'}`
     );
@@ -260,7 +263,7 @@ export function nearbyStrays(
 // The enemy groups within VIEW_RADIUS of the hero, nearest first: who they are, where, how
 // strong against this hero's own group, and how an enemy hero has moved since the last decision
 function enemyGroupsInView(sm: StateManager, hero: IHero, ctx: HeroContext): string[] | string {
-  const together = heroGroups(sm, hero.faction).find((g) => g.includes(hero)) ?? [hero];
+  const together = ctx.ownGroups.find((g) => g.includes(hero)) ?? [hero];
   const ours = army(together, ctx.groups).hp;
   const seen = ctx.enemyGroups
     .map((g) => ({ g, d: distance(hero.position, g.center) }))
