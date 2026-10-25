@@ -4,7 +4,8 @@ import { HeroCommands } from './HeroCommands';
 import { GroupPatrol } from './GroupPatrol';
 import { attackTarget, findNearestEnemy } from './UnitHelpers';
 
-const ARRIVE_RADIUS = 2;
+// A patrolling rule hero this close to its patrol destination gets a new one
+const PATROL_ARRIVE_TILES = 2;
 
 // Rule heroes whose survival reflex is running; kept per hero object, so a restart forgets them.
 const fled = new WeakSet<IHero>();
@@ -63,7 +64,7 @@ export function updateRuleHeroes(
     const dest = patrol.destination(key, hero.position, elapsed);
     const dx = dest.x - hero.position.x;
     const dy = dest.y - hero.position.y;
-    if (dx * dx + dy * dy <= ARRIVE_RADIUS * ARRIVE_RADIUS) patrol.forget(key);
+    if (dx * dx + dy * dy <= PATROL_ARRIVE_TILES * PATROL_ARRIVE_TILES) patrol.forget(key);
 
     const current = hero.command;
     if (current?.type !== 'move' || current.target.x !== dest.x || current.target.y !== dest.y) {

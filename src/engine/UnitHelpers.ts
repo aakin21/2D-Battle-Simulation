@@ -18,9 +18,9 @@ import { ATTACK_CHASE_TILES, FLEE_MAX_TURN_DEGREES, FLEE_SPEED_MULT } from './Ru
 // Mountains are impassable for pathfinding, but a unit can still clip a mountain tile's
 // corner while moving. Speed 0 there would trap it forever, so it crawls out instead.
 const MOUNTAIN_ESCAPE_SPEED = 0.5;
-// A fleeing unit stays at least half a tile inside the map
-const POS_MIN = 0.5;
-const POS_MAX = GRID_SIZE - 0.5;
+// A unit stays at least half a tile inside the map (flight, separation)
+export const POS_MIN = 0.5;
+export const POS_MAX = GRID_SIZE - 0.5;
 // A unit this close to a tile's centre is at (or next to) that tile
 export const NEAR_TILE_DISTANCE = 1.5;
 // nearestReachableTile looks this many tiles around the target (Chebyshev rings) before giving up

@@ -79,7 +79,9 @@ export function updateBehavior(sm: StateManager, unit: IUnit, battleMode: boolea
     // nowhere to walk on to, so it fights there (a retreat: "the fight goes on there")
     if (hero.disengaging && !onTheWay(hero, battleMode)) hero.disengaging = false;
     if (hero.disengaging) {
-      if (enemyWithin(sm, hero, DISENGAGE_CLEAR_RADIUS)) {
+      if (
+        sm.hasEnemyInRadius(hero.position.x, hero.position.y, DISENGAGE_CLEAR_RADIUS, hero.faction)
+      ) {
         hero.state = BehaviorState.IDLE;
         hero.target = null;
         return;
@@ -128,12 +130,4 @@ function onTheWay(unit: IUnit, battleMode: boolean): boolean {
 // orders never wait for a rest (D45). Rule heroes keep resting until healed after a flight (D18).
 function calledAway(unit: IUnit, battleMode: boolean): boolean {
   return (unit as IHero).controller !== 'rule' && onTheWay(unit, battleMode);
-}
-
-function enemyWithin(sm: StateManager, unit: IUnit, radius: number): boolean {
-  let found = false;
-  sm.forEachInRadius(unit.position.x, unit.position.y, radius, (other) => {
-    if (!found && other.hp > 0 && other.faction !== unit.faction) found = true;
-  });
-  return found;
 }
