@@ -42,8 +42,11 @@ export function processCombat(sm: StateManager, units: IUnit[], deltaTime: numbe
   }
 }
 
+// The ids removeDeadUnits collects, reused every frame
+const dead: string[] = [];
+
 export function removeDeadUnits(sm: StateManager): void {
-  const dead: string[] = [];
+  dead.length = 0;
   for (const unit of sm.getBattlefield().units) {
     if (unit.hp <= 0) dead.push(unit.id);
   }
