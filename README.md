@@ -41,7 +41,9 @@ npm install
 npm run dev
 ```
 
-Requires Node.js 18+. The simulation runs without any keys. The AI layers read their keys from a `.env.local` file in the project folder (not committed; the keys stay on the dev server): `TYPESAFE_API_KEY` for Jev, `SUBQ_API_KEY` for SubQ Snap, `OPENROUTER_API_KEY` for LLMs through OpenRouter. The Claude LLM uses the developer's Claude login instead of a key.
+Requires Node.js 18+. Open the address Vite prints (http://localhost:5173 by default). The simulation runs without any keys. The AI layers read their keys from a `.env.local` file in the project folder (not committed; the keys stay on the dev server): `TYPESAFE_API_KEY` for Jev, `SUBQ_API_KEY` for SubQ Snap, `OPENROUTER_API_KEY` for LLMs through OpenRouter. The Claude LLM uses the developer's Claude login instead of a key; `LLM_MAX_BUDGET_USD` (5 by default) caps one LLM session's estimated spend.
+
+`npm run build` makes the static site (`dist/`). Checks: `npm run typecheck`, `npm run lint`, `npm run format:check`.
 
 ## Tech
 

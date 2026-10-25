@@ -101,12 +101,19 @@ export class Hud {
     this.lastTime = Infinity;
     this.portraitOf = null;
     this.elResult.hidden = true;
+    this.resetTitle();
   }
 
   // Draw the banner and armies again at the next update (after a replay wrote its own HTML)
   redraw(): void {
     this.lastBanner = '';
     this.lastArmies = '';
+    this.resetTitle();
+  }
+
+  // The Armies title as the page has it (a replay may have shown its own)
+  private resetTitle(): void {
+    this.elArmiesTitle.textContent = 'Armies';
   }
 
   update(config: SimConfig): void {
@@ -300,8 +307,10 @@ export class Hud {
     const hero = unit.unitType === UnitType.HERO ? (unit as IHero) : null;
     this.elOrderRow.hidden = !hero;
     if (hero) {
+      // Whose order it is; a replay does not record it
+      const source = hero.commandSource ? ` · ${hero.commandSource}` : '';
       this.elOrder.textContent = hero.command
-        ? `${describeCommand(hero.command)} · ${hero.commandSource ?? '?'}`
+        ? `${describeCommand(hero.command)}${source}`
         : 'none';
     }
   }

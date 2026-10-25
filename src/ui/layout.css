@@ -41,6 +41,19 @@
   min-width: 0;
 }
 
+/* The panels a replay puts back (src/replay, PANEL_SELECTORS) show HTML from a file: whatever it
+   holds is painted inside its own box and cannot cover the page. The banner also keeps the top
+   bar's height (a real banner is 48 px tall); the side panel scrolls. */
+#match-banner,
+#armies-body,
+.ai-col-main {
+  contain: paint;
+}
+
+#match-banner {
+  max-height: 56px;
+}
+
 .banner {
   display: flex;
   align-items: center;

@@ -374,9 +374,18 @@ const sessions = new Map<string, LlmSession>();
 const MAX_BODY_BYTES = 1_000_000;
 const BODY_TIMEOUT_MS = 30_000;
 const SIDES = ['west', 'east'];
+// Bodies being read at once, at most: two sides send one request at a time, so more are not from
+// the game; each may hold up to MAX_BODY_BYTES, so many at once would fill the memory. Above it a
+// request gets 503 with Retry-After
+const MAX_BODIES_IN_FLIGHT = 8;
+const BUSY_RETRY_AFTER_S = 5;
+// Two matches on one side (two tabs) take its session from each other with every request; that is
+// logged at most this often per side
+const REPLACED_LOG_MS = 60_000;
 
 class TooLarge extends Error {}
 class TooSlow extends Error {}
+class ClientGone extends Error {}
 
 // The body as UTF-8 text, decoded once it is whole (a character can be split between chunks)
 function readBody(req: IncomingMessage): Promise<string> {
@@ -418,13 +427,15 @@ function refuseBody(
   req: IncomingMessage,
   res: ServerResponse,
   status: number,
-  error: string
+  error: string,
+  headers: Record<string, string> = {}
 ): void {
   let sent = false;
   const answer = () => {
     if (sent) return;
     sent = true;
     clearTimeout(timer);
+    for (const [name, value] of Object.entries(headers)) res.setHeader(name, value);
     res.setHeader('Connection', 'close');
     send(res, status, { error });
   };
@@ -451,6 +462,20 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   });
 }
 
+// Rejects when the client goes away before it is answered (its own timeout, a closed tab): the
+// endpoint then stops waiting for that answer
+function clientGone(res: ServerResponse): { gone: Promise<never>; done: () => void } {
+  let onClose = () => {};
+  const gone = new Promise<never>((_resolve, reject) => {
+    onClose = () => {
+      if (!res.writableEnded) reject(new ClientGone('the browser closed the request'));
+    };
+    res.on('close', onClose);
+  });
+  gone.catch(() => undefined); // only raced with the answer; never unhandled
+  return { gone, done: () => res.off('close', onClose) };
+}
+
 function isText(value: unknown): value is string {
   return typeof value === 'string' && value !== '';
 }
@@ -465,6 +490,10 @@ export function llmPlugin(env: Record<string, string> = {}): Plugin {
   const openRouterKey = env.OPENROUTER_API_KEY ?? process.env.OPENROUTER_API_KEY ?? '';
   const DEFAULT_MODEL = defaultModel(env.LLM_MODEL ?? process.env.LLM_MODEL);
   const MAX_BUDGET_USD = maxBudget(env.LLM_MAX_BUDGET_USD ?? process.env.LLM_MAX_BUDGET_USD);
+  let reading = 0; // bodies being read now (MAX_BODIES_IN_FLIGHT)
+  // Per side: the match whose session was last replaced by another match's, and when that was
+  // last logged
+  const replaced = new Map<string, { matchId: string; loggedAt: number }>();
   return {
     name: 'battle-llm',
     configureServer(server) {
@@ -478,8 +507,13 @@ export function llmPlugin(env: Record<string, string> = {}): Plugin {
           system?: unknown;
           prompt?: unknown;
         };
+        if (reading >= MAX_BODIES_IN_FLIGHT)
+          return refuseBody(req, res, 503, 'too many requests at once', {
+            'Retry-After': String(BUSY_RETRY_AFTER_S),
+          });
+        reading++;
         try {
-          body = JSON.parse(await readBody(req));
+          body = JSON.parse(await readBody(req).finally(() => reading--));
         } catch (err) {
           if (err instanceof TooLarge) return refuseBody(req, res, 413, 'request too large');
           if (err instanceof TooSlow)
@@ -517,6 +551,20 @@ export function llmPlugin(env: Record<string, string> = {}): Plugin {
             session.matchId !== matchId ||
             session.model !== model
           ) {
+            if (session?.isAlive() && session.matchId !== matchId) {
+              // Another match took this side's session: two tabs playing at once take it from
+              // each other with every request, each time losing the match's conversation (D11)
+              const last = replaced.get(side);
+              let loggedAt = last?.loggedAt ?? -Infinity;
+              const now = Date.now();
+              if (last?.matchId === matchId && now - loggedAt >= REPLACED_LOG_MS) {
+                console.warn(
+                  `[llm] ${side}: two matches use this side at once (two tabs?); each request starts a new session and the LLM loses the match's conversation`
+                );
+                loggedAt = now;
+              }
+              replaced.set(side, { matchId: session.matchId, loggedAt });
+            }
             session?.close();
             session =
               routerId !== null
@@ -535,9 +583,20 @@ export function llmPlugin(env: Record<string, string> = {}): Plugin {
 
           const started = Date.now();
           let answer: Answer;
+          const client = clientGone(res);
           try {
-            answer = await withTimeout(session.ask(prompt), LLM_SERVER_TIMEOUT_MS);
+            answer = await Promise.race([
+              withTimeout(session.ask(prompt), LLM_SERVER_TIMEOUT_MS),
+              client.gone,
+            ]);
           } catch (err) {
+            // The browser gave up on this answer (its timeout, a restart, a closed tab): it is not
+            // waited for. The session stays, so the match keeps its conversation; its answer to
+            // this report comes later and is dropped
+            if (err instanceof ClientGone) {
+              console.warn(`[llm] ${side} (${model}): ${err.message}; its answer is dropped`);
+              return;
+            }
             // A session that hangs or ended is closed; the next request starts a fresh one. An
             // error reported in a result (overloaded, rate limited) leaves the session working,
             // and closing it would lose the match's conversation (in-match memory, D11).
@@ -546,6 +605,8 @@ export function llmPlugin(env: Record<string, string> = {}): Plugin {
               if (sessions.get(side) === session) sessions.delete(side);
             }
             throw err;
+          } finally {
+            client.done();
           }
           console.warn(
             `[llm] ${side} (${model}): answered in ${((Date.now() - started) / 1000).toFixed(1)} s (API ${answer.meta.apiMs === null ? '?' : (answer.meta.apiMs / 1000).toFixed(1)} s)`

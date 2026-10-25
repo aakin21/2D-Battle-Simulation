@@ -1,6 +1,6 @@
 import { StateManager } from '../state/StateManager';
-import { IUnit, TerrainType, GRID_SIZE, UnitType } from '../types/types';
-import { canStep } from './UnitHelpers';
+import { IUnit, TerrainType, UnitType } from '../types/types';
+import { canStep, POS_MAX, POS_MIN } from './UnitHelpers';
 import {
   SEPARATION_DEAD_ZONE,
   SEPARATION_MARCH_ENEMY_TILES,
@@ -113,7 +113,7 @@ export function separateUnits(
 }
 
 function clamp(v: number): number {
-  return Math.max(0.5, Math.min(GRID_SIZE - 0.5, v));
+  return Math.max(POS_MIN, Math.min(POS_MAX, v));
 }
 
 // Two units on the very same spot part in opposite directions, the same ones every run

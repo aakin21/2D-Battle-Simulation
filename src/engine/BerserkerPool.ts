@@ -1,14 +1,13 @@
 import { IUnit, UnitType, Faction, BehaviorState, UNIT_STATS, Position } from '../types/types';
 
-const POOL_SIZE = 2000;
 const S = UNIT_STATS.BERSERKER;
 
+// Classic wave berserkers: a dead one is kept and handed out again by the next wave. The pool
+// starts empty and holds only berserkers released by StateManager (classic mode with waves), so
+// battle mode and the stress test allocate nothing here. Every field a unit can change is set
+// again on acquire: which object is handed out never decides anything.
 export class BerserkerPool {
   private available: IUnit[] = [];
-
-  constructor() {
-    this.fill();
-  }
 
   acquire(id: string, x: number, y: number, groupId: string, path: Position[]): IUnit {
     const unit = this.available.pop() ?? this.make();
@@ -31,12 +30,7 @@ export class BerserkerPool {
   }
 
   reset(): void {
-    this.available = [];
-    this.fill();
-  }
-
-  private fill(): void {
-    for (let i = 0; i < POOL_SIZE; i++) this.available.push(this.make());
+    this.available.length = 0;
   }
 
   private make(): IUnit {

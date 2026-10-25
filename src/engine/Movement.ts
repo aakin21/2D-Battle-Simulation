@@ -39,7 +39,7 @@ export function moveUnit(
     if (unit.state !== BehaviorState.IDLE) return;
 
     updateBerserkerPath(sm, patrol, unit, grid);
-    followPath(unit, deltaTime, grid, battleMode);
+    followPath(unit, deltaTime, grid, false);
     return;
   }
 

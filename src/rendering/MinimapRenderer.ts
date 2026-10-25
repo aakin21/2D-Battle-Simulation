@@ -1,11 +1,11 @@
 import {
   IBattlefield,
   IUnit,
-  TerrainType,
   UnitType,
   Faction,
   Camera,
   TERRAIN_COLORS,
+  terrainName,
   UNIT_COLORS,
   GRID_SIZE,
 } from '../types/types';
@@ -88,7 +88,7 @@ export class MinimapRenderer {
       for (let y = 0; y < GRID_SIZE; y++) {
         for (let x = 0; x < GRID_SIZE; x++) {
           const type = battlefield.grid[y][x];
-          const [r, g, b] = hexToRgb(TERRAIN_COLORS[TerrainType[type]] ?? '#000000');
+          const [r, g, b] = hexToRgb(TERRAIN_COLORS[terrainName(type)] ?? '#000000');
           const i = (y * GRID_SIZE + x) * 4;
           this.terrainPixels[i] = r;
           this.terrainPixels[i + 1] = g;

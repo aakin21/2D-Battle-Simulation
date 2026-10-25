@@ -30,6 +30,10 @@ class MinHeap {
     return this.data.length;
   }
 
+  clear(): void {
+    this.data.length = 0;
+  }
+
   private up(i: number): void {
     while (i > 0) {
       const p = (i - 1) >> 1;
@@ -64,6 +68,13 @@ const closedIn = new Uint32Array(TILE_COUNT);
 const scoredIn = new Uint32Array(TILE_COUNT);
 const gScore = new Int32Array(TILE_COUNT);
 let searchNo = 0;
+
+// The open list, emptied at the start of every search (findPath never runs inside another)
+const heap = new MinHeap();
+
+function inGrid(x: number, y: number): boolean {
+  return x >= 0 && x < GRID_SIZE && y >= 0 && y < GRID_SIZE;
+}
 
 function nextSearch(): number {
   if (searchNo === 0xffffffff) {
@@ -143,8 +154,6 @@ export class Pathfinder {
     if (ex < 0 || ex >= GRID_SIZE || ey < 0 || ey >= GRID_SIZE) return false;
     const regions = Pathfinder.regions(grid);
     const goal = regions[ey * GRID_SIZE + ex];
-    const inGrid = (x: number, y: number): boolean =>
-      x >= 0 && x < GRID_SIZE && y >= 0 && y < GRID_SIZE;
     if (inGrid(sx, sy) && !Pathfinder.isBlocked(grid, sx, sy)) {
       return regions[sy * GRID_SIZE + sx] === goal;
     }
@@ -182,19 +191,16 @@ export class Pathfinder {
     // start region and return []. Return [] at once (same result, no search).
     if (!Pathfinder.sameRegion(grid, sx, sy, ex, ey)) return [];
 
-    const key = (x: number, y: number): number => y * GRID_SIZE + x;
-    const heuristic = (x: number, y: number): number => Math.abs(x - ex) + Math.abs(y - ey);
-
-    const heap = new MinHeap();
+    heap.clear();
     const search = nextSearch();
+
+    // The heuristic is the Manhattan distance to the end tile
+    const sh = Math.abs(sx - ex) + Math.abs(sy - ey);
+    heap.push({ x: sx, y: sy, g: 0, f: sh, parent: null });
     // Only a start tile off the map (odd input) can have a key outside the arrays; no step leads
     // to such a key, so leaving it untracked is what a set of keys would do
-    const tracked = (k: number): boolean => k >= 0 && k < TILE_COUNT;
-
-    const sh = heuristic(sx, sy);
-    heap.push({ x: sx, y: sy, g: 0, f: sh, parent: null });
-    const startKey = key(sx, sy);
-    if (tracked(startKey)) {
+    const startKey = sy * GRID_SIZE + sx;
+    if (startKey >= 0 && startKey < TILE_COUNT) {
       scoredIn[startKey] = search;
       gScore[startKey] = 0;
     }
@@ -202,8 +208,8 @@ export class Pathfinder {
     while (heap.size > 0) {
       const cur = heap.pop();
 
-      const ck = key(cur.x, cur.y);
-      if (tracked(ck)) {
+      const ck = cur.y * GRID_SIZE + cur.x;
+      if (ck >= 0 && ck < TILE_COUNT) {
         if (closedIn[ck] === search) continue;
         closedIn[ck] = search;
       }
@@ -219,14 +225,14 @@ export class Pathfinder {
         if (nx < 0 || nx >= GRID_SIZE || ny < 0 || ny >= GRID_SIZE) continue;
         if (Pathfinder.isBlocked(grid, nx, ny)) continue;
 
-        const nk = key(nx, ny);
+        const nk = ny * GRID_SIZE + nx;
         if (closedIn[nk] === search) continue;
 
         const ng = cur.g + 1 + (extra ? extra[nk] : 0);
         if (scoredIn[nk] !== search || ng < gScore[nk]) {
           scoredIn[nk] = search;
           gScore[nk] = ng;
-          const nh = heuristic(nx, ny);
+          const nh = Math.abs(nx - ex) + Math.abs(ny - ey);
           heap.push({ x: nx, y: ny, g: ng, f: ng + nh, parent: cur });
         }
       }
