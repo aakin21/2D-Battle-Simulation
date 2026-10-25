@@ -163,7 +163,12 @@ export async function fetchWithRetries(
       wait = backoff(attempt);
       if (!fits(tried, wait, deadline)) throw withAttempts(err, attempt + 1);
     }
-    await sleep(wait, init.signal);
+    // Aborted while waiting (the timeout, a restart): the error still says how many tries were made
+    try {
+      await sleep(wait, init.signal);
+    } catch (err) {
+      throw withAttempts(err, attempt + 1);
+    }
   }
 }
 

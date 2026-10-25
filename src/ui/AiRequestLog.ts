@@ -1,5 +1,5 @@
 import type { AiExchange } from '../ai/Exchange';
-import type { JevController } from '../ai/JevController';
+import type { JevController, JevDecision } from '../ai/JevController';
 import type { LlmController } from '../ai/LlmController';
 import type { AiSides } from './MatchLog';
 import type { Side } from '../engine/Sides';
@@ -42,6 +42,15 @@ function runnerUp(probabilities: unknown, choice: unknown): string | null {
     .filter(([k, p]) => k !== choice && typeof p === 'number' && Number.isFinite(p))
     .sort((a, b) => (b[1] as number) - (a[1] as number));
   return ranked.length ? `${prettyKey(ranked[0][0])} ${percent(ranked[0][1])}` : null;
+}
+
+// Why a choice was not applied ("not applied (stale)", "not applied (below 40%)"); empty when it
+// was, or when no decision was made from it (not one of the options, the hero died meanwhile)
+function notApplied(jev: JevController, d: JevDecision | undefined): string {
+  if (!d || d.applied) return '';
+  return d.stale
+    ? 'not applied (stale: the LLM gave a new order meanwhile)'
+    : `not applied (below ${percent(jev.minConfidence)})`;
 }
 
 function percent(v: unknown): string {
@@ -177,7 +186,9 @@ export class AiRequestLog {
     if (x.error) what = `<span class="ai-fail">${escapeHtml(x.error)}</span>`;
     else if (x.latencyMs !== null)
       what = escapeHtml(
-        source.layer === 'jev' ? this.jevLine(x) : this.llmLine(source.controller, x)
+        source.layer === 'jev'
+          ? this.jevLine(source.controller, x)
+          : this.llmLine(source.controller, x)
       );
     else
       what = `<span class="faint">${source.layer === 'jev' ? this.jevAsked(x) : 'report sent'}</span>`;
@@ -195,15 +206,27 @@ export class AiRequestLog {
     return Object.keys(questions).filter((k) => questions[k]?.type === 'choice');
   }
 
-  // "H1 hold 82% · H2 retreat 64%"
-  private jevLine(x: AiExchange): string {
+  // "H1 hold 82% · H2 retreat 34% not applied (below 40%)"
+  private jevLine(jev: JevController, x: AiExchange): string {
     const answers = ((x.response as { answers?: JevAnswers } | null)?.answers ?? {}) as JevAnswers;
+    const decisions = this.jevDecisions(jev, x);
     const parts = this.jevHeroKeys(x).map((key) => {
       const a = answers[key];
       const choice = typeof a?.choice === 'string' ? prettyKey(a.choice) : 'no answer';
-      return `H${key.replace('hero', '')} ${choice} ${percent(a?.confidence)}`;
+      const outcome = notApplied(jev, decisions.get(key));
+      return `H${key.replace('hero', '')} ${choice} ${percent(a?.confidence)}${outcome ? ` ${outcome}` : ''}`;
     });
     return parts.join(' · ') || 'no heroes';
+  }
+
+  // The decisions made from one answer, per hero key ("hero1"): the request's time is theirs
+  private jevDecisions(jev: JevController, x: AiExchange): Map<string, JevDecision> {
+    const found = new Map<string, JevDecision>();
+    for (let i = jev.decisions.length - 1; i >= 0 && jev.decisions[i].time >= x.time; i--) {
+      const d = jev.decisions[i];
+      if (d.time === x.time) found.set(`hero${d.heroIndex}`, d);
+    }
+    return found;
   }
 
   // "aggressive · 3 orders · 1 rejected"
@@ -221,7 +244,7 @@ export class AiRequestLog {
   private body(source: Source, x: AiExchange): HTMLElement {
     const body = document.createElement('div');
     body.className = 'ai-x-body';
-    if (source.layer === 'jev') body.innerHTML = this.jevDetails(x);
+    if (source.layer === 'jev') body.innerHTML = this.jevDetails(source.controller, x);
     else body.innerHTML = this.llmDetails(source.controller, x);
     const json = (v: unknown) => JSON.stringify(v, null, 2) ?? '';
     const sent = JSON.stringify(x.request) ?? '';
@@ -235,14 +258,16 @@ export class AiRequestLog {
   }
 
   // Per hero: the options Jev was offered, its choice and its assessments
-  private jevDetails(x: AiExchange): string {
+  private jevDetails(jev: JevController, x: AiExchange): string {
     const questions = (x.request.questions ?? {}) as Record<
       string,
       { criteria?: Record<string, unknown> }
     >;
     const answers = ((x.response as { answers?: JevAnswers } | null)?.answers ?? {}) as JevAnswers;
+    const decisions = this.jevDecisions(jev, x);
     return this.jevHeroKeys(x)
       .map((key) => {
+        const outcome = notApplied(jev, decisions.get(key));
         const offered = Object.keys(questions[key]?.criteria ?? {}).map(prettyKey);
         const a = answers[key];
         const choice = typeof a?.choice === 'string' ? prettyKey(a.choice) : '–';
@@ -257,6 +282,7 @@ export class AiRequestLog {
         return (
           `<div class="ai-x-hero">Hero ${escapeHtml(key.replace('hero', ''))}: ` +
           `<span class="ai-x-choice">${escapeHtml(choice)} ${percent(a?.confidence)}</span>` +
+          (outcome ? ` <span class="ai-warn">${escapeHtml(outcome)}</span>` : '') +
           (next ? ` <span class="faint">(next: ${escapeHtml(next)})</span>` : '') +
           `<div class="faint">${escapeHtml(extra.join(' · '))}</div>` +
           `<div class="faint">offered: ${escapeHtml(offered.join(', '))}</div></div>`

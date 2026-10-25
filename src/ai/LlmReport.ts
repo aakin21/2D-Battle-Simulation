@@ -22,7 +22,7 @@ import {
   sideScores,
   wayToObjectives,
 } from './Observations';
-import type { JevAssessment, LlmDecision } from './LlmController';
+import type { JevAssessment, LlmDecision } from './types';
 
 // The LLM's report: the whole battlefield as computed values (D16, R5, D26), from one side's
 // point of view, with what changed since the last report the LLM saw.

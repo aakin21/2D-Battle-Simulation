@@ -85,6 +85,45 @@ function length(from: Position, corners: Position[]): number {
   return total;
 }
 
+// The way's last points are `route` (the same places)
+function endsWith(way: Position[], route: Position[]): boolean {
+  const from = way.length - route.length;
+  return from >= 0 && route.every((p, i) => way[from + i].x === p.x && way[from + i].y === p.y);
+}
+
+// At most `room` of a way's corners (from `from` to `to`): while there are more, the corner is
+// left out whose two neighbours, joined straight, pass the fewest points near enemies, and of
+// those the one that changes the way least
+function fewerCorners(
+  from: Position,
+  corners: Position[],
+  to: Position,
+  room: number,
+  costs: Uint8Array
+): Position[] {
+  const kept = [...corners];
+  while (kept.length > Math.max(0, room)) {
+    let best = 0;
+    let bestScore = Infinity;
+    for (let i = 0; i < kept.length; i++) {
+      const prev = i > 0 ? kept[i - 1] : from;
+      const next = i + 1 < kept.length ? kept[i + 1] : to;
+      const straight = distance(prev, next);
+      let near = 0;
+      for (const p of along(prev, [next], straight))
+        if (costs[Math.floor(p.y) * GRID_SIZE + Math.floor(p.x)] > 0) near++;
+      const score =
+        near * GRID_SIZE * 4 + distance(prev, kept[i]) + distance(kept[i], next) - straight;
+      if (score < bestScore) {
+        bestScore = score;
+        best = i;
+      }
+    }
+    kept.splice(best, 1);
+  }
+  return kept;
+}
+
 export interface Detour {
   command: HeroCommand & { type: 'move' };
   length: number; // tiles along the way around
@@ -112,21 +151,16 @@ export function detourFor(sm: StateManager, hero: IHero, costs: Uint8Array): Det
   if (nearDirect === 0) return null;
   const around = Pathfinder.findPathAvoiding(grid, here, next, costs);
   if (around.length === 0) return null;
-  // The way around the hero already walks, if Jev chose it before and the rest of it still keeps
-  // away: offered again unchanged, so choosing it again is no new order (a new one each request
-  // made a fighting hero break off every 4 s, D27)
+  // The way around the hero already walks, if Jev chose it before, it still ends with the rest of
+  // the commander's route and the rest of it still keeps away: offered again unchanged, so
+  // choosing it again is no new order (a new one each request made a fighting hero break off
+  // every 4 s, D27)
   const walking = hero.command;
-  if (
-    hero.commandSource === 'jev' &&
-    walking?.type === 'move' &&
-    walking.via &&
-    walking.target.x === order.target.x &&
-    walking.target.y === order.target.y
-  ) {
-    const left = [
-      ...walking.via.slice(viaReached(hero, walking.via, hero.commandTime)),
-      walking.target,
-    ];
+  const left =
+    hero.commandSource === 'jev' && walking?.type === 'move' && walking.via
+      ? [...walking.via.slice(viaReached(hero, walking.via, hero.commandTime)), walking.target]
+      : null;
+  if (walking?.type === 'move' && left && endsWith(left, rest)) {
     const near = nearEnemies(here, left, costs);
     if (near * 2 <= nearDirect)
       return {
@@ -142,10 +176,13 @@ export function detourFor(sm: StateManager, hero: IHero, costs: Uint8Array): Det
   // near enemies against 17) were offered, a longer walk for little
   // (tests/smoke/out/probe-around.ts, outside the repository)
   if (nearAround * 2 > nearDirect) return null;
-  // The corners before the point become via points, then the commander's remaining via points.
-  // The way around comes first: cut short, it would lead back into the enemies; a commander's
-  // route leaves room for it (MAX_LLM_VIA), and the tactical layer decides again within seconds
-  const via = [...around.slice(0, -1), ...rest.slice(0, -1)].slice(0, MAX_VIA);
+  // The corners before the point become via points, then all the commander's remaining via
+  // points (a commander's route leaves room for the way around, MAX_LLM_VIA). A way around with
+  // more corners than fit is simplified: the corners whose loss lets the way pass fewest enemies
+  // are left out first
+  const llmVia = rest.slice(0, -1);
+  const corners = fewerCorners(here, around.slice(0, -1), next, MAX_VIA - llmVia.length, costs);
+  const via = [...corners, ...llmVia];
   const target = rest[rest.length - 1];
   const command: HeroCommand & { type: 'move' } = via.length
     ? { type: 'move', target, via }
