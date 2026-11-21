@@ -4,9 +4,10 @@
 // Strategic layer (D29, D44, D52). The Claude models run through the Agent SDK on the author's
 // own login; "openrouter:<id>" runs the OpenRouter model <id> with OPENROUTER_API_KEY, for the
 // comparison of LLMs of different companies (D52), where every compared model, Claude included,
-// goes through OpenRouter.
+// goes through OpenRouter. "local:<name>" runs the model <name> on the user's own computer, or any
+// OpenAI-compatible chat API, at the dev server's LOCAL_LLM_URL.
 export type ClaudeModel = 'haiku' | 'sonnet' | 'opus';
-export type LlmModel = ClaudeModel | `openrouter:${string}`;
+export type LlmModel = ClaudeModel | `openrouter:${string}` | `local:${string}`;
 
 export const CLAUDE_MODELS: ClaudeModel[] = ['haiku', 'sonnet', 'opus'];
 
@@ -40,23 +41,43 @@ export function isOpenRouterId(id: string): boolean {
   return id.length <= 100 && OPENROUTER_ID.test(id);
 }
 
-// The OpenRouter id of a model, or null for a Claude model of the Agent SDK
+// The OpenRouter id of a model, or null for any other model
 export function openRouterId(model: string): string | null {
   if (!model.startsWith('openrouter:')) return null;
   const id = model.slice('openrouter:'.length);
   return isOpenRouterId(id) ? id : null;
 }
 
+// A model's name as a local server knows it: "qwen3:14b", "llama3.3", "qwen/qwen3-14b",
+// "hf.co/user/repo:Q4_K_M". It goes into the request's body (and the server's messages), never
+// into its address.
+const LOCAL_NAME = /^[a-z0-9][a-z0-9._:/-]*$/i;
+
+export function isLocalModelName(name: string): boolean {
+  return name.length <= 100 && LOCAL_NAME.test(name);
+}
+
+// The local server's name for a model, or null for any other model
+export function localModelId(model: string): string | null {
+  if (!model.startsWith('local:')) return null;
+  const name = model.slice('local:'.length);
+  return isLocalModelName(name) ? name : null;
+}
+
 export function isLlmModel(model: unknown): model is LlmModel {
   return (
     typeof model === 'string' &&
-    ((CLAUDE_MODELS as string[]).includes(model) || openRouterId(model) !== null)
+    ((CLAUDE_MODELS as string[]).includes(model) ||
+      openRouterId(model) !== null ||
+      localModelId(model) !== null)
   );
 }
 
-// "Sonnet", "Gemini 3.8 Flash (OpenRouter)", "x/y (OpenRouter)"
+// "Sonnet", "Gemini 3.8 Flash (OpenRouter)", "x/y (OpenRouter)", "qwen3:14b (Local)"
 export function modelLabel(model: string | undefined): string {
   if (!model) return '';
+  const local = localModelId(model);
+  if (local !== null) return `${local} (Local)`;
   const id = openRouterId(model);
   if (id === null) return model[0].toUpperCase() + model.slice(1);
   const known = OPENROUTER_MODELS.find((m) => m.id === id);

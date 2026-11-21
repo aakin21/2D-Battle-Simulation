@@ -11,9 +11,10 @@ import {
 } from '../types/types';
 import { decodeGrid, listSavedMaps, loadSavedMap, saveMap } from '../state/MapStore';
 import { FIXED_MAP } from '../maps/fixedMap';
-import { isOpenRouterId, OPENROUTER_MODELS } from '../ai/Models';
+import { isLocalModelName, isOpenRouterId, OPENROUTER_MODELS } from '../ai/Models';
 import type { Side } from '../engine/Sides';
 import { Dropdown } from './Dropdown';
+import { SIDE_NAME } from './format';
 
 // Each side's "who commands it" button group in the menu
 const SIDE_GROUPS = [
@@ -117,16 +118,17 @@ export class MainMenu {
     this.refreshSavedMaps();
 
     // Battle sides: the user or rules, the LLM alone, or the LLM with Jev or SubQ Snap as its
-    // tactical layer (D38, D51); how the LLM is reached and which model (D29, D52); AI timing
-    // (D4). Each row only appears when it applies.
+    // tactical layer (D38, D51); how the LLM is reached (Claude, OpenRouter or a local model)
+    // and which model (D29, D52); AI timing (D4). Each row only appears when it applies.
     const showAiRows = () => {
       for (const [side, groupId] of SIDE_GROUPS) {
         const llm = this.getOptActive(groupId).includes('llm');
-        const router = this.getOptActive(`cfg-${side}-provider`) === 'openrouter';
+        const provider = this.getOptActive(`cfg-${side}-provider`);
         const custom = this.routerLists[side].value === '';
         document.getElementById(`row-${side}-provider`)!.hidden = !llm;
-        document.getElementById(`row-${side}-model`)!.hidden = !llm || router;
-        document.getElementById(`row-${side}-router`)!.hidden = !llm || !router;
+        document.getElementById(`row-${side}-model`)!.hidden = !llm || provider !== 'claude';
+        document.getElementById(`row-${side}-router`)!.hidden = !llm || provider !== 'openrouter';
+        document.getElementById(`row-${side}-local`)!.hidden = !llm || provider !== 'local';
         document.getElementById(`cfg-${side}-router-id`)!.hidden = !custom;
       }
       const west = this.getOptActive('cfg-west');
@@ -134,6 +136,11 @@ export class MainMenu {
       document.getElementById('row-timing')!.hidden = west === 'none' && east === 'none';
     };
     for (const side of ['west', 'east'] as const) {
+      // A local model's name has "-" and "r" in it ("deepseek-r1:14b"): the characters typed
+      // here must not reach the page's shortcuts, which take them on the window from any element
+      document.getElementById(`cfg-${side}-local-id`)!.addEventListener('keydown', (e) => {
+        if (e.key.length === 1) e.stopPropagation();
+      });
       this.routerLists[side] = this.routerList(side);
       this.routerLists[side].onChoose(() => {
         showAiRows();
@@ -179,17 +186,20 @@ export class MainMenu {
         return null;
       }
     }
-    // A mistyped OpenRouter id must not silently run another model: model comparisons rely on it
+    // A mistyped OpenRouter id or local model name must not silently run another model: model
+    // comparisons rely on it
     if (this.tabBattle.classList.contains('active')) {
       for (const [side, groupId] of SIDE_GROUPS) {
-        const llm = this.getOptActive(groupId).includes('llm');
-        if (
-          llm &&
-          this.getOptActive(`cfg-${side}-provider`) === 'openrouter' &&
-          !this.routerId(side)
-        ) {
+        if (!this.getOptActive(groupId).includes('llm')) continue;
+        const provider = this.getOptActive(`cfg-${side}-provider`);
+        const name = SIDE_NAME[side];
+        if (provider === 'openrouter' && !this.routerId(side)) {
+          window.alert(`Type the ${name} model's OpenRouter id, e.g. "google/gemini-3.8-flash".`);
+          return null;
+        }
+        if (provider === 'local' && !this.localName(side)) {
           window.alert(
-            `Type the ${side === 'west' ? 'West' : 'East'} model's OpenRouter id, e.g. "google/gemini-3.8-flash".`
+            `Type the ${name} model's name as your local server knows it, e.g. "qwen3:14b" (Ollama: ollama list). Letters, digits and . _ : / - only.`
           );
           return null;
         }
@@ -286,12 +296,16 @@ export class MainMenu {
     return this.getOptActive(groupId) === 'snap+llm' ? 'snap' : 'jev';
   }
 
-  // The LLM chosen for a side: a Claude alias, or "openrouter:<id>" (D52). A typed id that is not
-  // an OpenRouter id falls back to the list's first model; Start checks it first.
+  // The LLM chosen for a side: a Claude alias, "openrouter:<id>" (D52) or "local:<name>". A typed
+  // id that is not an OpenRouter id falls back to the list's first model, a name that cannot be a
+  // local model's to the Claude model; Start checks them first.
   private chosenModel(side: Side): LlmModel {
-    if (this.getOptActive(`cfg-${side}-provider`) !== 'openrouter')
-      return this.getOptActive(`cfg-${side}-model`) as LlmModel;
-    return `openrouter:${this.routerId(side) ?? OPENROUTER_MODELS[0].id}`;
+    const provider = this.getOptActive(`cfg-${side}-provider`);
+    if (provider === 'openrouter')
+      return `openrouter:${this.routerId(side) ?? OPENROUTER_MODELS[0].id}`;
+    const local = provider === 'local' ? this.localName(side) : null;
+    if (local) return `local:${local}`;
+    return this.getOptActive(`cfg-${side}-model`) as LlmModel;
   }
 
   private routerId(side: Side): string | null {
@@ -299,6 +313,11 @@ export class MainMenu {
     const id =
       picked || (document.getElementById(`cfg-${side}-router-id`) as HTMLInputElement).value.trim();
     return isOpenRouterId(id) ? id : null;
+  }
+
+  private localName(side: Side): string | null {
+    const name = (document.getElementById(`cfg-${side}-local-id`) as HTMLInputElement).value.trim();
+    return isLocalModelName(name) ? name : null;
   }
 
   private setOptActive(groupId: string, val: string): void {

@@ -231,6 +231,12 @@
                 >
                   OpenRouter
                 </button>
+                <button
+                  data-val="local"
+                  title="A model on the AI server's own computer (Ollama, LM Studio, llama.cpp) or any OpenAI-compatible API, set by LOCAL_LLM_URL in its .env.local"
+                >
+                  Local
+                </button>
               </div>
             </div>
             <div class="cfg-row sub" id="row-west-model" hidden>
@@ -252,6 +258,18 @@
                 spellcheck="false"
                 autocomplete="off"
                 hidden
+              />
+            </div>
+            <div class="cfg-row sub" id="row-west-local" hidden>
+              <label>Model</label>
+              <input
+                type="text"
+                id="cfg-west-local-id"
+                class="router-id"
+                placeholder="name, e.g. qwen3:14b"
+                title="The model's name as the local server knows it (Ollama: ollama list)"
+                spellcheck="false"
+                autocomplete="off"
               />
             </div>
             <div class="cfg-row">
@@ -289,6 +307,12 @@
                 >
                   OpenRouter
                 </button>
+                <button
+                  data-val="local"
+                  title="A model on the AI server's own computer (Ollama, LM Studio, llama.cpp) or any OpenAI-compatible API, set by LOCAL_LLM_URL in its .env.local"
+                >
+                  Local
+                </button>
               </div>
             </div>
             <div class="cfg-row sub" id="row-east-model" hidden>
@@ -310,6 +334,18 @@
                 spellcheck="false"
                 autocomplete="off"
                 hidden
+              />
+            </div>
+            <div class="cfg-row sub" id="row-east-local" hidden>
+              <label>Model</label>
+              <input
+                type="text"
+                id="cfg-east-local-id"
+                class="router-id"
+                placeholder="name, e.g. qwen3:14b"
+                title="The model's name as the local server knows it (Ollama: ollama list)"
+                spellcheck="false"
+                autocomplete="off"
               />
             </div>
             <div class="cfg-row" id="row-timing" hidden>
