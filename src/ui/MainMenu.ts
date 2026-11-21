@@ -136,11 +136,6 @@ export class MainMenu {
       document.getElementById('row-timing')!.hidden = west === 'none' && east === 'none';
     };
     for (const side of ['west', 'east'] as const) {
-      // A local model's name has "-" and "r" in it ("deepseek-r1:14b"): the characters typed
-      // here must not reach the page's shortcuts, which take them on the window from any element
-      document.getElementById(`cfg-${side}-local-id`)!.addEventListener('keydown', (e) => {
-        if (e.key.length === 1) e.stopPropagation();
-      });
       this.routerLists[side] = this.routerList(side);
       this.routerLists[side].onChoose(() => {
         showAiRows();

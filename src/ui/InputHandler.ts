@@ -8,6 +8,17 @@ export type SelectDragCallback = (x1: number, y1: number, x2: number, y2: number
 // Keys whose default browser behavior should be suppressed
 const HANDLED_KEYS = new Set([' ', '+', '=', '-', 'r', 'R']);
 const REPEATABLE_KEYS = new Set(['+', '=', '-']);
+// Inputs that take typed text (`type` is "text" when the attribute is missing or unknown);
+// sliders, checkboxes, radios, buttons, file and colour pickers do not
+const TEXT_INPUT_TYPES = new Set(['text', 'search', 'url', 'number', 'password', 'email', 'tel']);
+
+function isTextField(target: EventTarget | null): boolean {
+  if (target instanceof HTMLInputElement) return TEXT_INPUT_TYPES.has(target.type);
+  return (
+    target instanceof HTMLTextAreaElement ||
+    (target instanceof HTMLElement && target.isContentEditable)
+  );
+}
 
 export class InputHandler {
   private canvas: HTMLCanvasElement;
@@ -175,6 +186,9 @@ export class InputHandler {
       // Browser shortcuts stay with the browser: Cmd/Ctrl+R reloads, Cmd/Ctrl +/− zooms.
       // AltGr (Ctrl+Alt on Windows) types characters on some layouts, so it still counts.
       if (e.metaKey || (e.ctrlKey && !e.getModifierState('AltGraph'))) return;
+      // A character typed into a text field is text ("deepseek-r1"), never a shortcut;
+      // Esc, Enter and the other named keys still reach the page
+      if (e.key.length === 1 && isTextField(e.target)) return;
       if (HANDLED_KEYS.has(e.key)) e.preventDefault();
       // A held key repeats: only the speed keys act on repeats, so holding R restarts once
       if (e.repeat && !REPEATABLE_KEYS.has(e.key)) return;
