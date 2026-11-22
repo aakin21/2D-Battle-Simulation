@@ -1,7 +1,7 @@
 import { defineConfig, loadEnv, type Plugin, type ProxyOptions } from 'vite';
 import { execSync } from 'node:child_process';
 import { ServerResponse, type ClientRequest, type IncomingMessage } from 'node:http';
-import { llmPlugin } from './server/llmPlugin';
+import { devLlmEndpoint, llmPlugin, llmStatusPlugin } from './server/llmPlugin';
 import { aiAccessPlugin } from './server/aiAccess';
 import { JEV_PROXY_TIMEOUT_MS } from './src/ai/Limits';
 
@@ -123,10 +123,18 @@ export default defineConfig(({ mode }) => {
     },
   });
 
+  // /api/llm and its status (GET /api/bridge: what it runs, for Match setup) share one endpoint
+  const llm = devLlmEndpoint(env);
+
   return {
     base: './',
     define: { __APP_VERSION__: JSON.stringify(appVersion()) },
-    plugins: [aiAccessPlugin(env), llmPlugin(env), decisionProxyMethods()],
+    plugins: [
+      aiAccessPlugin(env),
+      llmPlugin(env, llm),
+      llmStatusPlugin(env, llm),
+      decisionProxyMethods(),
+    ],
     build: {
       outDir: 'dist',
     },

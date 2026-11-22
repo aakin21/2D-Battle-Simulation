@@ -1,4 +1,4 @@
-import { query, type Query, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
+import type { query, Query, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import type { ClaudeModel } from '../src/ai/Models';
 import {
   LlmError,
@@ -28,6 +28,10 @@ function lastingError(text: string): boolean {
   return LASTING.some((re) => re.test(text));
 }
 
+// The Agent SDK's query(), passed in by whoever loaded the SDK: the dev server imports it
+// (llmPlugin.ts); the AI bridge loads it when it starts, and runs without it (bridge.ts)
+export type QueryFn = typeof query;
+
 // A long-lived Agent SDK session. Messages are pushed into an async queue that the SDK
 // reads from; each reply arrives as a "result" message.
 export class ClaudeSession implements LlmSession {
@@ -41,6 +45,7 @@ export class ClaudeSession implements LlmSession {
   private q: Query;
 
   constructor(
+    query: QueryFn,
     readonly matchId: string,
     readonly model: ClaudeModel,
     systemPrompt: string,

@@ -15,6 +15,8 @@ export class CanvasInteraction {
   // While a replay is watched: its units (selection, tooltip and area counts read them; hero
   // orders are off)
   private replayUnits: (() => IUnit[]) | null = null;
+  // Told what the user did (the in-context hints, Hints.ts): a selection, or an order given
+  private userActions: Array<(action: 'select' | 'order', unit: IUnit | null) => void> = [];
 
   // Throttle tooltip updates — only recalculate when cursor moves significantly
   private lastTooltipX: number = -999;
@@ -57,6 +59,7 @@ export class CanvasInteraction {
       this.selectedUnitId = clicked?.id ?? null;
       this.renderer.setSelectedUnit(this.selectedUnitId);
       this.hud.showUnit(clicked);
+      for (const cb of this.userActions) cb('select', clicked);
     });
 
     // Right click → task point for the selected friendly hero, or the first one
@@ -69,6 +72,7 @@ export class CanvasInteraction {
       if (hero) {
         this.engine.issueCommand(hero, { type: 'move', target: { x: grid.x, y: grid.y } }, 'user');
         this.sound.play('order');
+        for (const cb of this.userActions) cb('order', hero);
       }
     });
 
@@ -106,6 +110,11 @@ export class CanvasInteraction {
       const tileY = ((e.clientY - r.top) / r.height) * GRID_SIZE;
       this.renderer.centerOn(tileX, tileY, true);
     });
+  }
+
+  // Listens to the user's selections and orders on the battlefield (read-only listeners)
+  onUserAction(cb: (action: 'select' | 'order', unit: IUnit | null) => void): void {
+    this.userActions.push(cb);
   }
 
   setReplayUnits(fn: (() => IUnit[]) | null): void {

@@ -1,6 +1,12 @@
-// Timeouts and size limits that must agree between the browser and the servers. Shared by the AI
-// layers and the dev server (server/llmPlugin.ts, vite.config.ts); api/jev.ts keeps its own
-// copies (Vercel bundles it on its own), so change them there too.
+// Timeouts, size limits and the AI bridge's port, which must agree between the browser and the
+// servers. Shared by the AI layers, the dev server (server/llmPlugin.ts, vite.config.ts) and the
+// AI bridge (server/bridge.ts); api/jev.ts keeps its own copies (Vercel bundles it on its own), so
+// change them there too.
+
+// The AI bridge's port when none is given (npm run bridge), and the one the menu's "Connect to the
+// AI bridge" tries when the page has no bridge address of its own. Not Vite's 5173 (nor 5174,
+// where Vite goes when 5173 is taken).
+export const DEFAULT_BRIDGE_PORT = 8642;
 
 // The browser gives up on an LLM request after this long; it then counts as a failure
 export const LLM_TIMEOUT_MS = 120_000;

@@ -18,8 +18,8 @@ import {
 
 // The most of a service's own error text that goes into a message and the log: a server may send
 // megabytes of it
-const MAX_DETAIL = 300;
-const capped = (text: string): string =>
+export const MAX_DETAIL = 300;
+export const capped = (text: string): string =>
   text.length > MAX_DETAIL ? `${text.slice(0, MAX_DETAIL)}…` : text;
 
 // An OpenAI-compatible chat API that runs one model: OpenRouter (D52), or a local model's server.
@@ -45,21 +45,30 @@ export interface ChatApi {
 // (a request for one of its models gets it as a 500, not retryable)
 type Provider = ((id: string) => ChatApi) | string;
 
+// The program whose settings these are, in messages that say what to restart: the dev server, or
+// the AI bridge (server/bridge.ts)
+export const DEV_SERVER = 'the dev server';
+
 // A key goes into a header, which carries printable ASCII only. fetch refuses anything else, and
 // its error text holds the whole header, key included (a line break pasted with the key)
-function keyProblem(name: string, key: string): string | null {
+export function keyProblem(name: string, key: string, server: string): string | null {
   return /^[\x21-\x7e]*$/.test(key)
     ? null
-    : `${name} has characters a header cannot carry (a line break or a pasted quote?); fix it in .env.local and restart the dev server.`;
+    : `${name} has characters a header cannot carry (a line break or a pasted quote?); fix it in .env.local and restart ${server}.`;
 }
 
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
-const SET_OPENROUTER_KEY = 'Set OPENROUTER_API_KEY in .env.local and restart the dev server.';
+const setOpenRouterKey = (server: string) =>
+  `Set OPENROUTER_API_KEY in .env.local and restart ${server}.`;
 
-export function openRouterProvider(key: string, maxBudgetUsd: number): Provider {
+export function openRouterProvider(
+  key: string,
+  maxBudgetUsd: number,
+  server = DEV_SERVER
+): Provider {
   const k = key.trim();
-  if (!k) return SET_OPENROUTER_KEY;
-  const problem = keyProblem('OPENROUTER_API_KEY', k);
+  if (!k) return setOpenRouterKey(server);
+  const problem = keyProblem('OPENROUTER_API_KEY', k, server);
   if (problem) return problem;
   return (id) => ({
     id,
@@ -80,7 +89,7 @@ export function openRouterProvider(key: string, maxBudgetUsd: number): Provider 
       `OpenRouter could not be reached: ${capped(errorText(err).split(k).join('…'))}`,
     redirected: (status) =>
       `OpenRouter answered with a redirect (HTTP ${status}), which is not followed.`,
-    hint: (status) => (status === 401 ? ` ${SET_OPENROUTER_KEY}` : ''),
+    hint: (status) => (status === 401 ? ` ${setOpenRouterKey(server)}` : ''),
   });
 }
 
@@ -107,13 +116,51 @@ function isLoopback(host: string): boolean {
 // running server)
 const MODEL_MISSING = /model.*(not found|does not exist)|no such model/i;
 
+// Where the local server's API is, from LOCAL_LLM_URL, or what is wrong with it
+export interface LocalServer {
+  origin: string; // scheme, host and port only: never a path, query or credentials
+  base: string; // in messages and the log: without a query that may be in the URL
+  chatUrl: string; // <base>/chat/completions, or the chat address LOCAL_LLM_URL already is
+  modelsUrl: string; // the API's model list, <API base>/models (the bridge's status, bridge.ts)
+  insecureRemote: boolean; // plain http:// to another computer: a key would cross a network
+}
+
+export function localServer(url: string | undefined, server = DEV_SERVER): LocalServer | string {
+  let u: URL | null = null;
+  try {
+    u = new URL((url ?? '').trim() || DEFAULT_LOCAL_URL);
+  } catch {
+    // not a URL: refused below
+  }
+  if (!u || (u.protocol !== 'http:' && u.protocol !== 'https:'))
+    return `LOCAL_LLM_URL in .env.local must be an http:// or https:// address (Ollama: http://localhost:11434/v1); restart ${server} after changing it.`;
+  // fetch refuses an address with a user name or password in it
+  if (u.username || u.password)
+    return `LOCAL_LLM_URL in .env.local must not contain a user name or password: put a key in LOCAL_LLM_KEY and restart ${server}.`;
+  // The API's base, or its chat address already (not doubled)
+  const path = u.pathname.replace(/\/+$/, '');
+  const base = u.origin + path;
+  const chat = path.endsWith(CHAT_PATH);
+  u.pathname = chat ? path : path + CHAT_PATH;
+  const chatUrl = u.href;
+  u.pathname = (chat ? path.slice(0, -CHAT_PATH.length) : path) + '/models';
+  return {
+    origin: u.origin,
+    base,
+    chatUrl,
+    modelsUrl: u.href,
+    insecureRemote: u.protocol === 'http:' && !isLoopback(u.hostname),
+  };
+}
+
 // Read once, when the dev server starts (its warnings are logged then); settings that cannot work
 // are the answer to every request for a local model
 export function localProvider(
   url: string | undefined,
   key: string,
   turns: string | undefined,
-  maxBudgetUsd: number
+  maxBudgetUsd: number,
+  server = DEV_SERVER
 ): Provider {
   // A plain whole number; "1e9", "0x2", "1.5" or "-1" is a typo, not a number to guess from
   const t = (turns ?? '').trim();
@@ -122,26 +169,13 @@ export function localProvider(
     console.warn(
       `[llm] LOCAL_LLM_HISTORY_TURNS in .env.local must be a whole number (0 or more); ${DEFAULT_HISTORY_TURNS} is used.`
     );
-  let u: URL | null = null;
-  try {
-    u = new URL((url ?? '').trim() || DEFAULT_LOCAL_URL);
-  } catch {
-    // not a URL: refused below
-  }
-  if (!u || (u.protocol !== 'http:' && u.protocol !== 'https:'))
-    return 'LOCAL_LLM_URL in .env.local must be an http:// or https:// address (Ollama: http://localhost:11434/v1); restart the dev server after changing it.';
-  // fetch refuses an address with a user name or password in it
-  if (u.username || u.password)
-    return 'LOCAL_LLM_URL in .env.local must not contain a user name or password: put a key in LOCAL_LLM_KEY and restart the dev server.';
+  const where = localServer(url, server);
+  if (typeof where === 'string') return where;
   const k = key.trim(); // only spaces: no key
-  const problem = keyProblem('LOCAL_LLM_KEY', k);
+  const problem = keyProblem('LOCAL_LLM_KEY', k, server);
   if (problem) return problem;
-  // The API's base, or its chat address already (not doubled)
-  const path = u.pathname.replace(/\/+$/, '');
-  const base = u.origin + path; // in messages and the log: without a query that may be in the URL
-  u.pathname = path.endsWith(CHAT_PATH) ? path : path + CHAT_PATH;
-  const chatUrl = u.href;
-  if (k && u.protocol === 'http:' && !isLoopback(u.hostname))
+  const { base, chatUrl } = where;
+  if (k && where.insecureRemote)
     console.warn(
       `[llm] LOCAL_LLM_KEY goes to ${base} unencrypted (http://); use https:// for a server on another computer.`
     );
@@ -165,7 +199,7 @@ export function localProvider(
       `Local LLM: the server at ${base} answered with a redirect (HTTP ${status}); set LOCAL_LLM_URL to the final address.`,
     hint: (status, detail) => {
       if (status === 401 || status === 403)
-        return ' Set LOCAL_LLM_KEY in .env.local to the key the server expects and restart the dev server.';
+        return ` Set LOCAL_LLM_KEY in .env.local to the key the server expects and restart ${server}.`;
       if (status === 404 || MODEL_MISSING.test(detail))
         return ` The server at ${base} does not know the model "${name}" (with Ollama: ollama pull ${name}), or LOCAL_LLM_URL is not its OpenAI-compatible address (Ollama's ends in /v1).`;
       return '';
@@ -183,7 +217,7 @@ export function localProvider(
 const THINK_CLOSE = /<\/think(?:ing)?\s*>/gi;
 const THINK_OPEN = /<think(?:ing)?(?:\s[^<>]*)?>/i;
 
-function withoutThinking(text: string): string {
+export function withoutThinking(text: string): string {
   let end = -1;
   for (const m of text.matchAll(THINK_CLOSE)) end = m.index + m[0].length;
   if (end < 0) return text.replace(THINK_OPEN, '');
@@ -193,7 +227,7 @@ function withoutThinking(text: string): string {
 
 // An answer is ~1–2 KB of JSON orders; a much longer one is a model that ran on, and it would be
 // sent again with each of the next reports
-const MAX_ANSWER_CHARS = 200_000;
+export const MAX_ANSWER_CHARS = 200_000;
 
 // A local model's answer text, null when it has none. It may come in parts ([{type: "text",
 // text}], some servers). An answer that is empty, cut off or too large is an error, not a 200:

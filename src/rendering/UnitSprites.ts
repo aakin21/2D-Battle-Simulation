@@ -46,6 +46,10 @@ const HERO_URLS: Record<Faction, string[]> = {
   [Faction.ENEMY]: [heroShamanLionUrl, heroLionOrangeUrl, heroTenguUrl],
 };
 
+// The sheets' addresses, for the menus and the match intro (CSS backgrounds)
+export const heroSpriteUrls = (faction: Faction): readonly string[] => HERO_URLS[faction];
+export const UNIT_SPRITE_URLS = { warrior: warriorUrl, berserker: berserkerUrl };
+
 interface SheetSet {
   normal: HTMLCanvasElement;
   flash: HTMLCanvasElement;

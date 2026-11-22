@@ -1,8 +1,8 @@
 import { SPEED_STEPS, SpeedStep } from '../engine/SimulationEngine';
 
-// Per-browser conveniences kept in local storage (speed, debug, effects, bars, sound). Storage
-// can be unavailable (private windows, blocked site data); settings then stay at their
-// defaults for this session.
+// Per-browser conveniences kept in local storage (speed, debug, effects, bars, sound; the hints
+// already seen). Storage can be unavailable (private windows, blocked site data); settings then
+// stay at their defaults for this session.
 
 const LS_SPEED = 'sim_speed';
 const LS_DEBUG = 'sim_debug';
@@ -61,4 +61,28 @@ export function saveSettings(s: Settings): void {
   } catch {
     // Storage unavailable: settings last for this session only
   }
+}
+
+function writeSetting(key: string, value: string | null): void {
+  try {
+    if (value === null) localStorage.removeItem(key);
+    else localStorage.setItem(key, value);
+  } catch {
+    // Storage unavailable: remembered for this session only (or not at all)
+  }
+}
+
+// --- First visit: the hints already seen ---
+
+const LS_HINTS: Record<HintKind, string> = { play: 'sim_hints_play', watch: 'sim_hints_watch' };
+
+// The in-context hints (Hints.ts): commanding a side, or watching a battle
+export type HintKind = 'play' | 'watch';
+
+export function hintsSeen(kind: HintKind): boolean {
+  return readSetting(LS_HINTS[kind]) === 'seen';
+}
+
+export function saveHintsSeen(kind: HintKind, seen: boolean): void {
+  writeSetting(LS_HINTS[kind], seen ? 'seen' : null);
 }

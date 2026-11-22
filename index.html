@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>2D Battle Simulation</title>
   </head>
-  <body>
+  <body class="front-open">
     <div id="app">
       <!-- Top bar: run controls, match banner, view toggles -->
       <header id="topbar">
@@ -15,7 +15,7 @@
           <span id="speed-display" class="speed well">1x</span>
           <button id="btn-faster" class="icon-btn" title="Faster (+)"></button>
           <button id="btn-restart" class="icon-btn" title="Restart (R)"></button>
-          <button id="btn-menu" class="btn" title="Back to the menu (Esc)">Menu</button>
+          <button id="btn-menu" class="btn" title="Menu (Esc)">Menu</button>
         </div>
         <div id="match-banner"></div>
         <div class="tb-group">
@@ -126,79 +126,221 @@
       </main>
     </div>
 
-    <!-- Main menu -->
-    <div id="main-menu" class="overlay">
-      <div class="menu-card panel">
-        <div class="menu-title">
-          <div class="title-unit" id="title-west"></div>
-          <h1>2D Battle Simulation</h1>
-          <div class="title-unit" id="title-east"></div>
+    <!-- The front end, full screen over an attract battle: the title screen, Match setup and the
+         Sandbox (src/ui/FrontEnd.ts, TitleScreen.ts, MatchSetup.ts, Sandbox.ts, Connections.ts) -->
+    <div id="main-menu" class="front">
+      <canvas id="attract-canvas" aria-hidden="true"></canvas>
+      <div class="front-shade" aria-hidden="true"></div>
+
+      <!-- Title screen -->
+      <section id="title-screen" class="screen title-screen" aria-labelledby="game-title">
+        <button
+          class="btn btn-quiet tour-open"
+          data-tour="title"
+          type="button"
+          aria-label="Show me around this screen"
+          title="Show me around this screen"
+        >
+          ?
+        </button>
+        <div class="title-wrap">
+          <header class="title-head">
+            <span class="title-unit title-west" aria-hidden="true"></span>
+            <div class="title-text">
+              <h1 id="game-title" class="game-title">2D Battle Simulation</h1>
+              <p class="tagline">
+                Hundreds of soldiers fight, flee and regroup on their own. Lead their heroes
+                yourself, or watch rules and AI do it.
+              </p>
+            </div>
+            <span class="title-unit title-east" aria-hidden="true"></span>
+          </header>
+
+          <div class="title-body">
+            <nav class="title-menu" aria-label="Main menu">
+              <button id="menu-continue" class="choice primary" hidden>
+                <span class="choice-icon icon-continue" aria-hidden="true"></span>
+                <span class="choice-text">
+                  <span class="choice-title">Continue</span>
+                  <span class="choice-desc" id="continue-desc">Back to the battle.</span>
+                </span>
+              </button>
+              <button id="title-play" class="choice primary">
+                <span class="choice-icon icon-play" aria-hidden="true"></span>
+                <span class="choice-text">
+                  <span class="choice-title">Quick battle</span>
+                  <span class="choice-desc" id="play-desc"
+                    >You command the West army's heroes against the built-in rules.</span
+                  >
+                </span>
+              </button>
+              <button id="title-ai" class="choice">
+                <span class="choice-icon icon-ai" aria-hidden="true"
+                  ><span class="mini-unit mini-hero-west"></span
+                  ><span class="mini-unit mini-hero-east"></span
+                ></span>
+                <span class="choice-text">
+                  <span class="choice-title">AI vs AI</span>
+                  <span class="choice-desc"
+                    >Choose who commands each side: an LLM, the rules or you. Then watch or
+                    play.</span
+                  >
+                </span>
+              </button>
+              <div class="choice-pair">
+                <button id="title-watch" class="choice" disabled>
+                  <span class="choice-icon icon-watch" aria-hidden="true"></span>
+                  <span class="choice-text">
+                    <span class="choice-title">Watch a recorded battle</span>
+                    <span class="choice-desc" id="watch-desc">Looking for recorded battles…</span>
+                  </span>
+                </button>
+                <button
+                  id="menu-replay"
+                  class="btn btn-quiet choice-side"
+                  title="Open a replay file (.replay) and watch it"
+                >
+                  Open a replay file…
+                </button>
+                <input id="menu-replay-file" type="file" accept=".replay" hidden />
+              </div>
+              <button id="title-sandbox" class="choice">
+                <span class="choice-icon icon-sandbox" aria-hidden="true"
+                  ><span class="mini-unit mini-warrior"></span
+                  ><span class="mini-unit mini-berserker"></span
+                ></span>
+                <span class="choice-text">
+                  <span class="choice-title">Sandbox</span>
+                  <span class="choice-desc">Classic mode, custom armies, the stress test.</span>
+                </span>
+              </button>
+              <div class="title-links">
+                <button id="menu-instructions" class="link-btn">Controls</button>
+                <button id="title-about" class="link-btn">About</button>
+              </div>
+            </nav>
+
+            <!-- AI connections: the ways an LLM side can run on this page: OpenRouter's card, and
+                 the AI bridge on this computer (a card once a bridge is in play, a line before) -->
+            <aside id="connections" class="connections" aria-labelledby="conn-title">
+              <h2 id="conn-title" class="conn-head">
+                AI connections <span id="conn-intro" class="conn-intro">for LLM sides</span>
+              </h2>
+              <section
+                id="conn-server"
+                class="conn-card panel-sm"
+                aria-labelledby="server-title"
+                hidden
+              >
+                <h3 id="server-title" class="conn-title">AI server</h3>
+                <p class="conn-desc">This page has an AI server of its own: LLM sides run there.</p>
+                <div class="conn-row">
+                  <span id="server-status" class="conn-status">this site</span>
+                </div>
+                <p id="server-details" class="conn-details"></p>
+              </section>
+              <section
+                id="conn-openrouter"
+                class="conn-card panel-sm"
+                aria-labelledby="openrouter-title"
+              >
+                <h3 id="openrouter-title" class="conn-title">OpenRouter</h3>
+                <p class="conn-desc">
+                  Your own OpenRouter account: models of every company, nothing to install.
+                </p>
+                <div class="conn-row">
+                  <span id="openrouter-status" class="conn-status">Not connected</span>
+                  <span class="conn-actions">
+                    <button
+                      id="openrouter-connect"
+                      class="btn btn-small"
+                      type="button"
+                      title="Opens openrouter.ai: sign in and allow this site a key of your own account (a $5 credit limit and an end after a day are offered; you can change both). The key stays in this page's memory only: connect again after a reload."
+                    >
+                      Connect
+                    </button>
+                    <button
+                      id="openrouter-disconnect"
+                      class="btn btn-small btn-quiet"
+                      type="button"
+                      title="Forget the key in this page (it stays on your OpenRouter account until it ends or you delete it there)"
+                      hidden
+                    >
+                      Disconnect
+                    </button>
+                  </span>
+                </div>
+                <p id="openrouter-message" class="connect-message" hidden></p>
+              </section>
+              <section
+                id="conn-bridge"
+                class="conn-card panel-sm"
+                aria-labelledby="bridge-title"
+                hidden
+              >
+                <h3 id="bridge-title" class="conn-title">This computer</h3>
+                <p class="conn-desc">
+                  One command in a terminal connects this page to what you have on your computer.
+                </p>
+                <div class="conn-row">
+                  <span id="bridge-status" class="conn-status">Bridge not connected</span>
+                  <span class="conn-actions">
+                    <button
+                      id="bridge-connect"
+                      class="btn btn-small"
+                      type="button"
+                      title="Asks the AI bridge on this computer which models it runs. The first time, the browser asks whether this site may access apps and services on this device."
+                    >
+                      Connect
+                    </button>
+                    <button
+                      id="bridge-disconnect"
+                      class="btn btn-small btn-quiet"
+                      type="button"
+                      title="Forget the AI bridge: this page goes back to its own AI server (the online demo has none)"
+                      hidden
+                    >
+                      Disconnect
+                    </button>
+                    <button id="bridge-help-open" class="btn btn-small btn-quiet" type="button">
+                      How to start it
+                    </button>
+                  </span>
+                </div>
+                <p id="bridge-details" class="bridge-details" hidden></p>
+              </section>
+              <!-- Until a bridge is in play: the second way as one quiet line (Connections.ts) -->
+              <p id="conn-own" class="conn-own">
+                <button id="bridge-own" class="link-btn" type="button">
+                  Or use your own computer: Ollama, Claude Code, Codex
+                </button>
+              </p>
+            </aside>
+          </div>
         </div>
+      </section>
 
-        <div id="menu-tabs" class="seg tabs">
-          <button id="tab-default" class="active">Default</button>
-          <button id="tab-custom">Custom</button>
-          <button id="tab-stress">Stress</button>
-          <button id="tab-battle">Battle</button>
-        </div>
-
-        <div class="menu-body">
-          <div class="menu-section well" id="menu-map">
-            <h4>Map</h4>
-            <div class="cfg-row">
-              <div class="seg" id="cfg-map">
-                <button data-val="random" class="active">Random</button>
-                <button data-val="fixed">Fixed</button>
-                <button data-val="saved">Saved</button>
-              </div>
-              <select id="cfg-map-saved" hidden></select>
-            </div>
-          </div>
-
-          <div class="menu-section well locked" id="menu-config">
-            <h4 id="cfg-army-title">Army</h4>
-            <div class="cfg-row">
-              <label id="cfg-warriors-label" for="cfg-warriors">Warriors</label>
-              <input type="range" id="cfg-warriors" min="0" max="2000" step="1" value="300" />
-              <input type="number" id="cfg-warriors-num" min="0" max="2000" value="300" />
-            </div>
-            <div class="cfg-row" id="cfg-wave-row">
-              <label for="cfg-wave-slider">Waves</label>
-              <input type="range" id="cfg-wave-slider" min="0.5" max="10" step="0.5" value="1" />
-              <span class="cfg-val" id="cfg-wave-val">1×</span>
-            </div>
-            <div class="cfg-row">
-              <label>Terrain</label>
-              <div class="seg" id="cfg-terrain">
-                <button data-val="light">Light</button>
-                <button data-val="normal" class="active">Normal</button>
-                <button data-val="dense">Dense</button>
-              </div>
-            </div>
-          </div>
-
-          <div class="menu-section well" id="stress-info" hidden>
-            <h4>Stress test</h4>
-            <p>2200 warriors against 2000 berserkers, normal terrain, waves ×1.</p>
-          </div>
-
-          <div class="menu-section well" id="battle-info" hidden>
-            <h4>Battle</h4>
-            <p class="faint">
-              3 heroes per side, no waves. Select one of your heroes and right-click to give it an
-              order.
-            </p>
-            <div class="cfg-row">
-              <label>Objective</label>
-              <div class="seg" id="cfg-objective">
-                <button data-val="elimination" class="active">Elimination</button>
-                <button data-val="control">Control A-B</button>
-                <button data-val="base">Base</button>
-              </div>
-            </div>
-            <div class="cfg-row">
-              <label class="west-text">West</label>
-              <div class="seg" id="cfg-west">
+      <!-- Match setup: the two sides face each other, the battle's options between them -->
+      <section id="setup-screen" class="screen form-screen" aria-labelledby="setup-title" hidden>
+        <header class="screen-head">
+          <h1 id="setup-title" class="screen-title">Match setup</h1>
+          <p id="setup-desc" class="screen-sub"></p>
+          <button
+            class="btn btn-quiet tour-open"
+            data-tour="setup"
+            type="button"
+            aria-label="Show me around this screen"
+            title="Show me around this screen"
+          >
+            ?
+          </button>
+        </header>
+        <div class="screen-body setup-grid">
+          <section class="side-card panel" id="setup-west" aria-labelledby="west-title">
+            <h2 id="west-title" class="card-title west-text">West</h2>
+            <div class="field">
+              <span class="field-label" id="lbl-west">Commanded by</span>
+              <div class="seg" id="cfg-west" role="group" aria-labelledby="lbl-west">
                 <button data-val="none" class="active">You</button>
                 <button data-val="llm">LLM</button>
                 <button
@@ -214,67 +356,92 @@
                   LLM + Snap
                 </button>
               </div>
+              <p class="field-desc" id="desc-west"></p>
             </div>
-            <div class="cfg-row sub" id="row-west-provider" hidden>
-              <label>LLM via</label>
-              <div class="seg" id="cfg-west-provider">
-                <button
-                  data-val="claude"
-                  class="active"
-                  title="Claude through the Agent SDK and your own Claude login"
-                >
-                  Claude
-                </button>
-                <button
-                  data-val="openrouter"
-                  title="Any company's model through OpenRouter (the AI server needs an OpenRouter key)"
-                >
-                  OpenRouter
-                </button>
-                <button
-                  data-val="local"
-                  title="A model on the AI server's own computer (Ollama, LM Studio, llama.cpp) or any OpenAI-compatible API, set by LOCAL_LLM_URL in its .env.local"
-                >
-                  Local
-                </button>
+            <div class="llm-box" id="llm-west" hidden>
+              <div class="field">
+                <span class="field-label" id="lbl-west-way">The LLM runs on</span>
+                <div class="seg" id="cfg-west-way" role="group" aria-labelledby="lbl-west-way">
+                  <button data-val="server" title="This site's own AI server">AI server</button>
+                  <button
+                    data-val="openrouter"
+                    title="Your own OpenRouter account, from this browser"
+                  >
+                    OpenRouter
+                  </button>
+                  <button
+                    data-val="bridge"
+                    title="The AI bridge on this computer: local models, Claude, Codex, Gemini, commands of its own"
+                  >
+                    This computer
+                  </button>
+                </div>
+              </div>
+              <div class="field" id="pick-west">
+                <span class="field-label" id="lbl-west-model">Model</span>
+                <div
+                  id="cfg-west-model"
+                  class="model-select"
+                  aria-labelledby="lbl-west-model"
+                ></div>
+                <input
+                  type="text"
+                  id="cfg-west-router-id"
+                  class="text-field"
+                  placeholder="publisher/model"
+                  aria-label="West OpenRouter model id"
+                  spellcheck="false"
+                  autocomplete="off"
+                  hidden
+                />
+                <input
+                  type="text"
+                  id="cfg-west-local-id"
+                  class="text-field"
+                  placeholder="name, e.g. qwen3:14b"
+                  title="The model's name as the local server knows it (Ollama: ollama list)"
+                  aria-label="West local model name"
+                  spellcheck="false"
+                  autocomplete="off"
+                  hidden
+                />
+                <input
+                  type="text"
+                  id="cfg-west-codex-id"
+                  class="text-field"
+                  placeholder="model, e.g. gpt-6.1-sol"
+                  title="A model Codex knows, by its name"
+                  aria-label="West Codex model name"
+                  spellcheck="false"
+                  autocomplete="off"
+                  hidden
+                />
+                <input
+                  type="text"
+                  id="cfg-west-gemini-id"
+                  class="text-field"
+                  placeholder="model, e.g. gemini-3.8-flash"
+                  title="The model's name as the Gemini API knows it"
+                  aria-label="West Gemini model name"
+                  spellcheck="false"
+                  autocomplete="off"
+                  hidden
+                />
+                <p id="cfg-west-hint" class="field-hint" hidden></p>
+              </div>
+              <div class="connect-inline" id="connect-west" hidden>
+                <p id="connect-west-text" class="connect-text"></p>
+                <button id="connect-west-btn" class="btn btn-small" type="button">Connect…</button>
               </div>
             </div>
-            <div class="cfg-row sub" id="row-west-model" hidden>
-              <label>Model</label>
-              <div class="seg" id="cfg-west-model">
-                <button data-val="haiku">Haiku</button>
-                <button data-val="sonnet" class="active">Sonnet</button>
-                <button data-val="opus">Opus</button>
-              </div>
-            </div>
-            <div class="cfg-row sub" id="row-west-router" hidden>
-              <label>Model</label>
-              <div id="cfg-west-router" class="router-select"></div>
-              <input
-                type="text"
-                id="cfg-west-router-id"
-                class="router-id"
-                placeholder="publisher/model"
-                spellcheck="false"
-                autocomplete="off"
-                hidden
-              />
-            </div>
-            <div class="cfg-row sub" id="row-west-local" hidden>
-              <label>Model</label>
-              <input
-                type="text"
-                id="cfg-west-local-id"
-                class="router-id"
-                placeholder="name, e.g. qwen3:14b"
-                title="The model's name as the local server knows it (Ollama: ollama list)"
-                spellcheck="false"
-                autocomplete="off"
-              />
-            </div>
-            <div class="cfg-row">
-              <label class="east-text">East</label>
-              <div class="seg" id="cfg-opponent">
+            <p id="msg-west" class="msg" role="alert" hidden></p>
+          </section>
+
+          <section class="side-card panel" id="setup-east" aria-labelledby="east-title">
+            <h2 id="east-title" class="card-title east-text">East</h2>
+            <div class="field">
+              <span class="field-label" id="lbl-east">Commanded by</span>
+              <div class="seg" id="cfg-opponent" role="group" aria-labelledby="lbl-east">
                 <button data-val="none" class="active">Rules</button>
                 <button data-val="llm">LLM</button>
                 <button
@@ -290,74 +457,149 @@
                   LLM + Snap
                 </button>
               </div>
+              <p class="field-desc" id="desc-east"></p>
             </div>
-            <div class="cfg-row sub" id="row-east-provider" hidden>
-              <label>LLM via</label>
-              <div class="seg" id="cfg-east-provider">
+            <div class="llm-box" id="llm-east" hidden>
+              <div class="field">
+                <span class="field-label" id="lbl-east-way">The LLM runs on</span>
+                <div class="seg" id="cfg-east-way" role="group" aria-labelledby="lbl-east-way">
+                  <button data-val="server" title="This site's own AI server">AI server</button>
+                  <button
+                    data-val="openrouter"
+                    title="Your own OpenRouter account, from this browser"
+                  >
+                    OpenRouter
+                  </button>
+                  <button
+                    data-val="bridge"
+                    title="The AI bridge on this computer: local models, Claude, Codex, Gemini, commands of its own"
+                  >
+                    This computer
+                  </button>
+                </div>
+              </div>
+              <div class="field" id="pick-east">
+                <span class="field-label" id="lbl-east-model">Model</span>
+                <div
+                  id="cfg-east-model"
+                  class="model-select"
+                  aria-labelledby="lbl-east-model"
+                ></div>
+                <input
+                  type="text"
+                  id="cfg-east-router-id"
+                  class="text-field"
+                  placeholder="publisher/model"
+                  aria-label="East OpenRouter model id"
+                  spellcheck="false"
+                  autocomplete="off"
+                  hidden
+                />
+                <input
+                  type="text"
+                  id="cfg-east-local-id"
+                  class="text-field"
+                  placeholder="name, e.g. qwen3:14b"
+                  title="The model's name as the local server knows it (Ollama: ollama list)"
+                  aria-label="East local model name"
+                  spellcheck="false"
+                  autocomplete="off"
+                  hidden
+                />
+                <input
+                  type="text"
+                  id="cfg-east-codex-id"
+                  class="text-field"
+                  placeholder="model, e.g. gpt-6.1-sol"
+                  title="A model Codex knows, by its name"
+                  aria-label="East Codex model name"
+                  spellcheck="false"
+                  autocomplete="off"
+                  hidden
+                />
+                <input
+                  type="text"
+                  id="cfg-east-gemini-id"
+                  class="text-field"
+                  placeholder="model, e.g. gemini-3.8-flash"
+                  title="The model's name as the Gemini API knows it"
+                  aria-label="East Gemini model name"
+                  spellcheck="false"
+                  autocomplete="off"
+                  hidden
+                />
+                <p id="cfg-east-hint" class="field-hint" hidden></p>
+              </div>
+              <div class="connect-inline" id="connect-east" hidden>
+                <p id="connect-east-text" class="connect-text"></p>
+                <button id="connect-east-btn" class="btn btn-small" type="button">Connect…</button>
+              </div>
+            </div>
+            <p id="msg-east" class="msg" role="alert" hidden></p>
+          </section>
+
+          <section class="battle-card panel" id="setup-battle" aria-labelledby="battle-title">
+            <h2 id="battle-title" class="card-title">Battle</h2>
+            <div class="field">
+              <span class="field-label" id="lbl-objective">Objective</span>
+              <div class="seg" id="cfg-objective" role="group" aria-labelledby="lbl-objective">
+                <button data-val="elimination" class="active">Elimination</button>
+                <button data-val="control">Control A-B</button>
+                <button data-val="base">Base</button>
+              </div>
+              <p class="field-desc" id="desc-objective"></p>
+            </div>
+            <div class="field">
+              <span class="field-label" id="lbl-map">Map</span>
+              <div class="field-row">
+                <div class="seg" id="cfg-map" role="group" aria-labelledby="lbl-map">
+                  <button data-val="random" class="active">Random</button>
+                  <button data-val="fixed">Fixed</button>
+                  <button data-val="saved">Saved</button>
+                </div>
+                <select id="cfg-map-saved" aria-label="Saved map" hidden></select>
+              </div>
+            </div>
+            <div class="field">
+              <label class="field-label" for="cfg-warriors">Soldiers per side</label>
+              <div class="field-row">
+                <input type="range" id="cfg-warriors" min="0" max="2000" step="1" value="150" />
+                <input
+                  type="number"
+                  id="cfg-warriors-num"
+                  min="0"
+                  max="2000"
+                  value="150"
+                  aria-label="Soldiers per side"
+                />
+              </div>
+            </div>
+            <div class="field">
+              <span class="field-label" id="lbl-terrain">Terrain</span>
+              <div class="seg" id="cfg-terrain" role="group" aria-labelledby="lbl-terrain">
+                <button data-val="light">Light</button>
+                <button data-val="normal" class="active">Normal</button>
+                <button data-val="dense">Dense</button>
+              </div>
+            </div>
+            <div class="field" id="row-timing" hidden>
+              <span class="field-label" id="lbl-timing">AI timing</span>
+              <div class="seg" id="cfg-timing" role="group" aria-labelledby="lbl-timing">
                 <button
-                  data-val="claude"
+                  data-val="realtime"
                   class="active"
-                  title="Claude through the Agent SDK and your own Claude login"
+                  title="The battle goes on while the AI thinks"
                 >
-                  Claude
+                  Real-time
                 </button>
-                <button
-                  data-val="openrouter"
-                  title="Any company's model through OpenRouter (the AI server needs an OpenRouter key)"
-                >
-                  OpenRouter
-                </button>
-                <button
-                  data-val="local"
-                  title="A model on the AI server's own computer (Ollama, LM Studio, llama.cpp) or any OpenAI-compatible API, set by LOCAL_LLM_URL in its .env.local"
-                >
-                  Local
+                <button data-val="paused" title="The battle waits for every AI answer">
+                  Paused
                 </button>
               </div>
             </div>
-            <div class="cfg-row sub" id="row-east-model" hidden>
-              <label>Model</label>
-              <div class="seg" id="cfg-east-model">
-                <button data-val="haiku">Haiku</button>
-                <button data-val="sonnet" class="active">Sonnet</button>
-                <button data-val="opus">Opus</button>
-              </div>
-            </div>
-            <div class="cfg-row sub" id="row-east-router" hidden>
-              <label>Model</label>
-              <div id="cfg-east-router" class="router-select"></div>
-              <input
-                type="text"
-                id="cfg-east-router-id"
-                class="router-id"
-                placeholder="publisher/model"
-                spellcheck="false"
-                autocomplete="off"
-                hidden
-              />
-            </div>
-            <div class="cfg-row sub" id="row-east-local" hidden>
-              <label>Model</label>
-              <input
-                type="text"
-                id="cfg-east-local-id"
-                class="router-id"
-                placeholder="name, e.g. qwen3:14b"
-                title="The model's name as the local server knows it (Ollama: ollama list)"
-                spellcheck="false"
-                autocomplete="off"
-              />
-            </div>
-            <div class="cfg-row" id="row-timing" hidden>
-              <label>AI timing</label>
-              <div class="seg" id="cfg-timing">
-                <button data-val="realtime" class="active">Real-time</button>
-                <button data-val="paused">Paused</button>
-              </div>
-            </div>
-            <div class="cfg-row">
-              <label>Replay</label>
-              <div class="seg" id="cfg-replay">
+            <div class="field">
+              <span class="field-label" id="lbl-replay">Replay</span>
+              <div class="seg" id="cfg-replay" role="group" aria-labelledby="lbl-replay">
                 <button
                   data-val="on"
                   class="active"
@@ -373,47 +615,229 @@
                 </button>
               </div>
             </div>
-          </div>
+            <p id="msg-battle" class="msg" role="alert" hidden></p>
+          </section>
         </div>
+        <footer class="screen-foot">
+          <button id="setup-back" class="btn btn-quiet foot-back" title="Back (Esc)">Back</button>
+          <button id="menu-start" class="btn btn-primary foot-start">Start</button>
+        </footer>
+      </section>
 
-        <div class="menu-actions">
-          <button id="menu-continue" class="btn" hidden title="Back to the current run (Esc)">
-            Continue
-          </button>
-          <button id="menu-start" class="btn btn-primary">Start</button>
-          <button id="menu-instructions" class="btn btn-quiet">Controls</button>
+      <!-- Sandbox: Phase 1's classic mode, custom armies, the stress test -->
+      <section
+        id="sandbox-screen"
+        class="screen form-screen"
+        aria-labelledby="sandbox-title"
+        hidden
+      >
+        <header class="screen-head">
+          <h1 id="sandbox-title" class="screen-title">Sandbox</h1>
+          <p class="screen-sub">The classic mode of the first version and the tools around it.</p>
           <button
-            id="menu-replay"
-            class="btn btn-quiet"
-            title="Open a replay file (.replay) and watch it"
+            class="btn btn-quiet tour-open"
+            data-tour="sandbox"
+            type="button"
+            aria-label="Show me around this screen"
+            title="Show me around this screen"
           >
-            Watch a replay
+            ?
           </button>
-          <input id="menu-replay-file" type="file" accept=".replay" hidden />
+        </header>
+        <div class="screen-body sandbox-body">
+          <section class="sandbox-card panel" aria-label="Sandbox settings">
+            <div id="menu-tabs" class="seg tabs" role="group" aria-label="Sandbox mode">
+              <button id="tab-default" class="active">Classic</button>
+              <button id="tab-custom">Custom</button>
+              <button id="tab-stress">Stress test</button>
+            </div>
+            <p id="tab-desc" class="tab-desc"></p>
+            <div class="field" id="sb-map-field">
+              <span class="field-label" id="lbl-sb-map">Map</span>
+              <div class="field-row">
+                <div class="seg" id="sb-map" role="group" aria-labelledby="lbl-sb-map">
+                  <button data-val="random" class="active">Random</button>
+                  <button data-val="fixed">Fixed</button>
+                  <button data-val="saved">Saved</button>
+                </div>
+                <select id="sb-map-saved" aria-label="Saved map" hidden></select>
+              </div>
+            </div>
+            <div id="sb-army">
+              <div class="field">
+                <label class="field-label" for="sb-warriors">Warriors</label>
+                <div class="field-row">
+                  <input type="range" id="sb-warriors" min="0" max="2000" step="1" value="300" />
+                  <input
+                    type="number"
+                    id="sb-warriors-num"
+                    min="0"
+                    max="2000"
+                    value="300"
+                    aria-label="Warriors"
+                  />
+                </div>
+              </div>
+              <div class="field">
+                <label class="field-label" for="cfg-wave-slider">Berserker waves</label>
+                <div class="field-row">
+                  <input
+                    type="range"
+                    id="cfg-wave-slider"
+                    min="0.5"
+                    max="10"
+                    step="0.5"
+                    value="1"
+                  />
+                  <span class="field-val" id="cfg-wave-val">1×</span>
+                </div>
+              </div>
+              <div class="field">
+                <span class="field-label" id="lbl-sb-terrain">Terrain</span>
+                <div class="seg" id="sb-terrain" role="group" aria-labelledby="lbl-sb-terrain">
+                  <button data-val="light">Light</button>
+                  <button data-val="normal" class="active">Normal</button>
+                  <button data-val="dense">Dense</button>
+                </div>
+              </div>
+            </div>
+            <p id="msg-sandbox" class="msg" role="alert" hidden></p>
+          </section>
+        </div>
+        <footer class="screen-foot">
+          <button id="sandbox-back" class="btn btn-quiet foot-back" title="Back (Esc)">Back</button>
+          <button id="sandbox-start" class="btn btn-primary foot-start">Start</button>
+        </footer>
+      </section>
+    </div>
+
+    <!-- Pause menu over a run or a replay (src/ui/PauseMenu.ts) -->
+    <div id="pause-menu" class="overlay pause-overlay" hidden>
+      <div class="pause-card panel" role="dialog" aria-modal="true" aria-labelledby="pause-title">
+        <h2 id="pause-title" class="card-title">Paused</h2>
+        <button id="pause-continue" class="btn btn-primary">Continue</button>
+        <button id="pause-restart" class="btn">Restart</button>
+        <button id="pause-new" class="btn">New battle</button>
+        <button id="pause-title-screen" class="btn btn-quiet">Title screen</button>
+        <button id="pause-controls" class="btn btn-quiet">Controls</button>
+      </div>
+    </div>
+
+    <!-- The AI bridge: how to start it, or how to allow it again (Connections.ts) -->
+    <dialog id="bridge-dialog" class="dialog panel" aria-labelledby="bridge-dialog-title">
+      <h2 id="bridge-dialog-title" class="card-title">The AI bridge on this computer</h2>
+      <p id="bridge-dialog-status" class="dialog-status"></p>
+      <div id="bridge-help" class="bridge-help">
+        <div id="bridge-help-start" class="bridge-help-part">
+          <p>
+            Run this in a terminal. It connects this page to what you have on your computer: Ollama
+            (or another local model server), Claude Code, Codex.
+          </p>
+          <div class="bridge-command">
+            <pre class="bridge-commands">
+npx https://aakin21.github.io/2D-Battle-Simulation/ai-bridge.tgz</pre
+            >
+            <button id="bridge-copy" class="btn btn-small btn-quiet" type="button">Copy</button>
+          </div>
+          <p>
+            The first time, the browser asks whether this site may reach your computer: allow it.
+          </p>
+          <p class="bridge-extra">
+            Needs Node.js 20.12 or newer. Gemini too: put <code>GEMINI_API_KEY=…</code> in
+            <code>.env.local</code> in the folder you run it from.
+          </p>
+        </div>
+        <p id="bridge-help-denied" hidden>
+          The browser blocks this site from reaching apps on this device. Allow it again in the site
+          settings (the icon left of the address bar): "Local network access", or "Loopback network"
+          in newer versions. Then press Try again.
+        </p>
+      </div>
+      <div class="dialog-actions">
+        <button id="bridge-retry" class="btn" type="button">Try again</button>
+        <button class="btn btn-quiet" type="button" data-close>Close</button>
+      </div>
+    </dialog>
+
+    <!-- About -->
+    <dialog id="about-dialog" class="dialog panel" aria-labelledby="about-title">
+      <h2 id="about-title" class="card-title">About</h2>
+      <p>
+        A thesis project: a 2D battle simulation in which every soldier follows a few rules of
+        courage, movement and combat, so that armies fight, flee and regroup on their own.
+      </p>
+      <p>
+        The heroes who lead them can be commanded by you, by built-in rules, or by AI: a large
+        language model, alone or with a fast decision model for each hero.
+      </p>
+      <p class="faint">Art, sounds and font: Ninja Adventure Asset Pack by Pixel-boy (CC0).</p>
+      <div class="dialog-actions">
+        <button class="btn" type="button" data-close>Close</button>
+      </div>
+    </dialog>
+
+    <!-- The recorded battles the site ships, when there are several -->
+    <dialog id="replays-dialog" class="dialog panel" aria-labelledby="replays-title">
+      <h2 id="replays-title" class="card-title">Recorded battles</h2>
+      <div id="replays-list" class="replays-list"></div>
+      <div class="dialog-actions">
+        <button class="btn btn-quiet" type="button" data-close>Close</button>
+      </div>
+    </dialog>
+
+    <!-- The guided tour of a menu screen: a light around one part and what it is (Tour.ts) -->
+    <div id="tour" class="tour" role="dialog" aria-modal="true" aria-labelledby="tour-title" hidden>
+      <div id="tour-spot" class="tour-spot"></div>
+      <div id="tour-box" class="tour-box panel-sm">
+        <div class="tour-head">
+          <span id="tour-count" class="tour-count"></span>
+          <h2 id="tour-title" class="tour-title"></h2>
+        </div>
+        <p id="tour-text" class="tour-text" aria-live="polite"></p>
+        <div class="tour-actions">
+          <button id="tour-close" class="btn btn-small btn-quiet tour-close" type="button">
+            Close
+          </button>
+          <button id="tour-back" class="btn btn-small btn-quiet" type="button">Back</button>
+          <button id="tour-next" class="btn btn-small" type="button">Next</button>
         </div>
       </div>
     </div>
 
-    <!-- Building simulation (shown after Start) -->
-    <div id="loading-overlay" class="overlay">
-      <div class="loading-card panel">
-        <h2>Building simulation</h2>
-        <div id="loading-units">
-          <div id="loading-warrior" class="loading-unit"></div>
-          <div id="loading-berserker" class="loading-unit"></div>
+    <!-- The match intro (shown after Start): who fights whom and for what (LoadingScreen.ts) -->
+    <div id="loading-overlay" class="overlay intro">
+      <div class="intro-board">
+        <div class="intro-side intro-west">
+          <div class="intro-units" id="intro-west-units"></div>
+          <div class="intro-name west-text" id="intro-west-name"></div>
+          <div class="intro-who" id="intro-west-who"></div>
         </div>
-        <div id="loading-step"></div>
-        <div id="loading-bar" class="bar"><i id="loading-fill"></i></div>
-        <div id="loading-hint" class="faint">click to skip</div>
+        <div class="intro-vs" aria-hidden="true">VS</div>
+        <div class="intro-side intro-east">
+          <div class="intro-units" id="intro-east-units"></div>
+          <div class="intro-name east-text" id="intro-east-name"></div>
+          <div class="intro-who" id="intro-east-who"></div>
+        </div>
       </div>
+      <div class="intro-line" id="intro-line"></div>
+      <div class="intro-hint faint">click or press Enter to skip</div>
     </div>
 
     <!-- Controls -->
     <div id="instructions-overlay" class="overlay">
-      <div class="help-card panel">
-        <h2>Controls</h2>
+      <div class="help-card panel" role="dialog" aria-modal="true" aria-labelledby="help-title">
+        <h2 id="help-title">Controls</h2>
         <table id="help-table"></table>
-        <button id="btn-close-instructions" class="btn">Close</button>
+        <div class="help-actions">
+          <button id="btn-close-instructions" class="btn">Close</button>
+          <button
+            id="btn-hints-again"
+            class="btn btn-quiet"
+            title="Show the short hints again in the next battle (or now)"
+          >
+            Show the hints again
+          </button>
+        </div>
       </div>
     </div>
 

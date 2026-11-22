@@ -7,7 +7,13 @@ import type { JevAssessment } from './types';
 import { strayClusters, type StrayCluster } from '../engine/Strays';
 import { sameCommand } from '../engine/HeroCommands';
 import { opponent, sideName } from '../engine/Sides';
-import { aiEndpoint, aiHeaders, fetchWithRetries, transientStatus } from './AiServer';
+import {
+  aiEndpoint,
+  aiHeaders,
+  fetchWithRetries,
+  transientStatus,
+  withAddressSpace,
+} from './AiServer';
 import { AiLayer } from './AiLayer';
 import { finishExchange, startExchange } from './Exchange';
 import { JEV_MAX_REQUEST_SIZE, JEV_TIMEOUT_MS } from './Limits';
@@ -57,13 +63,14 @@ export interface JevOptions {
   timeoutMs: number; // a request without an answer by then counts as a failure
 }
 
-const DEFAULTS: JevOptions = {
+// The endpoint is taken when a controller is made, for its model (the AI server can change while
+// the page is open)
+const DEFAULTS: Omit<JevOptions, 'endpoint'> = {
   intervalSec: JEV_INTERVAL_SEC,
   minConfidence: 0.4,
   fallbackToRules: true,
   withCommander: false,
   model: 'jev',
-  endpoint: aiEndpoint('/api/jev'),
   fetchFn: (...args) => fetch(...args),
   timeoutMs: JEV_TIMEOUT_MS,
 };
@@ -213,7 +220,12 @@ export class JevController extends AiLayer {
         fetchWithRetries(
           this.opts.fetchFn,
           this.opts.endpoint,
-          { method: 'POST', headers: aiHeaders(), signal, body },
+          withAddressSpace(this.opts.endpoint, {
+            method: 'POST',
+            headers: aiHeaders(),
+            signal,
+            body,
+          }),
           started + this.opts.timeoutMs
         ),
       (reply, latencyMs, attempts) =>
