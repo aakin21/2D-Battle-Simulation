@@ -24,14 +24,9 @@ const visible = (el: Element | null): el is HTMLElement =>
 const TOURS: Record<TourName, Step[]> = {
   title: [
     {
-      target: ['#menu-continue', '#title-play'],
-      title: 'Quick battle',
-      text: `One click starts a battle: you command the West army's ${BATTLE_CONFIG.heroesPerSide} heroes against the built-in rules. Short hints show you how to give orders.`,
-    },
-    {
-      target: ['#title-ai'],
-      title: 'AI vs AI',
-      text: 'Opens Match setup, where you choose who commands each side: an LLM (a large language model), the built-in rules or you. It starts with an LLM on both sides: choose their models, then watch them fight, or take a side yourself.',
+      target: ['#title-battle'],
+      title: 'Battle',
+      text: `Opens Match setup, where you choose who commands each side: you, the built-in rules or an LLM (a large language model). The first time you command the West army's ${BATTLE_CONFIG.heroesPerSide} heroes against the rules, so Start plays at once; short hints show you how to give orders. Put an LLM on both sides to watch them fight.`,
     },
     {
       target: ['.choice-pair'],
@@ -96,14 +91,14 @@ const TOURS: Record<TourName, Step[]> = {
       text: 'East is set up the same way. Rules are the built-in heroes without any AI: they attack what they see and go for the objective.',
     },
     {
-      target: ['#cfg-objective'],
+      target: ['#objective-field'],
       title: 'What wins',
-      text: 'Elimination: destroy every enemy unit. Control: hold the points A and B and score for the time you hold them. Base: destroy the enemy base. The line below says how the chosen one is decided.',
+      text: 'Elimination: destroy every enemy unit. Control: hold the points A and B and score for the time you hold them. Base: destroy the enemy base. The map shows it: the map you will play, where each army starts (West gold, East blue) and the points or bases. The line below says how the chosen one is decided.',
     },
     {
       target: ['#cfg-map'],
       title: 'Map and armies',
-      text: 'A new random map, the fixed one, or a map you saved; below it the soldiers per side and how much forest and swamp the map has.',
+      text: 'A random map (the one shown is the one you play; New map rolls another), the fixed one, or a map you saved; then the soldiers per side and how much forest and swamp a random map has.',
     },
     {
       target: ['#row-timing'],

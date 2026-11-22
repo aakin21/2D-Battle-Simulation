@@ -8,10 +8,13 @@
     "preview": "vite preview",
     "bridge": "npm run bridge:build --silent && node dist-bridge/ai-bridge.mjs",
     "bridge:build": "esbuild server/bridgeCli.ts --bundle --platform=node --format=esm --target=node20 --log-level=warning --external:@anthropic-ai/claude-agent-sdk --banner:js=\"#!/usr/bin/env node\" --outfile=dist-bridge/ai-bridge.mjs",
-    "typecheck": "tsc --noEmit && tsc -p tsconfig.node.json",
-    "lint": "eslint src server api vite.config.ts",
-    "format": "prettier --write src server api vite.config.ts",
-    "format:check": "prettier --check src server api vite.config.ts"
+    "experiment": "npm run experiment:build --silent && node dist-experiments/run.mjs",
+    "experiment:analyse": "npm run experiment:build --silent && node dist-experiments/analyse.mjs",
+    "experiment:build": "esbuild experiments/run.ts experiments/match.ts experiments/analyse.ts --bundle --platform=node --format=esm --target=node20 --log-level=warning --outdir=dist-experiments --out-extension:.js=.mjs",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.node.json && tsc -p experiments/tsconfig.json && tsc -p proxy/tsconfig.json",
+    "lint": "eslint src server api experiments proxy vite.config.ts",
+    "format": "prettier --write src server api experiments proxy vite.config.ts",
+    "format:check": "prettier --check src server api experiments proxy vite.config.ts"
   },
   "devDependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.286",

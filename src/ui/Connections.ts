@@ -140,7 +140,7 @@ export class Connections {
     // The one click the browser's question needs: Connect gets the focus on the title screen,
     // unless the user is on something else there
     const active = document.activeElement;
-    const idle = !active || active === document.body || active.id === 'title-play';
+    const idle = !active || active === document.body || active.id === 'title-battle';
     if (invited && document.body.dataset.screen === 'title' && idle && !this.dialogShown())
       $('bridge-connect').focus();
   }

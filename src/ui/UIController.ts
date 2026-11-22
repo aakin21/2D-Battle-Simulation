@@ -267,7 +267,7 @@ export class UIController {
 
   // --- Start, the pause menu, the Controls screen ---
 
-  // Start in Match setup or the Sandbox (or Play): set up the run, keep it paused behind the
+  // Start in Match setup or the Sandbox: set up the run, keep it paused behind the
   // loading screen, then start it. The front end (and its attract battle) is gone first.
   private async start(): Promise<void> {
     if (this.loading.isActive()) return;

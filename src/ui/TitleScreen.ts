@@ -1,21 +1,19 @@
 import type { Replay } from '../replay/Replay';
 import { BundledReplay, listBundledReplays, loadBundledReplay } from '../replay/BundledReplays';
-import { BATTLE_CONFIG } from '../types/types';
 import { bridgeConnection } from '../ai/BridgeConnect';
 import { openDialog, closeDialog, wireDialog } from './Dialog';
 import { icon } from './icons';
 
-// The title screen's choices: Quick battle (the main one), AI vs AI (Match setup: who commands each
-// side is chosen there), Watch a recorded battle (the replays the site ships: none yet is "Coming
-// soon", one plays at once, several open a short list; and Open a replay file…,
-// ReplayController), Sandbox; the links Controls and About. The AI connections cards are
+// The title screen's choices: Battle (the main one: Match setup, where who commands each side is
+// chosen; the first time you against the rules), Watch a recorded battle (the replays the site
+// ships: none yet is "Coming soon", one plays at once, several open a short list; and Open a replay
+// file…, ReplayController), Sandbox; the links Controls and About. The AI connections cards are
 // Connections'. What each choice does is the front end's (TitleActions); this file wires the
 // buttons, the art and the shipped replays.
 
 export interface TitleActions {
   continueRun(): void;
-  play(): void;
-  aiVsAi(): void;
+  battle(): void;
   sandbox(): void;
   controls(): void;
   watchReplay(replay: Replay): void;
@@ -36,8 +34,7 @@ export class TitleScreen {
     wireDialog(this.aboutDialog);
     wireDialog(this.replaysDialog);
     $('menu-continue').addEventListener('click', () => actions.continueRun());
-    $('title-play').addEventListener('click', () => actions.play());
-    $('title-ai').addEventListener('click', () => actions.aiVsAi());
+    $('title-battle').addEventListener('click', () => actions.battle());
     $('title-sandbox').addEventListener('click', () => actions.sandbox());
     $('menu-instructions').addEventListener('click', () => actions.controls());
     $('title-about').addEventListener('click', () => openDialog(this.aboutDialog));
@@ -50,18 +47,18 @@ export class TitleScreen {
   }
 
   // The main action: Continue when a run waits behind, else Connect when the AI bridge waits for
-  // its one click (a page opened with its address), else Play
+  // its one click (a page opened with its address), else Battle
   focusMain(): void {
     const cont = $('menu-continue');
     if (!cont.hidden) cont.focus();
     else if (bridgeConnection().invited) $('bridge-connect').focus();
-    else $('title-play').focus();
+    else $('title-battle').focus();
   }
 
   // Continue is shown (and is the main action) while a run or a replay waits behind
   showContinue(run: 'battle' | 'replay' | null): void {
     $('menu-continue').hidden = run === null;
-    $('title-play').classList.toggle('primary', run === null);
+    $('title-battle').classList.toggle('primary', run === null);
     if (run) $('title-screen').dataset.runBehind = run;
     else delete $('title-screen').dataset.runBehind;
     $('continue-desc').textContent =
@@ -122,12 +119,9 @@ export class TitleScreen {
 
   // --- Art ---
 
-  // The sprites are menu.css's; the pixel icons and the numbers from the code are set here
+  // The sprites are menu.css's; the pixel icons are set here
   private setArt(): void {
     document.querySelector('.icon-watch')!.innerHTML = icon('play');
     document.querySelector('.icon-continue')!.innerHTML = icon('play');
-    // "You command the West army's 3 heroes"
-    $('play-desc').textContent =
-      `You command the West army's ${BATTLE_CONFIG.heroesPerSide} heroes against the built-in rules, on a random map. Starts at once.`;
   }
 }
