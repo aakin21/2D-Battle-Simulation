@@ -156,10 +156,7 @@ export class UIController {
         this.pause.close();
         this.front.open(this.lastMode === 'battle' ? 'setup' : 'sandbox', 'pause');
       },
-      titleScreen: () => {
-        this.pause.close();
-        this.front.open('title', 'pause');
-      },
+      titleScreen: () => this.openMainMenu(),
       controls: () => this.openControls(),
     });
     this.front = new FrontEnd(this.menu, {
@@ -502,7 +499,7 @@ export class UIController {
     const replay = this.replays.finish(r);
     this.hud.showResult(r, this.lastConfig, {
       restart: () => this.doRestart(),
-      menu: () => this.openPause(),
+      menu: () => this.openMainMenu(),
       log: () => this.downloadLog(),
       watch: replay?.watch ?? null,
       saveReplay: replay?.save ?? null,
@@ -510,11 +507,19 @@ export class UIController {
     this.updatePauseButton();
   }
 
+  // The main menu (the title screen) over the run, which waits behind it: from the pause menu, or
+  // straight from a result card. Its Continue comes back to the run or the card.
+  private openMainMenu(): void {
+    this.openPause();
+    this.pause.close();
+    this.front.open('title', 'pause');
+  }
+
   // A simulation error stopped the run: say so instead of leaving a frozen battlefield.
   private showError(message: string): void {
     this.hud.showError(message, this.stateManager.getBattlefield().elapsedTime, {
       restart: () => this.doRestart(),
-      menu: () => this.openPause(),
+      menu: () => this.openMainMenu(),
       log: this.matchLog ? () => this.downloadLog() : null,
     });
     this.updatePauseButton();

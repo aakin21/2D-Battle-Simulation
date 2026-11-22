@@ -417,11 +417,11 @@ export class Hud {
       ) +
       extra +
       `</table>` +
-      `<div class="actions"><button class="btn" data-act="restart">Restart</button><button class="btn btn-quiet" data-act="menu">Menu</button>` +
+      `<div class="actions"><button class="btn" data-act="restart">Restart</button><button class="btn" data-act="menu">Main menu</button>` +
       `<button class="btn btn-quiet" data-act="log" title="Settings, timeline and every AI decision as JSON">Download log</button></div>` +
       (actions.watch
         ? `<div class="actions"><button class="btn" data-act="watch" title="Watch this match again from the start">Watch replay</button>` +
-          `<button class="btn btn-quiet" data-act="save-replay" title="Save the replay as a file, to open later on the title screen (Open a replay file…)">Download replay</button></div>`
+          `<button class="btn btn-quiet" data-act="save-replay" title="Save the replay as a file, to open later from the main menu (Open a replay file…)">Download replay</button></div>`
         : '');
     this.showCard({
       restart: actions.restart,
@@ -442,7 +442,7 @@ export class Hud {
       '<h2>Simulation stopped</h2>' +
       `<div class="how">An error stopped this run at ${clock(time)}:</div>` +
       `<div class="error-text">${escapeHtml(message)}</div>` +
-      `<div class="actions"><button class="btn" data-act="restart">Restart</button><button class="btn btn-quiet" data-act="menu">Menu</button>` +
+      `<div class="actions"><button class="btn" data-act="restart">Restart</button><button class="btn" data-act="menu">Main menu</button>` +
       (actions.log
         ? '<button class="btn btn-quiet" data-act="log" title="Settings, timeline and every AI decision as JSON">Download log</button>'
         : '') +
