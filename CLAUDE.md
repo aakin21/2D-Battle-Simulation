@@ -20,6 +20,8 @@ Browser app (TypeScript + Vite + Canvas). The main folders have their own `CLAUD
 | `public/` | Static files served as they are: `replays/`, the replays shipped for the title screen's Watch a recorded battle (`index.json` lists them; empty until recorded with the real AIs), and `attract/battle.replay`, the title screen's background battle (rule heroes on both sides, recorded headless by `../tests/smoke/attract-record.ts`; not listed to watch) |
 | `server/` | Node only: the LLM endpoint (`/api/llm`) and the access guard for `/api/*` (D37), mounted by the dev server and by the AI bridge (`npm run bridge`), which serves the LLM endpoint alone on the player's computer for the published demo |
 | `api/` | Vercel functions for the deployed site: the Jev proxy (`/api/jev`, D8) |
+| `proxy/` | Cloudflare Worker for the published demo (not deployed by the repository; `proxy/README.md`): the tactical layer's proxy on the author's keys (`POST /api/jev`, `POST /api/snap`, `GET /api/tactical`), each visitor's address 2 matches a UTC day, counted in a Durable Object per salted address hash; own `tsconfig.json`, tests in `../tests/smoke/tacticalproxy.ts` |
+| `experiments/` | The headless experiment runner (`npm run experiment -- <plan>`, `npm run experiment:analyse -- <folder>`): plays a plan's matches in Node with the real engine and AI layers against an AI server, writes a match log per match and a summary; `experiments/README.md` |
 
 The three decision layers (D1): rules every simulation step (`src/engine`; a fixed step of 1/60 s, a higher speed runs more steps per frame, P9), Jev every ~4 s, LLM every ~15 s (D50, `src/ai`).
 

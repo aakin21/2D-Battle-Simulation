@@ -1,0 +1,51 @@
+{
+  "$comment": "Every field of a plan. The schema is experiments/plan.ts; experiments/README.md says what each field does.",
+  "name": "example",
+  "aiServer": "http://127.0.0.1:5173",
+  "conditions": [
+    {
+      "name": "rules vs rules",
+      "subject": { "commander": "rules" },
+      "opponent": { "commander": "rules" }
+    },
+    {
+      "name": "sonnet vs rules",
+      "subject": { "commander": "llm", "model": "sonnet" },
+      "opponent": { "commander": "rules" }
+    },
+    {
+      "name": "sonnet+jev vs rules",
+      "subject": { "commander": "llm+jev", "model": "sonnet" },
+      "opponent": { "commander": "rules" }
+    },
+    {
+      "name": "sonnet+snap vs rules",
+      "subject": { "commander": "llm+snap", "model": "sonnet" },
+      "opponent": { "commander": "rules" }
+    },
+    {
+      "name": "sonnet vs rules realtime",
+      "subject": { "commander": "llm", "model": "sonnet" },
+      "opponent": { "commander": "rules" },
+      "timing": "realtime"
+    }
+  ],
+  "objectives": ["control", "elimination"],
+  "maps": ["fixed", "random"],
+  "soldiers": 150,
+  "terrain": "normal",
+  "timing": "paused",
+  "seeds": { "count": 10, "base": 1 },
+  "swapSides": true,
+  "stopAtSeconds": null,
+  "parallel": 2,
+  "spendCapUsd": 50,
+  "maxMatches": null,
+  "out": "results/example",
+  "estimates": {
+    "llmRequestUsd": 0.0435,
+    "tacticalRequestUsd": 0.00001,
+    "llmAnswerSeconds": 4,
+    "tacticalAnswerSeconds": 0.55
+  }
+}

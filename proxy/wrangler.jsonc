@@ -1,0 +1,26 @@
+// The tactical proxy's Worker (README.md). No secrets here: the two provider keys, the salt and
+// the author's key are set with `npx wrangler secret put <NAME>` (TYPESAFE_API_KEY, SUBQ_API_KEY,
+// QUOTA_SALT, AUTHOR_KEY).
+{
+  "name": "battle-tactical-proxy",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-11-01",
+  // Served at https://battle-tactical-proxy.<your subdomain>.workers.dev only
+  "workers_dev": true,
+  "preview_urls": false,
+  // No Workers Logs: they would keep request details (addresses) the quota does not need
+  "observability": { "enabled": false },
+  "vars": {
+    // Comma-separated origins whose pages may call the proxy
+    "ALLOWED_ORIGINS": "https://aakin21.github.io",
+    // Matches a day per visitor's address with Jev or Snap (0: visitors off, the author's key still works)
+    "MATCHES_PER_DAY": "2",
+  },
+  // One counter per visitor's address: a SQLite-backed Durable Object (the Free plan's kind)
+  "durable_objects": {
+    "bindings": [{ "name": "QUOTA", "class_name": "QuotaCounter" }],
+  },
+  "exports": {
+    "QuotaCounter": { "type": "durable-object", "storage": "sqlite" },
+  },
+}

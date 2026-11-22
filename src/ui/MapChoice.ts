@@ -7,13 +7,19 @@ import { segValue, setSeg, wireSeg } from './seg';
 // setup and the Sandbox each have one.
 export class MapChoice {
   private select: HTMLSelectElement;
+  // Called after the choice, the saved map chosen or the saved maps change (Match setup's preview)
+  onChange: () => void = () => {};
 
   constructor(
     private groupId: string,
     selectId: string
   ) {
     this.select = document.getElementById(selectId) as HTMLSelectElement;
-    wireSeg(groupId, () => this.showList());
+    wireSeg(groupId, () => {
+      this.showList();
+      this.onChange();
+    });
+    this.select.addEventListener('change', () => this.onChange());
     this.refresh();
   }
 
@@ -24,6 +30,7 @@ export class MapChoice {
   set choice(value: string) {
     setSeg(this.groupId, value);
     this.showList();
+    this.onChange();
   }
 
   // The saved maps of this browser, the chosen one kept when it is still there
@@ -34,6 +41,7 @@ export class MapChoice {
     for (const name of names) this.select.add(new Option(name, name));
     if (names.length === 0) this.select.add(new Option('(no saved maps)', ''));
     if (names.includes(kept)) this.select.value = kept;
+    this.onChange();
   }
 
   showList(): void {
@@ -51,7 +59,7 @@ export class MapChoice {
     return null;
   }
 
-  // The terrain for the run; undefined means "generate a new random map"
+  // The terrain for the run; undefined means a random map (a new one, or Match setup's preview's)
   grid(): TerrainType[][] | undefined {
     if (this.choice === 'fixed') return decodeGrid(FIXED_MAP) ?? undefined;
     if (this.choice === 'saved' && this.select.value)
@@ -62,6 +70,11 @@ export class MapChoice {
   // The map for the match log: random, fixed or "saved: <name>"
   label(): string {
     return this.choice === 'saved' ? `saved: ${this.select.value}` : this.choice;
+  }
+
+  // The saved map chosen (its name)
+  savedName(): string {
+    return this.select.value;
   }
 
   focus(): void {

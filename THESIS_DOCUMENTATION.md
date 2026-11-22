@@ -28,7 +28,8 @@ A running record of the project's process: what was built, which decisions were 
 | 2026-10-20 | Soldiers rout until safe and fight when cornered (D57), 8-minute control matches with a 3 s capture (D58); behaviour-preserving cleanup (faster engine and rendering) |
 | 2026-10-22 | Marching soldiers push each other a tenth as hard (D59), in `main` and the demo |
 | 2026-10-22 | The tactical layer's 40-tile view, ways around enemies and short regroups, and the LLM's via places and fallbacks (D60), in `main` and the demo |
-| 2026-11-22 | LLMs without a key paid by the project (D61, D63, D64): local models, Connect with OpenRouter in the browser, the AI bridge with Claude, Codex and Gemini as sessions; a fixed simulation time step (D65, P9 resolved); a new front end (title screen, match setup, tour); on the branch `feature/local-llm`, not yet in `main` or the demo |
+| 2026-11-22 | LLMs without a key paid by the project (D61, D63, D64): local models, Connect with OpenRouter in the browser, the AI bridge with Claude, Codex and Gemini as sessions; a fixed simulation time step (D65, P9 resolved); a new front end (title screen, match setup, tour); in `main` and the demo since 2026-11-22 |
+| 2026-11-22 | A headless experiment runner and its first trial with Claude (R22; the fixed map favours East, P11); the main menu's single Battle entry with a map preview that is the map played |
 
 ---
 
@@ -1231,6 +1232,32 @@ Read from the companies' own documentation on 2026-11-22 (links below). Nothing 
 - [Ollama: chat API](https://docs.ollama.com/api/chat)
 
 
+### R22: A headless experiment runner and its first trial with Claude (2026-11-22)
+
+**Question:** Can matches be played without a browser, with the real engine and AI layers, so that experiments can be run and repeated, and what does a first trial show?
+
+The runner (`experiments/`, `npm run experiment -- <plan>`) plays a plan's matches in Node: seeded, sides swapped, paused or real-time AI timing (D4), a spend cap, resumable; it writes the browser's match log per match and a summary, and an analysis command reports win rates with Wilson intervals, casualties, latency and cost. Tested against a fake AI server (`tests/smoke/experiment.ts`, CASES 36). A match without AI is the same battle as in the browser (same hash, D65); a paused-timing match is reproducible given the same answers; a real-time match is not (answer times vary).
+
+First trial with the real service, 4 matches of the pilot plan (2026-11-22; control, the fixed map, 150 soldiers, seed 1, paused timing; Sonnet through the Agent SDK on the author's subscription):
+
+| West | East | Result (points) |
+|---|---|---|
+| rules | rules | East 618 : 34 |
+| Sonnet | rules | East (rules) 344 : 135 |
+| rules | Sonnet | East (Sonnet) 744 : 18 |
+
+**Findings:**
+- ✅ The runner works end to end with Claude: no failed request, no stopped layer; 28 and 32 LLM requests per match; answers 4.3 and 5.2 s on average (longest 9.3 s); about 2.5 minutes of wall time per LLM match in paused timing.
+- ⚠️ Reported cost (the SDK's estimate at API prices; on a subscription it is usage against the plan's limit, not a bill): $2.31 and $2.72 per LLM side per 8-minute match, more than the $0.87 per 5-minute match of R20: the session's context grows with every report (Q16).
+- ⚠️ The fixed map favours East (P11): East won all four matches. Sonnet still moved the margin in its favour on both sides (as West it lost by 209 instead of 584; as East it won by 726 instead of 584). One seed: a direction, not a result.
+- ⚠️ What results from this runner can support: win rates and casualties against a baseline on the maps, objectives and seeds played, side balance, latency, failures and reported cost. What they cannot: a replication of an LLM match (a repeated match is a new sample), a fair comparison across providers (D64, Q18), a bill.
+
+**Conclusion:** Experiments can now be run unattended. Before a full pilot the plan needs maps without a side bias (random maps by seed, or both), more than one objective, and a spend cap set from the measured cost.
+
+**Sources:**
+- `experiments/README.md`; `experiments/results/pilot-trial-2026-11-22/` (the trial's match logs and summary, not in the repository)
+
+
 ---
 
 ## Problems log
@@ -1315,6 +1342,14 @@ Problems encountered during the project, how they were found, and how they were 
 - **Impact:** D19 (Classic keeps Phase 1 behaviour) does not hold exactly; Phase 1 results reproduced in classic mode can differ. No other difference to Phase 1 was found.
 - **Resolution:** to be decided by the author: restore Phase 1 in classic mode (speed 0 on mountains outside battle mode), or record the escape speed as an accepted exception to D19. Nothing changed yet.
 - **Status:** Open
+
+### P11: The fixed map favours East (2026-11-22)
+- **Context:** the first runs of the experiment runner (R22): rule heroes against rule heroes, control objective, 150 soldiers per side.
+- **Problem:** on the fixed map (D5) East won 17 of 20 seeded matches (West's share 0.15, 95% interval 0.05 to 0.36); on random maps the sides were even (East 11 of 20). In the trial with Claude, East won all four matches on the fixed map whoever commanded it. Why the fixed map does this (the terrain around a control point, the ways to it, the start positions) has not been looked into.
+- **Impact:** a result on the fixed map with one side assignment says more about the side than about the commander. Every comparison needs both side assignments (Q9, R13), and the fixed map alone is a poor basis for experiments.
+- **Resolution:** proposed: experiments use random maps by seed (or both kinds) with sides swapped; find out what in the fixed map causes it before using it as the reference map.
+- **Status:** Open
+
 
 ---
 

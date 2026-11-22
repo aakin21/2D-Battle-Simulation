@@ -245,6 +245,9 @@ export interface SimConfig {
   terrainDensity: TerrainDensity;
   heroesPerSide: number; // battle only
   presetGrid?: TerrainType[][]; // fixed or saved map; a new random map is made when absent
+  // Without presetGrid: the random map of this seed (TerrainGen.seededRandom; Match setup's preview
+  // is the map played); absent: a new random map from Math.random
+  terrainSeed?: number;
   friendlyAI?: SideAI; // battle only: AI layers for the west side (default 'none' = the user)
   enemyAI?: SideAI; // battle only: AI layers for the east side (default 'none' = rule-based)
   aiTiming?: AITiming; // battle only: does the simulation wait for AI answers (D4)

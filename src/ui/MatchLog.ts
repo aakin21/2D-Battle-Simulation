@@ -84,6 +84,8 @@ export class MatchLog {
       mode: c.mode,
       objective: c.objective ?? 'elimination',
       map: this.map,
+      // A random map's seed: the same seed and terrain make the same map (TerrainGen)
+      terrainSeed: c.terrainSeed,
       soldiersPerSide: c.warriorCount,
       heroesPerSide: c.heroesPerSide,
       terrain: c.terrainDensity,

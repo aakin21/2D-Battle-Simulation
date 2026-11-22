@@ -7,10 +7,11 @@ import { TitleScreen } from './TitleScreen';
 // behind it. Three screens: the title screen (TitleScreen.ts), Match setup and the Sandbox
 // (MainMenu's settings). One screen shows at a time; a new one replaces the old at once and comes
 // in with a short rise (front.css), and the focus goes to its main action (title: Continue when
-// a run waits behind, else Play; Match setup and the Sandbox: Start). Back and Esc go back one
+// a run waits behind, else Battle; Match setup and the Sandbox: Start). Back and Esc go back one
 // screen: Match setup and the Sandbox to the title screen, or to the pause menu when they were
-// opened from it (New battle), as is the title screen (Title screen). Match setup is opened by AI
-// vs AI (an LLM on both sides, every side's commander chosen there) or New battle.
+// opened from it (New battle), as is the title screen (Main menu). Match setup is opened by Battle
+// or New battle, with the choices as they were left (the first time: you command West against
+// the rules, so Start plays at once).
 //
 // At page load the title screen shows (a returning visitor too: it is one click to play), or the
 // screen the user left for openrouter.ai, with the choices put back.
@@ -47,16 +48,7 @@ export class FrontEnd {
   ) {
     this.title = new TitleScreen({
       continueRun: () => host.continueRun(),
-      play: () => {
-        menu.setup.presetPlay();
-        menu.mode = 'battle';
-        host.start();
-      },
-      aiVsAi: () => {
-        menu.setup.presetAiVsAi();
-        this.show('setup', 'title', false);
-        menu.setup.focusFirst();
-      },
+      battle: () => this.show('setup', 'title'),
       sandbox: () => this.show('sandbox', 'title'),
       controls: () => host.openControls(),
       watchReplay: (replay) => host.watchReplay(replay),

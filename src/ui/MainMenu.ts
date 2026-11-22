@@ -1,5 +1,6 @@
 import { SimConfig, TerrainType } from '../types/types';
 import { listSavedMaps, saveMap } from '../state/MapStore';
+import { isTerrainSeed } from '../state/TerrainGen';
 import type { Side } from '../engine/Sides';
 import { Connections } from './Connections';
 import { MatchSetup, WAYS, type Way } from './MatchSetup';
@@ -11,7 +12,7 @@ import { segOffers, segValue, setSeg } from './seg';
 // custom, stress test; Sandbox.ts) and the AI connections (Connections.ts). `readStart()` turns
 // the controls of the screen in use into the run Start sets up. The choices go with the trip to
 // openrouter.ai ("Connect with OpenRouter" reloads the page) and are put back when the page comes
-// back (`choices`, `restore`), with the screen the user left.
+// back (`choices`, `restore`), with the screen the user left and Match setup's random map.
 
 // What Start runs: the stress test, or a run from these settings. `mapChoice` names the map for
 // the match log: random, fixed or "saved: <name>".
@@ -60,6 +61,7 @@ interface MenuChoices {
   fields: Record<string, string>;
   ways: Record<Side, boolean>; // the way was the user's choice, not preselected
   picks: Record<Side, Record<string, string>>;
+  mapSeed: number | null; // Match setup's random map shown (its seed), null when none
 }
 
 export class MainMenu {
@@ -135,6 +137,7 @@ export class MainMenu {
       fields,
       ways: { west: this.setup.wayChosen('west'), east: this.setup.wayChosen('east') },
       picks: { west: this.setup.picks('west'), east: this.setup.picks('east') },
+      mapSeed: this.setup.previewSeed(),
     };
   }
 
@@ -172,6 +175,8 @@ export class MainMenu {
       const chosen = ways[side] === true && WAYS.includes(segValue(`cfg-${side}-way`) as Way);
       this.setup.restorePicks(side, record(picks[side]), chosen);
     }
+    // The random map that was shown, shown again
+    if (isTerrainSeed(saved.mapSeed)) this.setup.restoreSeed(saved.mapSeed);
     // What is shown next to the controls follows them
     (document.getElementById('cfg-warriors-num') as HTMLInputElement).value = (
       document.getElementById('cfg-warriors') as HTMLInputElement

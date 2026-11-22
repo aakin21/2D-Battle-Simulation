@@ -16,6 +16,8 @@
      address and waits for the one click the browser's question needs
    - .side-card[data-commander="none|llm|jev+llm|snap+llm"][data-way="server|openrouter|bridge|"]
      [data-ready="true|false"]
+   - #map-preview-box[data-state="shown|none"][data-objective="elimination|control|base"], .changed
+     when what it shows has just changed (Match setup's map preview, MapPreview.ts)
    - #sandbox-screen[data-tab="classic|custom|stress"]
    - #pause-menu[data-run="battle|replay"] */
 
@@ -295,14 +297,20 @@ select {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 316px);
   gap: 24px;
-  align-items: start;
+  align-items: stretch;
 }
 
+/* The choices' column is as tall as the AI connections beside it (three choices since 2026-11-22:
+   Battle took Quick battle's and AI vs AI's places); the main choice takes the height to spare */
 .title-menu {
   display: flex;
   flex-direction: column;
   gap: 8px;
   min-width: 0;
+}
+
+.title-menu > .choice.primary:not([hidden]) {
+  flex-grow: 1;
 }
 
 /* A large choice: icon, title, one line saying what it does */
@@ -390,11 +398,6 @@ select {
   align-items: center;
   justify-content: center;
   image-rendering: pixelated;
-}
-
-/* The West hero at 3x (first frame: facing down) */
-.icon-play {
-  background: url('../assets/sprites/hero_knight_gold.png') 8px 0 / 192px 336px no-repeat;
 }
 
 .choice-icon svg {
@@ -596,14 +599,33 @@ select {
 
 /* ---------- Match setup ---------- */
 
+/* The battle's card is the widest: its map preview needs the room */
 .setup-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr) minmax(0, 1fr);
   grid-template-areas: 'west battle east';
   gap: 14px;
   align-items: start;
-  width: min(1280px, 100%);
+  width: min(1440px, 100%);
   margin: 0 auto;
+}
+
+@media (min-width: 1200px) {
+  .setup-grid {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) minmax(0, 1fr);
+  }
+}
+
+/* A large window: a wider grid, and the map preview at 3 pixels per tile (MapPreview.ts asks the
+   same query) */
+@media (min-width: 1800px) and (min-height: 1000px) {
+  .setup-grid {
+    width: min(1680px, 100%);
+  }
+
+  .battle-body {
+    --preview-column: 470px;
+  }
 }
 
 #setup-west {
@@ -623,6 +645,131 @@ select {
 .sandbox-card {
   min-width: 0;
   padding: 2px 4px 6px;
+}
+
+/* The battle's card lays its fields out by its own width: with room, the objective and the map
+   preview in a column of their own beside the other fields */
+.battle-card {
+  container: battle / inline-size;
+}
+
+@container battle (min-width: 560px) {
+  .battle-body {
+    display: grid;
+    grid-template-columns: fit-content(var(--preview-column, 360px)) minmax(0, 1fr);
+    column-gap: 20px;
+    align-items: start;
+  }
+
+  .battle-body > .objective-field {
+    grid-row: 1 / span 6;
+  }
+
+  .battle-body > :not(.objective-field) {
+    grid-column: 2;
+  }
+}
+
+/* The map preview: the map that will be played, a square of whole pixels per tile (MapPreview.ts) */
+.map-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: fit-content;
+  max-width: 100%;
+  margin: 4px 0 0;
+}
+
+.map-preview-canvas {
+  display: block;
+  box-sizing: content-box; /* its 300 px are the drawing's own pixels, one to one; the frame around */
+  width: 300px;
+  max-width: calc(100% - 8px);
+  height: auto;
+  aspect-ratio: 1;
+  image-rendering: pixelated;
+  border: 2px solid var(--ink);
+  box-shadow: 0 0 0 2px var(--wood-dark);
+  margin: 2px;
+}
+
+.map-preview-canvas[data-scale='3'] {
+  width: 450px;
+}
+
+.map-preview-canvas[hidden] {
+  display: none;
+}
+
+/* No preview: why (a saved map that cannot be read, no saved map yet) */
+.map-preview-note {
+  width: 300px;
+  max-width: 100%;
+  padding: 6px 8px 7px;
+  color: var(--text-dim);
+  background: var(--well-dark);
+  border: 2px solid var(--ink);
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.map-preview-caption {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  max-width: 100%;
+}
+
+.map-preview-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 10px;
+  color: var(--text-dim);
+}
+
+.map-preview-legend[hidden] {
+  display: none;
+}
+
+.lg-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+.lg-mark {
+  width: 10px;
+  height: 10px;
+  border: 1px solid var(--ink);
+}
+
+.lg-west {
+  background: var(--west);
+}
+
+.lg-east {
+  background: var(--east);
+}
+
+.lg-point {
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--neutral);
+  border-radius: 50%;
+  background: rgba(232, 224, 208, 0.25);
+}
+
+.lg-base {
+  width: 12px;
+  border-width: 2px;
+  background: linear-gradient(90deg, var(--west) 50%, var(--east) 50%);
+}
+
+.map-new {
+  margin-left: auto;
 }
 
 .side-card .field:first-of-type,
