@@ -1,0 +1,115 @@
+/* The guided tour of a menu screen (Tour.ts): a "?" button on the screen, a light around the
+   part a step is about, and a box that says what it is. Pixel motion as in menu-fx.css;
+   prefers-reduced-motion cuts it (theme.css). */
+
+/* The "?" button: top right of the title screen, beside the title of a form screen */
+.tour-open {
+  width: 40px;
+  height: 40px;
+  padding: 0 0 3px;
+  font-size: 24px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.title-screen > .tour-open {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  z-index: 2;
+}
+
+.screen-head {
+  position: relative;
+}
+
+.screen-head > .tour-open {
+  position: absolute;
+  top: 10px;
+  right: 16px;
+}
+
+/* Until the tour has been opened once, the button asks for a look */
+.tour-open.nudge {
+  animation: tour-nudge 1200ms steps(2, end) infinite;
+}
+
+@keyframes tour-nudge {
+  to {
+    filter: brightness(1.35);
+    transform: translateY(-2px);
+  }
+}
+
+/* The tour covers the page: nothing under it takes the mouse while it is open */
+.tour {
+  position: fixed;
+  inset: 0;
+  z-index: 140;
+}
+
+.tour[hidden] {
+  display: none;
+}
+
+/* The light: a frame around the part, everything else dimmed by its shadow */
+.tour-spot {
+  position: fixed;
+  border: 4px solid var(--wood-light);
+  box-shadow:
+    0 0 0 4px var(--ink),
+    0 0 0 9999px rgba(14, 12, 9, 0.72);
+  pointer-events: none;
+  transition:
+    left 160ms steps(4, end),
+    top 160ms steps(4, end),
+    width 160ms steps(4, end),
+    height 160ms steps(4, end);
+}
+
+.tour-box {
+  position: fixed;
+  width: min(380px, calc(100vw - 16px));
+  padding: 4px 6px 6px;
+  line-height: 1.35;
+}
+
+.tour-box.enter {
+  animation: fx-rise-in 180ms steps(4, end) both;
+}
+
+.tour-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.tour-count {
+  color: var(--wood-light);
+  flex-shrink: 0;
+}
+
+.tour-title {
+  font-size: 22px;
+  font-weight: normal;
+  color: var(--wood-light);
+  text-shadow: 2px 2px 0 var(--ink);
+  line-height: 1.15;
+}
+
+.tour-text {
+  margin-top: 6px;
+  color: var(--text);
+}
+
+.tour-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.tour-actions .tour-close {
+  margin-right: auto;
+}

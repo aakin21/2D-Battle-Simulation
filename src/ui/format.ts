@@ -6,6 +6,13 @@ import { positionToSubsector } from '../engine/Sectors';
 
 export const SIDE_NAME: Record<Side, string> = { west: 'West', east: 'East' };
 
+// An AI side's commander as the menu's buttons name it: "LLM" (the LLM alone) or
+// "LLM + Jev" / "LLM + Snap" (with a tactical layer), then the model: "LLM + Jev: Sonnet". Display text
+// only: the match log, the AI layers and the replays' data keep their own ids.
+export function commanderLabel(tactical: string | null, model: string): string {
+  return `${tactical ? `LLM + ${tactical}` : 'LLM'}${model ? `: ${model}` : ''}`;
+}
+
 export function escapeHtml(text: string): string {
   return text
     .replace(/&/g, '&amp;')

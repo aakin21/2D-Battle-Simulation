@@ -1,0 +1,479 @@
+/* The menus' look and motion, on top of menu.css (which holds their layout): the title screen's
+   entrance, the choices' cursor and walking sprites, the connection cards and their lamps, the
+   form screens' cards coming in from their sides, the pause menu's pop.
+
+   Pixel motion: things move in a few whole steps (steps()), not smoothly, and only transform and
+   opacity are animated. Feedback 80-120 ms, entrances 200-320 ms, one after another by --i.
+   prefers-reduced-motion cuts all of it (theme.css). Nothing here changes what can be clicked:
+   an element is in its place and takes the mouse from its first frame. */
+
+/* ---------- The battle behind ---------- */
+
+/* The battle stays visible at the edges; the middle, where the text is, is darker */
+.front-shade {
+  background:
+    radial-gradient(ellipse 75% 80% at 50% 50%, rgba(14, 12, 9, 0.9), rgba(14, 12, 9, 0.62) 100%),
+    linear-gradient(
+      rgba(14, 12, 9, 0.5),
+      rgba(14, 12, 9, 0) 25%,
+      rgba(14, 12, 9, 0) 75%,
+      rgba(14, 12, 9, 0.55)
+    );
+}
+
+.front[data-screen='setup'] .front-shade,
+.front[data-screen='sandbox'] .front-shade {
+  background: rgba(14, 12, 9, 0.9);
+}
+
+/* ---------- Title ---------- */
+
+.title-wrap {
+  width: min(1040px, 100%);
+  gap: 28px;
+}
+
+.title-head {
+  gap: 28px;
+  animation: fx-drop-in 320ms steps(6, end) both;
+}
+
+.game-title {
+  font-size: clamp(36px, 4.4vw, 64px);
+  white-space: nowrap;
+  letter-spacing: 2px;
+  color: var(--wood-light);
+  text-shadow:
+    0 4px 0 var(--wood-dark),
+    4px 8px 0 var(--ink),
+    0 0 28px rgba(0, 0, 0, 0.75);
+}
+
+.tagline {
+  max-width: 620px;
+  margin: 14px auto 0;
+  font-size: 18px;
+  color: var(--text);
+  text-shadow:
+    2px 2px 0 var(--ink),
+    0 0 12px rgba(0, 0, 0, 0.9);
+}
+
+/* The two heroes walk towards each other, 6x */
+.title-unit {
+  width: 96px;
+  height: 96px;
+  background-size: 384px 672px;
+  filter: drop-shadow(0 6px 0 rgba(0, 0, 0, 0.45));
+}
+
+.title-west {
+  background-position-x: -288px;
+}
+
+.title-east {
+  background-position-x: -192px;
+}
+
+@keyframes title-walk {
+  from {
+    background-position-y: 0;
+  }
+  to {
+    background-position-y: -384px;
+  }
+}
+
+/* ---------- Choices ---------- */
+
+.title-menu {
+  gap: 10px;
+}
+
+.title-menu > * {
+  animation: fx-slide-right 240ms steps(5, end) both;
+  animation-delay: calc(120ms + var(--i, 0) * 60ms);
+}
+
+.title-menu > :nth-child(1) {
+  --i: 0;
+}
+.title-menu > :nth-child(2) {
+  --i: 1;
+}
+.title-menu > :nth-child(3) {
+  --i: 2;
+}
+.title-menu > :nth-child(4) {
+  --i: 3;
+}
+.title-menu > :nth-child(5) {
+  --i: 4;
+}
+.title-menu > :nth-child(6) {
+  --i: 5;
+}
+
+.choice {
+  position: relative;
+  min-height: 76px;
+  padding: 8px 16px 10px 20px;
+  gap: 14px;
+  transition:
+    transform 100ms steps(2, end),
+    filter 100ms steps(2, end);
+}
+
+.choice.primary {
+  min-height: 96px;
+  padding: 10px 18px 12px 22px;
+}
+
+/* The menu cursor: a pixel arrow left of the choice under the mouse or the keyboard */
+.choice::before {
+  content: '';
+  position: absolute;
+  left: -22px;
+  top: 50%;
+  width: 12px;
+  height: 20px;
+  margin-top: -10px;
+  background: var(--wood-light);
+  clip-path: polygon(
+    0 0,
+    4px 0,
+    4px 4px,
+    8px 4px,
+    8px 8px,
+    12px 8px,
+    12px 12px,
+    8px 12px,
+    8px 16px,
+    4px 16px,
+    4px 20px,
+    0 20px
+  );
+  filter: drop-shadow(2px 2px 0 var(--ink));
+  opacity: 0;
+}
+
+.choice:hover:not(:disabled),
+.choice:focus-visible {
+  transform: translateX(6px);
+}
+
+.choice:hover:not(:disabled)::before,
+.choice:focus-visible::before {
+  opacity: 1;
+  animation: fx-cursor 560ms steps(2, end) infinite;
+}
+
+.choice:active:not(:disabled) {
+  transform: translate(6px, 3px);
+  filter: brightness(0.92);
+}
+
+.choice-title {
+  text-shadow: 2px 2px 0 var(--ink);
+}
+
+.choice.primary .choice-title {
+  font-size: 32px;
+  text-shadow: 2px 3px 0 var(--wood-dark);
+}
+
+.choice.primary:hover:not(:disabled) .choice-title {
+  text-shadow: none;
+}
+
+.choice-desc {
+  line-height: 1.3;
+}
+
+/* The choice's units walk while it is under the mouse or the keyboard */
+.choice:hover:not(:disabled) .icon-play,
+.choice:focus-visible .icon-play {
+  animation: fx-walk-3x 480ms steps(4) infinite;
+}
+
+.choice:hover:not(:disabled) .mini-unit,
+.choice:focus-visible .mini-unit {
+  animation: fx-walk-2x 480ms steps(4) infinite;
+}
+
+/* "Open a replay file…" beside Watch: room for its two lines */
+.choice-side {
+  max-width: 132px;
+  padding-left: 10px;
+  padding-right: 10px;
+}
+
+.title-links {
+  margin-top: 10px;
+  gap: 4px 26px;
+}
+
+.link-btn {
+  font-size: 18px;
+  transition: transform 100ms steps(2, end);
+}
+
+.link-btn:hover,
+.link-btn:focus-visible {
+  transform: translateY(-2px);
+}
+
+/* ---------- AI connections ---------- */
+
+/* The heading and the cards come in from the right, one after another */
+.connections > * {
+  animation: fx-slide-left 260ms steps(5, end) both;
+  animation-delay: calc(300ms + var(--i, 0) * 60ms);
+}
+
+.connections > :nth-child(2) {
+  --i: 1;
+}
+.connections > :nth-child(3) {
+  --i: 2;
+}
+.connections > :nth-child(4) {
+  --i: 3;
+}
+
+/* A lamp before each card's status: off, blinking while it is asked, green, red */
+.conn-status::before {
+  content: '';
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 8px;
+  vertical-align: 1px;
+  background: var(--text-faint);
+  box-shadow:
+    0 0 0 2px var(--ink),
+    inset -2px -2px 0 rgba(0, 0, 0, 0.35);
+}
+
+#server-status::before,
+.connections[data-openrouter='connected'] #openrouter-status::before,
+.connections[data-bridge='connected'] #bridge-status::before {
+  background: var(--hp);
+}
+
+.connections[data-openrouter='connecting'] #openrouter-status::before,
+.connections[data-bridge='connecting'] #bridge-status::before,
+.connections[data-bridge='invite'] #bridge-status::before {
+  background: var(--hp-low);
+  animation: fx-blink 480ms steps(2, end) infinite;
+}
+
+.connections[data-bridge='unreachable'] #bridge-status::before,
+.connections[data-bridge='denied'] #bridge-status::before {
+  background: var(--hp-crit);
+}
+
+.connections[data-openrouter='connected'] #conn-openrouter,
+.connections[data-bridge='connected'] #conn-bridge {
+  animation: fx-flash 360ms steps(3, end);
+}
+
+/* ---------- Buttons everywhere in the menus ---------- */
+
+.front .btn,
+#pause-menu .btn,
+.front .seg button {
+  transition:
+    transform 80ms steps(2, end),
+    filter 80ms steps(2, end);
+}
+
+.front .btn:hover:not(:disabled),
+#pause-menu .btn:hover:not(:disabled) {
+  transform: translateY(-2px);
+}
+
+.front .btn:active:not(:disabled),
+#pause-menu .btn:active:not(:disabled),
+.front .seg button:active {
+  transform: translateY(2px);
+  filter: brightness(0.9);
+}
+
+/* ---------- Match setup and Sandbox ---------- */
+
+.screen.enter {
+  animation: fx-appear 160ms steps(3, end) both;
+}
+
+.form-screen.enter .screen-head {
+  animation: fx-drop-in 240ms steps(5, end) both;
+}
+
+.form-screen.enter .screen-foot {
+  animation: fx-rise-in 240ms steps(5, end) both;
+  animation-delay: 120ms;
+}
+
+/* The two sides come in from their own side, the battle's card rises between them */
+.form-screen.enter #setup-west {
+  animation: fx-slide-right 280ms steps(6, end) both;
+  animation-delay: 60ms;
+}
+
+.form-screen.enter #setup-east {
+  animation: fx-slide-left 280ms steps(6, end) both;
+  animation-delay: 60ms;
+}
+
+.form-screen.enter .setup-grid > :not(#setup-west):not(#setup-east),
+.form-screen.enter .screen-body:not(.setup-grid) > * {
+  animation: fx-rise-in 280ms steps(6, end) both;
+  animation-delay: 140ms;
+}
+
+/* With room to spare the cards sit in the middle of the screen, not under its title; without it
+   they start at the top ("safe": centred content taller than its scrolling box would stick out
+   above it, where it cannot be scrolled to) */
+.setup-grid {
+  align-content: safe center;
+}
+
+/* Each side's card wears its army's colour */
+#setup-west {
+  box-shadow: inset 0 6px 0 var(--west-dark);
+}
+
+#setup-east {
+  box-shadow: inset 0 6px 0 var(--east-dark);
+}
+
+.side-card .card-title {
+  font-size: 28px;
+}
+
+/* ---------- Pause menu and dialogs ---------- */
+
+#pause-menu:not([hidden]) > *,
+dialog.dialog[open] {
+  animation: fx-pop 180ms steps(4, end) both;
+}
+
+/* ---------- Keyframes ---------- */
+
+@keyframes fx-appear {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes fx-drop-in {
+  from {
+    opacity: 0;
+    transform: translateY(-24px);
+  }
+}
+
+@keyframes fx-rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+}
+
+@keyframes fx-slide-right {
+  from {
+    opacity: 0;
+    transform: translateX(-40px);
+  }
+}
+
+@keyframes fx-slide-left {
+  from {
+    opacity: 0;
+    transform: translateX(40px);
+  }
+}
+
+@keyframes fx-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.92);
+  }
+}
+
+@keyframes fx-cursor {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-4px);
+  }
+}
+
+@keyframes fx-blink {
+  to {
+    opacity: 0.25;
+  }
+}
+
+@keyframes fx-flash {
+  from {
+    filter: brightness(1.8);
+  }
+}
+
+/* Sprite sheets are 4 columns (facing) by 7 rows of 16 px frames; rows 0-3 are the walk */
+@keyframes fx-walk-3x {
+  from {
+    background-position-y: 0;
+  }
+  to {
+    background-position-y: -192px;
+  }
+}
+
+@keyframes fx-walk-2x {
+  from {
+    background-position-y: 0;
+  }
+  to {
+    background-position-y: -128px;
+  }
+}
+
+/* ---------- Narrow windows ---------- */
+
+@media (max-width: 760px) {
+  .title-unit {
+    width: 64px;
+    height: 64px;
+    background-size: 256px 448px;
+  }
+
+  .title-west {
+    background-position-x: -192px;
+  }
+
+  .title-east {
+    background-position-x: -128px;
+  }
+
+  @keyframes title-walk {
+    from {
+      background-position-y: 0;
+    }
+    to {
+      background-position-y: -256px;
+    }
+  }
+
+  .choice::before {
+    display: none;
+  }
+
+  .choice:hover:not(:disabled),
+  .choice:focus-visible {
+    transform: none;
+  }
+}

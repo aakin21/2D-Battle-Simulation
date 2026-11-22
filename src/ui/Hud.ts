@@ -5,7 +5,7 @@ import type { Renderer } from '../rendering/Renderer';
 import { IUnit, IHero, UnitType, Faction, BehaviorState, SimConfig } from '../types/types';
 import { sideName } from '../engine/Sides';
 import { wholePoints } from '../engine/Objectives';
-import { clock, describeCommand, escapeHtml, SIDE_NAME } from './format';
+import { clock, commanderLabel, describeCommand, escapeHtml, SIDE_NAME } from './format';
 
 // What the player sees around the map: the match banner in the top bar, the armies in the
 // side panel, the selected-unit card, area counts and the match result. Read-only: it never
@@ -20,16 +20,19 @@ interface Baseline {
   hp: [number, number];
 }
 
-// Who commands a side: "You" or "Rules", "LLM Sonnet", "Jev + LLM Opus"
-function sideLabel(config: SimConfig, faction: Faction): string {
+// Who commands a side, as the menu says: "You" or "Rules", "LLM: Sonnet", "LLM + Jev: Opus"
+export function sideCommander(config: SimConfig, faction: Faction): string {
   const west = faction === Faction.FRIENDLY;
   const ai = west ? config.friendlyAI : config.enemyAI;
   if (!ai || ai === 'none') return west ? 'You' : 'Rules';
   const model = ai.includes('llm') ? (west ? config.friendlyModel : config.enemyModel) : undefined;
-  const m = model ? ` ${modelLabel(model)}` : '';
-  if (ai === 'llm') return `LLM${m}`;
   const tactical = west ? config.friendlyTactical : config.enemyTactical;
-  return `${TACTICAL_NAME[tactical ?? 'jev']} + LLM${m}`;
+  return commanderLabel(ai === 'llm' ? null : TACTICAL_NAME[tactical ?? 'jev'], modelLabel(model));
+}
+
+// The same, for HTML
+function sideLabel(config: SimConfig, faction: Faction): string {
+  return escapeHtml(sideCommander(config, faction));
 }
 
 function bar(ratio: number, cls = ''): string {
@@ -418,7 +421,7 @@ export class Hud {
       `<button class="btn btn-quiet" data-act="log" title="Settings, timeline and every AI decision as JSON">Download log</button></div>` +
       (actions.watch
         ? `<div class="actions"><button class="btn" data-act="watch" title="Watch this match again from the start">Watch replay</button>` +
-          `<button class="btn btn-quiet" data-act="save-replay" title="Save the replay as a file, to open later from the menu">Download replay</button></div>`
+          `<button class="btn btn-quiet" data-act="save-replay" title="Save the replay as a file, to open later on the title screen (Open a replay file…)">Download replay</button></div>`
         : '');
     this.showCard({
       restart: actions.restart,

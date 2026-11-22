@@ -4,8 +4,10 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
+    "build": "tsc && vite build && node scripts/pack-bridge.mjs",
     "preview": "vite preview",
+    "bridge": "npm run bridge:build --silent && node dist-bridge/ai-bridge.mjs",
+    "bridge:build": "esbuild server/bridgeCli.ts --bundle --platform=node --format=esm --target=node20 --log-level=warning --external:@anthropic-ai/claude-agent-sdk --banner:js=\"#!/usr/bin/env node\" --outfile=dist-bridge/ai-bridge.mjs",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.node.json",
     "lint": "eslint src server api vite.config.ts",
     "format": "prettier --write src server api vite.config.ts",

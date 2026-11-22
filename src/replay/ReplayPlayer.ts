@@ -35,7 +35,7 @@ export class ReplayPlayer {
   private panelShown = new Map<string, string>();
   private open = new Set<string>(); // long texts opened in the replay's AI panels
   private commands = new Map<number, { time: number; command: HeroCommand | null }>();
-  private bar: HTMLElement;
+  private bar: HTMLElement | null;
   private elPlay!: HTMLButtonElement;
   private elSeek!: HTMLInputElement;
   private elTime!: HTMLElement;
@@ -44,9 +44,11 @@ export class ReplayPlayer {
   private seeking = false;
   readonly duration: number;
 
+  // Without `exit` there is no replay bar: the title screen's background battle (src/ui/Attract.ts)
+  // plays a replay with no controls
   constructor(
     private readonly replay: Replay,
-    callbacks: { exit: () => void; seekReset: () => void }
+    callbacks: { exit?: () => void; seekReset: () => void }
   ) {
     const h = replay.header;
     this.duration = replay.frames.length ? replay.frames[replay.frames.length - 1].t : 0;
@@ -113,7 +115,7 @@ export class ReplayPlayer {
     }
     // In time order (applyPanels searches them); a file may list them in any order
     for (const list of this.panelsByKey.values()) list.sort((a, b) => a.t - b.t);
-    this.bar = this.buildBar(callbacks.exit);
+    this.bar = callbacks.exit ? this.buildBar(callbacks.exit) : null;
   }
 
   // --- Controls ---
@@ -160,7 +162,7 @@ export class ReplayPlayer {
   }
 
   dispose(): void {
-    this.bar.remove();
+    this.bar?.remove();
   }
 
   // --- Each frame ---
