@@ -16,6 +16,7 @@ import { TACTICAL_NAME } from '../ai/Models';
 import { LlmController } from '../ai/LlmController';
 import { AIController, MatchResult } from '../engine/SimulationEngine';
 import { LoadingScreen } from './LoadingScreen';
+import { Tour } from './Tour';
 import { Hud } from './Hud';
 import { AiPanel } from './AiPanel';
 import { AiSides, MatchLog } from './MatchLog';
@@ -26,8 +27,10 @@ import { soundMuted } from './Settings';
 import { icon } from './icons';
 import { ReplayController } from './ReplayController';
 import { ViewToggles } from './ViewToggles';
-import heroWestUrl from '../assets/sprites/hero_knight_gold.png';
-import heroEastUrl from '../assets/sprites/hero_shaman_lion.png';
+import { FrontEnd } from './FrontEnd';
+import { PauseMenu } from './PauseMenu';
+import { dialogOpen } from './Dialog';
+import { HintMode, Hints } from './Hints';
 import keySpaceUrl from '../assets/ui/keys/Space.png';
 import keyRUrl from '../assets/ui/keys/R.png';
 import keyShiftUrl from '../assets/ui/keys/Shift.png';
@@ -56,6 +59,8 @@ export class UIController {
   private minimapRenderer: MinimapRenderer;
   private inputHandler: InputHandler;
   private loading = new LoadingScreen();
+  // The menus' guided tour (the "?" buttons); it handles its own buttons and keys
+  readonly tour = new Tour();
   private hud: Hud;
   private aiPanel = new AiPanel();
   private sound: Sound;
@@ -63,6 +68,9 @@ export class UIController {
   private canvas: CanvasInteraction;
   private toggles: ViewToggles;
   private replays: ReplayController;
+  private front: FrontEnd;
+  private pause: PauseMenu;
+  private hints: Hints;
   private aiSides: AiSides = { west: {}, east: {} };
   private matchLog: MatchLog | null = null;
   // Which map the current run uses, for the match log: random, fixed or "saved: <name>"
@@ -70,12 +78,16 @@ export class UIController {
   private lastConfig: SimConfig = DEFAULT_CONFIG;
   // A run started from the menu exists (the menu can go back to it)
   private runStarted: boolean = false;
+  // Which settings the last run came from: New battle opens them again
+  private lastMode: 'battle' | 'sandbox' = 'battle';
+  // The pause menu or the front end is over the run or replay; how they were before it opened
+  private inMenu: boolean = false;
   private pausedBeforeMenu: boolean = false;
+  private replayPlayingBeforeMenu: boolean = false;
   private shownPaused: boolean | null = null;
 
   private elBtnPause: HTMLButtonElement;
   private elSpeedDisplay: HTMLElement;
-  private elMainMenu: HTMLElement;
   private elInstructions: HTMLElement;
   private elCanvasArea: HTMLElement;
 
@@ -110,22 +122,21 @@ export class UIController {
       this.loading,
       {
         resetView: () => this.resetView(),
-        closeMenu: () => this.closeMenu(),
+        closeMenu: () => this.continueRun(),
         showRunState: () => {
           this.updatePauseButton();
           this.updateSpeedDisplay();
         },
         // Without a run there is nothing behind the replay but the page's idle default
-        // battlefield: back to the menu, where Start begins a run
+        // battlefield: back to the title screen
         afterExit: () => {
-          if (!this.runStarted) this.openMenu();
+          if (!this.runStarted) this.front.open('title', 'title');
         },
       }
     );
 
     this.elBtnPause = document.getElementById('btn-pause') as HTMLButtonElement;
     this.elSpeedDisplay = document.getElementById('speed-display')!;
-    this.elMainMenu = document.getElementById('main-menu')!;
     this.elInstructions = document.getElementById('instructions-overlay')!;
     this.elCanvasArea = document.getElementById('canvas-area')!;
 
@@ -135,6 +146,38 @@ export class UIController {
     this.watchCanvasSize();
     if (this.toggles.load()) this.updateSpeedDisplay();
     this.menu = new MainMenu();
+    this.pause = new PauseMenu({
+      continueRun: () => this.continueRun(),
+      restart: () => {
+        this.continueRun();
+        this.doRestart();
+      },
+      newBattle: () => {
+        this.pause.close();
+        this.front.open(this.lastMode === 'battle' ? 'setup' : 'sandbox', 'pause');
+      },
+      titleScreen: () => {
+        this.pause.close();
+        this.front.open('title', 'pause');
+      },
+      controls: () => this.openControls(),
+    });
+    this.front = new FrontEnd(this.menu, {
+      start: () => void this.start(),
+      continueRun: () => this.continueRun(),
+      backToPause: () => this.openPause(),
+      watchReplay: (replay) => {
+        this.continueRun();
+        this.replays.watch(replay);
+      },
+      openControls: () => this.openControls(),
+      runBehind: () => this.runBehind(),
+      setMainDrawing: (on) => this.setMainDrawing(on),
+    });
+    this.hints = new Hints(stateManager, renderer, {
+      mode: () => this.hintMode(),
+      replaying: () => this.replays.player !== null,
+    });
     this.wireMenuButtons();
     this.engine.setOnMatchEnd((r) => this.showMatchResult(r));
     this.engine.setOnStep(() => this.replays.sampleFrame());
@@ -154,8 +197,6 @@ export class UIController {
     set('btn-restart', icon('restart'));
     set('btn-save-map', icon('save'));
     set('btn-help', icon('help'));
-    document.getElementById('title-west')!.style.backgroundImage = `url(${heroWestUrl})`;
-    document.getElementById('title-east')!.style.backgroundImage = `url(${heroEastUrl})`;
     this.updatePauseButton();
   }
 
@@ -179,7 +220,8 @@ export class UIController {
     // A soft click for buttons in the menus and the top bar
     document.addEventListener('click', (e) => {
       const target = e.target as HTMLElement;
-      if (target.closest('.btn, .seg button, .icon-btn')) this.sound.play('click');
+      if (target.closest('.btn, .seg button, .icon-btn, .choice, .link-btn'))
+        this.sound.play('click');
     });
     this.toggles.wireSound();
   }
@@ -212,82 +254,149 @@ export class UIController {
     apply();
   }
 
-  // --- Main menu ---
+  // --- The page's frame loop ---
 
-  // Start, Continue and the Controls screen; the menu's settings are MainMenu's.
-  private wireMenuButtons(): void {
-    // Start: set up the run, keep it paused behind the loading screen, then start it
-    document.getElementById('menu-start')!.addEventListener('click', async () => {
-      if (this.loading.isActive()) return;
-      const choice = this.menu.readStart();
-      if (!choice) return;
-      this.replays.exit(false); // the new run replaces the one behind the replay
-      this.resetView();
-      this.closeMenu();
+  // Called once the page's battlefield is set up (main.ts): its frames run while it is in view
+  pageReady(): void {
+    this.setMainDrawing(!this.front.isOpen());
+  }
 
-      if (choice.kind === 'stress') {
-        // Restart (R) repeats the stress test; no AI layers in classic modes
-        this.lastConfig = DEFAULT_CONFIG;
-        this.engine.restartStressTest();
-        this.startControllers();
-      } else {
-        this.lastConfig = choice.cfg;
-        this.mapChoice = choice.mapChoice;
-        this.engine.applyConfig(choice.cfg);
-        this.engine.restart();
-        // AI controllers tick inside the engine update, so they stay idle while paused
-        this.startControllers();
-      }
-      this.runStarted = true;
-      this.hud.reset();
-      this.updateSpeedDisplay();
+  // The page's own view is neither stepped nor drawn while the front end covers it. stop() before
+  // every start(), so there is never a second loop.
+  private setMainDrawing(on: boolean): void {
+    this.engine.stop();
+    if (on) this.engine.start();
+  }
 
-      // restart() unpauses; pause before the first frame so no sim time passes
-      this.engine.pause();
-      await this.loading.run(
-        this.engine.isStressMode() ? 'stress' : this.engine.isBattleMode() ? 'battle' : 'classic'
-      );
+  // --- Start, the pause menu, the Controls screen ---
+
+  // Start in Match setup or the Sandbox (or Play): set up the run, keep it paused behind the
+  // loading screen, then start it. The front end (and its attract battle) is gone first.
+  private async start(): Promise<void> {
+    if (this.loading.isActive()) return;
+    const choice = this.menu.readStart();
+    if (!choice) return;
+    this.lastMode = this.menu.mode;
+    this.front.close();
+    this.pause.close();
+    this.inMenu = false;
+    document.body.dataset.screen = 'run';
+    this.replays.exit(false); // the new run replaces the one behind the replay
+    this.resetView();
+
+    if (choice.kind === 'stress') {
+      // Restart (R) repeats the stress test; no AI layers in classic modes
+      this.lastConfig = DEFAULT_CONFIG;
+      this.engine.restartStressTest();
+      this.startControllers();
+    } else {
+      this.lastConfig = choice.cfg;
+      this.mapChoice = choice.mapChoice;
+      this.engine.applyConfig(choice.cfg);
+      this.engine.restart();
+      // AI controllers tick inside the engine update, so they stay idle while paused
+      this.startControllers();
+    }
+    this.runStarted = true;
+    this.hud.reset();
+    this.updateSpeedDisplay();
+
+    // restart() unpauses; pause before the first frame so no sim time passes
+    this.engine.pause();
+    await this.loading.run(
+      this.engine.isStressMode() ? 'stress' : this.engine.isBattleMode() ? 'battle' : 'classic',
+      this.lastConfig
+    );
+    this.engine.resume();
+    this.sound.play('start');
+  }
+
+  // What waits behind the menus: a replay being watched, a run, or nothing
+  private runBehind(): 'battle' | 'replay' | null {
+    return this.replays.player ? 'replay' : this.runStarted ? 'battle' : null;
+  }
+
+  // The run (or replay) waits paused behind the pause menu or the front end; how it was before
+  // is kept for Continue
+  private enterMenu(): void {
+    if (this.inMenu) return;
+    this.inMenu = true;
+    this.pausedBeforeMenu = this.engine.isPaused();
+    this.engine.pause();
+    const player = this.replays.player;
+    this.replayPlayingBeforeMenu = !!player && player.isPlaying();
+    player?.pause();
+  }
+
+  // Esc, Menu and a result card's Menu: the pause menu over the run or replay (with nothing
+  // behind, the title screen)
+  private openPause(): void {
+    if (this.pause.isOpen()) return;
+    const what = this.runBehind();
+    if (!what) {
+      this.front.open('title', 'title');
+      return;
+    }
+    this.enterMenu();
+    this.pause.open(what);
+  }
+
+  // Back to the run or replay; each resumes only if it was running when the menu opened
+  private continueRun(): void {
+    this.front.close();
+    this.pause.close();
+    document.body.dataset.screen = 'run';
+    if (!this.inMenu) return;
+    this.inMenu = false;
+    const player = this.replays.player;
+    if (player) {
+      if (this.replayPlayingBeforeMenu && !player.isPlaying()) player.togglePlay();
+      return;
+    }
+    if (this.runStarted && !this.pausedBeforeMenu && !this.engine.getResult()) {
       this.engine.resume();
-      this.sound.play('start');
-    });
+    }
+  }
 
-    document.getElementById('menu-continue')!.addEventListener('click', () => this.closeMenu());
-
-    document.getElementById('menu-instructions')!.addEventListener('click', () => {
-      this.elInstructions.style.display = 'flex';
-    });
-
+  private wireMenuButtons(): void {
     document.getElementById('btn-close-instructions')!.addEventListener('click', () => {
-      this.elInstructions.style.display = 'none';
+      this.closeControls();
+    });
+    // The hints start over (now, in a battle the user commands or watches)
+    document.getElementById('btn-hints-again')!.addEventListener('click', () => {
+      this.hints.showAgain();
+      this.closeControls();
     });
   }
 
+  private openControls(): void {
+    this.elInstructions.style.display = 'flex';
+    document.getElementById('btn-close-instructions')!.focus();
+  }
+
+  // The Controls screen closes; the focus goes back to the button that opened it
+  private closeControls(): void {
+    this.elInstructions.style.display = 'none';
+    if (this.pause.isOpen()) this.pause.focusControls();
+    else if (this.front.isOpen()) document.getElementById('menu-instructions')!.focus();
+  }
+
   private isMenuOpen(): boolean {
-    return this.elMainMenu.style.display !== 'none';
+    return this.front.isOpen() || this.pause.isOpen();
   }
 
   private isHelpOpen(): boolean {
     return this.elInstructions.style.display === 'flex';
   }
 
-  // Opens the menu over the current run, which waits paused behind it.
-  private openMenu(): void {
-    if (this.isMenuOpen()) return;
-    this.pausedBeforeMenu = this.engine.isPaused();
-    this.engine.pause();
-    this.replays.player?.pause();
-    document.getElementById('menu-continue')!.hidden = !this.runStarted && !this.replays.player;
-    this.elMainMenu.style.display = 'flex';
-  }
-
-  // Back to the run; it resumes only if it was running when the menu opened.
-  private closeMenu(): void {
-    this.elMainMenu.style.display = 'none';
-    // A replay being watched keeps the live run paused behind it
-    if (this.replays.player) return;
-    if (this.runStarted && !this.pausedBeforeMenu && !this.engine.getResult()) {
-      this.engine.resume();
-    }
+  // What the in-context hints are about: a battle the user commands, a battle watched (a replay,
+  // or AI commanders on both sides), or nothing to hint at
+  private hintMode(): HintMode {
+    if (this.isMenuOpen() || this.isHelpOpen() || this.loading.isActive()) return null;
+    if (this.replays.player) return 'watch';
+    if (!this.runStarted || !this.engine.isBattleMode()) return null;
+    if (this.engine.getResult() || this.engine.getError()) return null;
+    return (this.lastConfig.friendlyAI ?? 'none') === 'none' ? 'play' : 'watch';
   }
 
   // --- Button events ---
@@ -303,10 +412,8 @@ export class UIController {
       .addEventListener('click', () =>
         this.menu.saveCurrentMap(this.stateManager.getBattlefield().grid)
       );
-    document.getElementById('btn-menu')!.addEventListener('click', () => this.openMenu());
-    document.getElementById('btn-help')!.addEventListener('click', () => {
-      this.elInstructions.style.display = 'flex';
-    });
+    document.getElementById('btn-menu')!.addEventListener('click', () => this.openPause());
+    document.getElementById('btn-help')!.addEventListener('click', () => this.openControls());
     document.getElementById('btn-log')!.addEventListener('click', () => this.downloadLog());
     this.toggles.wire();
   }
@@ -343,14 +450,16 @@ export class UIController {
     this.inputHandler.onKeyDown((key: string) => {
       // Shortcuts would unpause or restart the run behind the loading screen
       if (this.loading.isActive()) return;
+      // A dialog (the AI bridge's instructions, About) has the keyboard; Esc closes it itself
+      if (dialogOpen()) return;
       if (key === 'Escape') {
-        if (this.isHelpOpen()) this.elInstructions.style.display = 'none';
-        else if (this.isMenuOpen()) {
-          if (this.runStarted || this.replays.player) this.closeMenu();
-        } else this.openMenu();
+        if (this.isHelpOpen()) this.closeControls();
+        else if (this.front.isOpen()) this.front.back();
+        else if (this.pause.isOpen()) this.continueRun();
+        else this.openPause();
         return;
       }
-      // Game shortcuts only act on the battlefield, not behind the menu or the help screen
+      // Game shortcuts only act on the battlefield, not behind the menus or the help screen
       if (this.isMenuOpen() || this.isHelpOpen()) return;
       switch (key) {
         case ' ':
@@ -372,6 +481,13 @@ export class UIController {
 
     // Mouse on the battlefield and the minimap
     this.canvas.wire();
+
+    // The hints go on when the user does what they say
+    this.inputHandler.onKeyDown((key) => this.hints.keyPressed(key));
+    this.canvas.onUserAction((action, unit) => {
+      if (action === 'select') this.hints.userSelected(unit);
+      else this.hints.userOrdered();
+    });
   }
 
   // --- Match end ---
@@ -386,7 +502,7 @@ export class UIController {
     const replay = this.replays.finish(r);
     this.hud.showResult(r, this.lastConfig, {
       restart: () => this.doRestart(),
-      menu: () => this.openMenu(),
+      menu: () => this.openPause(),
       log: () => this.downloadLog(),
       watch: replay?.watch ?? null,
       saveReplay: replay?.save ?? null,
@@ -398,7 +514,7 @@ export class UIController {
   private showError(message: string): void {
     this.hud.showError(message, this.stateManager.getBattlefield().elapsedTime, {
       restart: () => this.doRestart(),
-      menu: () => this.openMenu(),
+      menu: () => this.openPause(),
       log: this.matchLog ? () => this.downloadLog() : null,
     });
     this.updatePauseButton();
@@ -512,6 +628,7 @@ export class UIController {
         player.applyPanels();
         this.updatePauseButton();
         this.canvas.refreshSelection();
+        this.hints.update();
         return;
       }
       this.hud.update(this.lastConfig);
@@ -526,6 +643,7 @@ export class UIController {
       this.replays.samplePanels();
       this.updatePauseButton();
       this.canvas.refreshSelection();
+      this.hints.update();
     }, 100);
   }
 }

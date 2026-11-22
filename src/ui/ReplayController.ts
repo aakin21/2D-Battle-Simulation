@@ -10,9 +10,9 @@ import type { AiPanel } from './AiPanel';
 import type { LoadingScreen } from './LoadingScreen';
 
 // Match replays in the page (src/replay): records the current battle-mode match, the Replay
-// button in Armies, Watch a replay in the menu, and watching a replay over the live run, which
-// waits paused behind it and goes on after Exit as it was before (running if it was running).
-// A replay opened before any run was started goes back to the menu on Exit. While a replay is
+// button in Armies, Open a replay file… on the title screen, and watching a replay over the live
+// run, which waits paused behind it and goes on after Exit as it was before (running if it was
+// running). A replay opened before any run was started goes back to the title screen on Exit. While a replay is
 // watched, UIController sends the top bar's pause, speed and restart to `player`.
 
 // What the replay needs from UIController

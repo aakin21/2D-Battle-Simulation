@@ -331,6 +331,34 @@ input[type='number']::-webkit-outer-spin-button {
   color: var(--text-faint);
 }
 
+/* ---------- Motion ---------- */
+
+/* Shared by the menus (menu.css) and the hints (hints.css): 100-150 ms for button feedback,
+   200-300 ms for panels, ease-out, exits shorter, no bounce */
+:root {
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@keyframes ui-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes ui-rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+@keyframes ui-fade-out {
+  to {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

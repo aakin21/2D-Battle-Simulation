@@ -5,3 +5,4 @@ DEFENSE.md
 .claude/worktrees/
 .env*.local
 .vercel
+dist-bridge/

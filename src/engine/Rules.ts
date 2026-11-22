@@ -2,6 +2,14 @@
 // rule descriptions are built from them (src/ai/GameRules.ts), so the prompts always match
 // the simulation. Change a rule here and both follow.
 
+// The simulation's fixed time step (P9): every step advances the battle by exactly SIM_STEP,
+// whatever the display's frame rate or the speed setting (a higher speed runs more steps per
+// frame, never a longer step; SimulationEngine's loop). 1/60 s is what Phase 1 stepped on a 60 Hz
+// screen at 1x. Every time in the rules below is a whole number of steps, so an attack every
+// ATTACK_INTERVAL lands exactly every 60 steps and a time limit ends exactly on a step.
+export const STEPS_PER_SECOND = 60;
+export const SIM_STEP = 1 / STEPS_PER_SECOND; // seconds
+
 export const COMBAT_RANGE = 2; // tiles: units fight anything this close
 export const ATTACK_INTERVAL = 1.0; // seconds between attacks
 
@@ -83,6 +91,7 @@ export const CONTROL_RADIUS = 8; // tiles: units this close to a point count for
 export const CONTROL_POINTS_PER_SEC = 1; // per point held
 // A side holds a point (and scores) once it has had the most units near it this long in a row
 export const CONTROL_CAPTURE_SECONDS = 3;
+// Time limits are whole seconds: the step that ends at the limit is a match's last (SIM_STEP)
 export const CONTROL_TIME_LIMIT = 480; // seconds (8 min; 300 until 2026-10-18)
 export const MATCH_TIME_LIMIT = 500; // seconds: elimination and base modes
 export const BASE_HP = 3000;

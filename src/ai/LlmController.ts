@@ -5,16 +5,27 @@ import { llmSystemPrompt } from './GameRules';
 import { LLM_TIMEOUT_MS } from './Limits';
 import { hpPercent } from './Observations';
 import { sideName } from '../engine/Sides';
-import { aiEndpoint, aiHeaders, deniedByAiServer, transientStatus } from './AiServer';
+import {
+  aiEndpoint,
+  aiHeaders,
+  deniedByAiServer,
+  transientStatus,
+  withAddressSpace,
+} from './AiServer';
 import { AiLayer } from './AiLayer';
 import { startExchange } from './Exchange';
 import { describeCommand } from './Describe';
 import { buildReport, type ReportMemory } from './LlmReport';
 import { readOrder, readReply, usageOf } from './LlmReply';
+import { openRouterId } from './Models';
+import { openRouterConnected } from './OpenRouterConnect';
+import { DIRECT_CHAT_URL, DIRECT_HISTORY_TURNS, OpenRouterSession } from './OpenRouterChat';
 import type { JevAssessment, LlmDecision, LlmUsage } from './types';
 
 // Layer 3 (D1, D10): the LLM plans the overall strategy every 15 s (D50) from a computed summary
-// of the whole map (D16, R5). It runs in the dev server through the Claude Agent SDK.
+// of the whole map (D16, R5). It runs in the dev server through the Claude Agent SDK; an
+// OpenRouter model goes straight from the browser to OpenRouter when the visitor connected their
+// own OpenRouter account ("Connect with OpenRouter", OpenRouterChat.ts).
 
 export type { JevAssessment, LlmDecision, LlmUsage } from './types';
 
@@ -29,10 +40,14 @@ export interface LlmOptions {
   timeoutMs: number; // a request without an answer by then counts as a failure
 }
 
-const DEFAULTS: LlmOptions = {
-  intervalSec: 15, // D50: answers take ~4–10 s (Sonnet, Opus)
+// How often the LLM is asked (D50: answers take ~4–10 s with Sonnet and Opus); the menu says it
+export const LLM_INTERVAL_SEC = 15;
+
+// The endpoint is taken when a controller is made (the AI server can change while the page is
+// open: the AI bridge connected in the menu)
+const DEFAULTS: Omit<LlmOptions, 'endpoint'> = {
+  intervalSec: LLM_INTERVAL_SEC,
   fallbackToRules: true,
-  endpoint: aiEndpoint('/api/llm'),
   fetchFn: (...args) => fetch(...args),
   jevAssessment: null,
   model: 'sonnet',
@@ -51,6 +66,11 @@ export class LlmController extends AiLayer {
   private readonly side: 'west' | 'east';
   readonly system: string; // the rulebook sent as the session's system prompt
   readonly decisions: LlmDecision[] = [];
+  // Where the LLM is asked: the AI server's /api/llm, or OpenRouter straight from this browser on
+  // the visitor's own key, with the last `historyTurns` reports and answers sent again (null: as
+  // the server keeps them). Decided when the match starts.
+  readonly via: 'server' | 'browser';
+  readonly historyTurns: number | null;
 
   // Memory between reports: what the last report the LLM saw counted, and the hero events
   // noted since
@@ -66,7 +86,22 @@ export class LlmController extends AiLayer {
     opts: Partial<LlmOptions> = {}
   ) {
     super(engine, stateManager, faction);
-    this.opts = { ...DEFAULTS, ...opts };
+    this.opts = { ...DEFAULTS, endpoint: aiEndpoint('/api/llm'), ...opts };
+    // An OpenRouter model, a connected browser and no fetch of the caller's own (tests): straight
+    // to OpenRouter. Anything else goes to /api/llm as before.
+    const routerId = openRouterId(this.opts.model);
+    const direct =
+      routerId !== null &&
+      opts.fetchFn === undefined &&
+      opts.endpoint === undefined &&
+      openRouterConnected();
+    if (direct) {
+      const session = new OpenRouterSession(routerId, this.opts.model);
+      this.opts.endpoint = DIRECT_CHAT_URL;
+      this.opts.fetchFn = session.fetch;
+    }
+    this.via = direct ? 'browser' : 'server';
+    this.historyTurns = direct ? DIRECT_HISTORY_TURNS : null;
     this.side = sideName(faction);
     this.system = llmSystemPrompt(
       this.side,
@@ -149,18 +184,22 @@ export class LlmController extends AiLayer {
       exchange,
       started,
       async (signal) => ({
-        res: await this.opts.fetchFn(this.opts.endpoint, {
-          method: 'POST',
-          headers: aiHeaders(),
-          signal,
-          body: JSON.stringify({
-            side: this.side,
-            matchId: this.matchId,
-            system: this.system,
-            model: this.opts.model,
-            prompt: JSON.stringify(report),
-          }),
-        }),
+        // A server on this computer (the AI bridge) needs Local Network Access's field
+        res: await this.opts.fetchFn(
+          this.opts.endpoint,
+          withAddressSpace(this.opts.endpoint, {
+            method: 'POST',
+            headers: aiHeaders(),
+            signal,
+            body: JSON.stringify({
+              side: this.side,
+              matchId: this.matchId,
+              system: this.system,
+              model: this.opts.model,
+              prompt: JSON.stringify(report),
+            }),
+          })
+        ),
       }),
       (answer, latencyMs) => {
         const body = answer as Record<string, unknown> | null;
@@ -180,10 +219,16 @@ export class LlmController extends AiLayer {
     return !deniedByAiServer(res) && (info.retryable ?? transientStatus(res));
   }
 
+  // The browser's own OpenRouter answers say what to do in their text; none of the AI server's
+  // hints fit them
   protected statusHint(status: number): string | null {
-    return status === 404 || status === 405
-      ? 'This site has no LLM endpoint: run npm run dev, or open the demo through the tunnel (?ai=...).'
-      : null;
+    if (this.via === 'browser') return '';
+    if (status !== 404 && status !== 405) return null;
+    const hint =
+      'This site has no LLM endpoint: run npm run dev, or open the demo through the tunnel (?ai=...)';
+    return openRouterId(this.opts.model) !== null
+      ? `${hint}, or connect OpenRouter (AI connections, on the title screen).`
+      : `${hint}.`;
   }
 
   // Validates the LLM's reply and applies the usable orders through the command interface.

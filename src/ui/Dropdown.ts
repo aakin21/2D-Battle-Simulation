@@ -3,15 +3,41 @@ import { escapeHtml } from './format';
 // A drop-down list in the menu's own pixel style (the browser's <select> cannot be styled to
 // match it): a button with the chosen item, and a list of items grouped under headings. Works
 // with the mouse and the keyboard (arrows, Home/End, Enter or Space, Esc) and closes when the
-// focus or a click leaves it. Used for the OpenRouter model list (D52).
+// focus or a click leaves it. Used for Match setup's model lists (D52, the AI server's and the AI
+// bridge's models). Labels and notes are escaped (escapeHtml): a model name from the bridge is
+// shown as text. A disabled item is shown with its note (why it cannot be chosen) and is never
+// chosen: not by the mouse, the keys, `value` or `setItems`.
 
 export interface DropdownItem {
   value: string;
   label: string;
   group?: string;
+  disabled?: boolean;
+  note?: string; // shown under the label (a disabled item: why)
+}
+
+// The value to show: `value` when it is an item that can be chosen, else the first such item
+function choosable(items: DropdownItem[], value: string): string {
+  const can = items.filter((i) => !i.disabled);
+  return can.some((i) => i.value === value) ? value : (can[0]?.value ?? '');
 }
 
 let nextId = 1;
+
+// The part of the window a list inside `el` can be seen in: the window, cut by every box around
+// it that clips what overflows (a scrolling settings body)
+function clipBox(el: HTMLElement | null): { top: number; bottom: number } {
+  let top = 0;
+  let bottom = window.innerHeight;
+  if (typeof getComputedStyle !== 'function') return { top, bottom };
+  for (let e = el; e; e = e.parentElement) {
+    if (getComputedStyle(e).overflowY === 'visible') continue;
+    const r = e.getBoundingClientRect();
+    top = Math.max(top, r.top);
+    bottom = Math.min(bottom, r.bottom);
+  }
+  return { top, bottom };
+}
 
 export class Dropdown {
   private button: HTMLButtonElement;
@@ -23,7 +49,7 @@ export class Dropdown {
 
   constructor(root: HTMLElement, items: DropdownItem[], value: string) {
     this.items = items;
-    this.current = items.some((i) => i.value === value) ? value : (items[0]?.value ?? '');
+    this.current = choosable(items, value);
     const id = `dd-${nextId++}`;
     root.classList.add('dropdown');
     root.innerHTML =
@@ -47,7 +73,7 @@ export class Dropdown {
       if (item) this.choose(Number(item.dataset.index));
     });
     this.list.addEventListener('mousemove', (e) => {
-      const item = (e.target as HTMLElement).closest<HTMLElement>('.dd-item');
+      const item = (e.target as HTMLElement).closest<HTMLElement>('.dd-item:not(.disabled)');
       if (item) this.highlight(Number(item.dataset.index), false);
     });
     // Closes when a click or the focus goes elsewhere
@@ -64,8 +90,17 @@ export class Dropdown {
   }
 
   set value(value: string) {
-    if (!this.items.some((i) => i.value === value)) return;
+    if (!this.items.some((i) => i.value === value && !i.disabled)) return;
     this.current = value;
+    this.render();
+  }
+
+  // New items (a way's model list); `value` is chosen when it is one of them that can be chosen,
+  // else the first that can ('' when none can)
+  setItems(items: DropdownItem[], value: string): void {
+    if (this.isOpen()) this.close(false);
+    this.items = items;
+    this.current = choosable(items, value);
     this.render();
   }
 
@@ -89,28 +124,34 @@ export class Dropdown {
         if (group) html += `<div class="dd-group" role="presentation">${escapeHtml(group)}</div>`;
       }
       const selected = item.value === this.current;
+      const note = item.note ? `<span class="dd-note">${escapeHtml(item.note)}</span>` : '';
       html +=
-        `<div class="dd-item${selected ? ' selected' : ''}" role="option" id="${this.list.id}-${index}" ` +
-        `data-index="${index}" aria-selected="${selected}">${escapeHtml(item.label)}</div>`;
+        `<div class="dd-item${selected ? ' selected' : ''}${item.disabled ? ' disabled' : ''}" role="option" id="${this.list.id}-${index}" ` +
+        `data-index="${index}" aria-selected="${selected}"${item.disabled ? ' aria-disabled="true"' : ''}>` +
+        `<span class="dd-text">${escapeHtml(item.label)}</span>${note}</div>`;
     });
     this.list.innerHTML = html;
   }
 
   private open(): void {
     this.list.hidden = false;
-    // Opens upward when there is not enough room below (the menu ends near the screen's edge)
+    // Opens upward when there is not enough room below (the menu ends near the screen's edge),
+    // within what clips it: the window, or the settings' body when it scrolls (small windows);
+    // a list taller than the room it gets scrolls in it
     this.list.classList.remove('up');
+    this.list.style.maxHeight = '';
     const box = this.button.getBoundingClientRect();
     const height = this.list.getBoundingClientRect().height;
-    const below = window.innerHeight - box.bottom;
-    if (below < height + 8 && box.top > below) this.list.classList.add('up');
+    const clip = clipBox(this.list.parentElement);
+    const below = clip.bottom - box.bottom;
+    const above = box.top - clip.top;
+    const up = below < height + 8 && above > below;
+    if (up) this.list.classList.add('up');
+    const room = Math.floor((up ? above : below) - 8);
+    if (height > room) this.list.style.maxHeight = `${Math.max(80, room)}px`;
     this.button.setAttribute('aria-expanded', 'true');
-    this.highlight(
-      Math.max(
-        0,
-        this.items.findIndex((i) => i.value === this.current)
-      )
-    );
+    const at = this.items.findIndex((i) => i.value === this.current && !i.disabled);
+    this.highlight(at >= 0 ? at : this.step(-1, 1));
     this.list.focus();
   }
 
@@ -118,6 +159,14 @@ export class Dropdown {
     this.list.hidden = true;
     this.button.setAttribute('aria-expanded', 'false');
     if (focusButton) this.button.focus();
+  }
+
+  // The next item that can be chosen from `from` in direction `dir` (1 or -1), or `from` itself when
+  // there is none that way (-1 when no item can be chosen)
+  private step(from: number, dir: 1 | -1): number {
+    for (let i = from + dir; i >= 0 && i < this.items.length; i += dir)
+      if (!this.items[i].disabled) return i;
+    return from >= 0 && from < this.items.length && !this.items[from].disabled ? from : -1;
   }
 
   private highlight(index: number, scroll = true): void {
@@ -134,7 +183,7 @@ export class Dropdown {
 
   private choose(index: number): void {
     const item = this.items[index];
-    if (!item) return;
+    if (!item || item.disabled) return;
     const changed = item.value !== this.current;
     this.current = item.value;
     this.render();
@@ -143,14 +192,16 @@ export class Dropdown {
   }
 
   private onKey(e: KeyboardEvent): void {
+    // Disabled items are passed over
     const moves: Record<string, number> = {
-      ArrowDown: this.active + 1,
-      ArrowUp: this.active - 1,
-      Home: 0,
-      End: this.items.length - 1,
+      ArrowDown: this.step(this.active, 1),
+      ArrowUp: this.step(this.active, -1),
+      Home: this.step(-1, 1),
+      End: this.step(this.items.length, -1),
     };
-    if (e.key in moves) this.highlight(moves[e.key]);
-    else if (e.key === 'Enter' || e.key === ' ') this.choose(this.active);
+    if (e.key in moves) {
+      if (moves[e.key] >= 0) this.highlight(moves[e.key]);
+    } else if (e.key === 'Enter' || e.key === ' ') this.choose(this.active);
     else if (e.key === 'Escape' || e.key === 'Tab') {
       if (e.key === 'Escape') e.stopPropagation(); // Esc must close the list, not the menu
       this.close(e.key === 'Escape');

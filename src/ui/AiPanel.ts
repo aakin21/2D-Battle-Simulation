@@ -8,7 +8,7 @@ import { BehaviorState, Faction, IHero, SimConfig } from '../types/types';
 import type { StateManager } from '../state/StateManager';
 import type { AiSides } from './MatchLog';
 import { AiRequestLog } from './AiRequestLog';
-import { describeCommand, escapeHtml, prettyKey, SIDE_NAME } from './format';
+import { commanderLabel, describeCommand, escapeHtml, prettyKey, SIDE_NAME } from './format';
 import { modelLabel } from '../ai/Models';
 
 // The AI panels in the side panel, below Map, Armies and Area: one for each side with AI
@@ -155,8 +155,8 @@ export class AiPanel {
     heroes: IHero[]
   ): string {
     const model = side === 'west' ? config.friendlyModel : config.enemyModel;
-    const name = model ? ` ${modelLabel(model)}` : '';
-    const who = [llm ? `LLM${name}` : '', jev ? jev.name : ''].filter(Boolean).join(' + ');
+    // As the menu and the armies name it: "LLM: Sonnet", "LLM + Jev: Sonnet"
+    const who = llm ? commanderLabel(jev ? jev.name : null, modelLabel(model)) : (jev?.name ?? '');
     let html =
       `<div class="ai-head"><span class="ai-side-name ${side}-text">${SIDE_NAME[side]}</span>` +
       `<span class="army-who">${escapeHtml(who)}</span></div>`;

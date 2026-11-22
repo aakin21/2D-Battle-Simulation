@@ -83,15 +83,23 @@ export function damageBases(sm: StateManager, units: IUnit[], dt: number): void 
   }
 }
 
+// A score is a sum of per-step points (1/60 of a point a step per point held), which carries
+// rounding error: 477 s held sum to 476.99999999998. A score this close below a whole point counts
+// as that point; a real score is a whole number of steps' points, never this close below one.
+const WHOLE_POINT_TOLERANCE = 1e-6;
+
 // Points as shown and as they decide the match: whole points earned so far, so a match never
 // goes to a side by a fraction of a point the scoreboard does not show
 export function wholePoints(score: number): number {
-  return Math.floor(score);
+  return Math.floor(score + WHOLE_POINT_TOLERANCE);
 }
 
 // Objective-based end of a match, or null if it goes on. Elimination is checked by the engine.
+// `time`: the simulation time to judge the time limit at (the engine passes the end of the step
+// it has just run, so the step that ends at the limit is the last)
 export function objectiveEnd(
-  sm: StateManager
+  sm: StateManager,
+  time: number = sm.getBattlefield().elapsedTime
 ): { winner: Faction | null; reason: EndReason } | null {
   const bf = sm.getBattlefield();
   const o = bf.objective;
@@ -100,7 +108,7 @@ export function objectiveEnd(
     if (fallen.length === 2) return { winner: null, reason: 'base' };
     if (fallen.length === 1) return { winner: opponent(fallen[0].faction), reason: 'base' };
   }
-  if (o.timeLimit !== null && bf.elapsedTime >= o.timeLimit) {
+  if (o.timeLimit !== null && time >= o.timeLimit) {
     // Time up: control is decided on points alone, equal points are a draw (D55); the other
     // modes on total HP left.
     if (o.mode === 'control') {

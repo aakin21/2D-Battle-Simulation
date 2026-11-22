@@ -10,51 +10,89 @@ import { timingSafeEqual } from 'node:crypto';
 
 const DEFAULT_ORIGINS = ['https://aakin21.github.io'];
 
-export function aiAccessPlugin(env: Record<string, string>): Plugin {
-  const password = env.AI_PASSWORD ?? '';
+// The sites that may call the endpoints from their pages: AI_ALLOWED_ORIGINS (comma-separated),
+// or the demo's origin
+export function allowedOrigins(env: Record<string, string>): Set<string> {
   const origins = (env.AI_ALLOWED_ORIGINS ?? '')
     .split(',')
     .map((o) => o.trim())
     .filter(Boolean);
-  const allowed = new Set(origins.length > 0 ? origins : DEFAULT_ORIGINS);
+  return new Set(origins.length > 0 ? origins : DEFAULT_ORIGINS);
+}
 
+export interface AiAccessOptions {
+  // The AI bridge (bridge.ts): pages on this computer (localhost, 127.0.0.1, [::1], any port) may
+  // call it like the allowed sites; the dev server takes only pages it serves itself
+  loopbackOrigins?: boolean;
+}
+
+type Middleware = (req: IncomingMessage, res: ServerResponse, next: () => void) => void;
+
+// The check itself, for the dev server (aiAccessPlugin) and the AI bridge (bridge.ts)
+export function aiAccess(env: Record<string, string>, options: AiAccessOptions = {}): Middleware {
+  const password = env.AI_PASSWORD ?? '';
+  const allowed = allowedOrigins(env);
+  const allowedOrigin = (origin: string) =>
+    allowed.has(origin) || (options.loopbackOrigins === true && isLoopbackOrigin(origin));
+
+  return (req, res, next) => {
+    if (!isApiPath(req.url)) return next();
+
+    const origin = req.headers.origin;
+    if (origin && allowedOrigin(origin)) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Vary', 'Origin');
+      res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+      res.setHeader(
+        'Access-Control-Allow-Headers',
+        'Content-Type, x-ai-key, ngrok-skip-browser-warning'
+      );
+      res.setHeader('Access-Control-Expose-Headers', 'x-ai-access');
+    }
+    if (req.method === 'OPTIONS') {
+      res.statusCode = 204;
+      return res.end();
+    }
+
+    // Any website open in this computer's browser can send a simple POST (no preflight)
+    // to localhost, which would pass as local and spend the quota. Browsers mark such
+    // requests with the site's Origin: only this app and the demo's origin may call.
+    if (origin && !allowedOrigin(origin) && !sameOrigin(origin, req)) {
+      return deny(res, 403, 'requests from other sites are refused');
+    }
+
+    if (isLocal(req)) return next();
+    if (!password) return deny(res, 503, 'AI_PASSWORD is not set on the AI server');
+    if (!matches(req.headers['x-ai-key'], password)) return deny(res, 401, 'wrong AI password');
+    next();
+  };
+}
+
+export function aiAccessPlugin(env: Record<string, string>): Plugin {
+  const check = aiAccess(env);
   return {
     name: 'ai-access',
     configureServer(server) {
       // Added directly (not returned), so it runs before Vite's proxy and the LLM endpoint.
-      server.middlewares.use((req: IncomingMessage, res: ServerResponse, next: () => void) => {
-        if (!isApiPath(req.url)) return next();
-
-        const origin = req.headers.origin;
-        if (origin && allowed.has(origin)) {
-          res.setHeader('Access-Control-Allow-Origin', origin);
-          res.setHeader('Vary', 'Origin');
-          res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-          res.setHeader(
-            'Access-Control-Allow-Headers',
-            'Content-Type, x-ai-key, ngrok-skip-browser-warning'
-          );
-          res.setHeader('Access-Control-Expose-Headers', 'x-ai-access');
-        }
-        if (req.method === 'OPTIONS') {
-          res.statusCode = 204;
-          return res.end();
-        }
-
-        // Any website open in this computer's browser can send a simple POST (no preflight)
-        // to localhost, which would pass as local and spend the quota. Browsers mark such
-        // requests with the site's Origin: only this app and the demo's origin may call.
-        if (origin && !allowed.has(origin) && !sameOrigin(origin, req)) {
-          return deny(res, 403, 'requests from other sites are refused');
-        }
-
-        if (isLocal(req)) return next();
-        if (!password) return deny(res, 503, 'AI_PASSWORD is not set on the AI server');
-        if (!matches(req.headers['x-ai-key'], password)) return deny(res, 401, 'wrong AI password');
-        next();
-      });
+      server.middlewares.use(check);
     },
   };
+}
+
+// A page on this computer: its origin's host is a loopback name or address (a page's Origin is
+// the address the browser opened, so a site that only resolves to 127.0.0.1 is not one). Only a
+// well-formed origin, as browsers send it (scheme, host, port; no path)
+function isLoopbackOrigin(origin: string): boolean {
+  try {
+    const url = new URL(origin);
+    return (
+      url.origin === origin &&
+      (url.protocol === 'http:' || url.protocol === 'https:') &&
+      (url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '[::1]')
+    );
+  } catch {
+    return false;
+  }
 }
 
 // The path as Vite's middleware routes see it: they match ignoring case ("/API/llm" reaches the
@@ -103,7 +141,7 @@ const DENIED_LINGER_MS = 1000;
 // x-ai-access tells the browser the refusal came from here, not from TypeSafe or the LLM.
 // The connection is closed after the answer: a refused request's body is never read, and its
 // socket must not stay open until Node's own timeouts (300 s) end it.
-function deny(res: ServerResponse, status: number, error: string): void {
+export function deny(res: ServerResponse, status: number, error: string): void {
   res.statusCode = status;
   res.setHeader('x-ai-access', 'denied');
   res.setHeader('Content-Type', 'application/json');

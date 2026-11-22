@@ -103,6 +103,10 @@ export class MatchLog {
     return {
       llm: side.llm
         ? {
+            // The AI server, or OpenRouter straight from the browser on the visitor's key with
+            // the last `historyTurns` reports and answers sent again (the server sends them all)
+            via: side.llm.via,
+            historyTurns: side.llm.historyTurns ?? undefined,
             decisions: side.llm.decisions,
             skippedRequests: side.llm.skippedRequests,
             failedRequests: side.llm.failedRequests,

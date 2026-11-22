@@ -293,6 +293,7 @@
   display: flex;
   justify-content: space-between;
   align-items: baseline;
+  gap: 8px;
   margin-bottom: 4px;
 }
 
@@ -649,219 +650,13 @@
   z-index: 110;
 }
 
-/* Main menu */
-.menu-card {
-  width: min(640px, 100%);
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  margin: auto;
+/* The Controls screen fades in, its card rises in (theme.css) */
+#instructions-overlay {
+  animation: ui-fade-in 200ms ease-out;
 }
 
-.menu-title {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 16px;
-}
-
-.menu-title h1 {
-  font-size: 32px;
-  font-weight: normal;
-  color: var(--wood-light);
-  text-shadow: 3px 3px 0 var(--ink);
-  text-align: center;
-  line-height: 1.1;
-}
-
-.title-unit {
-  width: 48px;
-  height: 48px;
-  flex-shrink: 0;
-  background-size: 192px 336px;
-  background-repeat: no-repeat;
-  image-rendering: pixelated;
-  animation: title-walk 0.6s steps(4) infinite;
-}
-
-#title-west {
-  background-position-x: -144px; /* facing right */
-}
-
-#title-east {
-  background-position-x: -96px; /* facing left */
-}
-
-@keyframes title-walk {
-  from {
-    background-position-y: 0;
-  }
-  to {
-    background-position-y: -192px;
-  }
-}
-
-.tabs {
-  justify-content: center;
-}
-
-.tabs button {
-  min-width: 110px;
-  padding: 4px 10px 6px;
-}
-
-.menu-body {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.menu-section h4 {
-  font-weight: normal;
-  color: var(--wood-light);
-  margin-bottom: 6px;
-}
-
-.menu-section p {
-  margin-bottom: 6px;
-}
-
-.menu-section.locked {
-  opacity: 0.5;
-  pointer-events: none;
-}
-
-.cfg-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin: 6px 0;
-  flex-wrap: wrap;
-}
-
-.cfg-row > label {
-  min-width: 96px;
-  color: var(--text-dim);
-}
-
-.cfg-row.sub > label {
-  padding-left: 14px;
-}
-
-.cfg-row input[type='range'] {
-  flex: 1;
-  min-width: 120px;
-}
-
-.cfg-val {
-  min-width: 40px;
-  text-align: right;
-}
-
-.menu-actions {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  gap: 12px;
-}
-
-/* Loading screen */
-.loading-card {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 16px;
-  min-width: 380px;
-}
-
-.loading-card h2 {
-  font-size: 24px;
-  font-weight: normal;
-  color: var(--wood-light);
-  text-shadow: 3px 3px 0 var(--ink);
-}
-
-#loading-overlay {
-  cursor: pointer;
-  opacity: 1;
-  transition: opacity 0.4s ease;
-}
-
-#loading-overlay.fading {
-  opacity: 0;
-}
-
-#loading-units {
-  display: flex;
-  gap: 120px;
-}
-
-/* Sprite sheets are 64×112 with 16×16 frames, shown at 4x */
-.loading-unit {
-  width: 64px;
-  height: 64px;
-  background-size: 256px 448px;
-  background-repeat: no-repeat;
-  image-rendering: pixelated;
-}
-
-#loading-warrior {
-  background-position-x: -192px;
-  animation:
-    loading-walk 0.5s steps(4) infinite,
-    loading-bob-right 1s ease-in-out infinite;
-}
-
-#loading-berserker {
-  background-position-x: -128px;
-  animation:
-    loading-walk 0.5s steps(4) infinite,
-    loading-bob-left 1s ease-in-out infinite;
-}
-
-@keyframes loading-walk {
-  from {
-    background-position-y: 0;
-  }
-  to {
-    background-position-y: -256px;
-  }
-}
-
-@keyframes loading-bob-right {
-  0%,
-  100% {
-    transform: translateX(0);
-  }
-  50% {
-    transform: translateX(12px);
-  }
-}
-
-@keyframes loading-bob-left {
-  0%,
-  100% {
-    transform: translateX(0);
-  }
-  50% {
-    transform: translateX(-12px);
-  }
-}
-
-#loading-step {
-  height: 20px;
-  color: var(--text-dim);
-}
-
-#loading-bar {
-  width: 320px;
-  height: 16px;
-}
-
-#loading-fill {
-  width: 0;
-  background: var(--wood-light);
-  transition: width 0.6s ease;
+#instructions-overlay .help-card {
+  animation: ui-rise-in 240ms var(--ease-out);
 }
 
 /* Controls */
@@ -877,6 +672,11 @@
   font-weight: normal;
   color: var(--wood-light);
   text-shadow: 3px 3px 0 var(--ink);
+}
+
+.help-actions {
+  display: flex;
+  gap: 8px;
 }
 
 #help-table td {
@@ -1009,111 +809,6 @@
   #side-panel {
     display: none;
   }
-}
-
-/* Battle menu: OpenRouter model list (src/ui/Dropdown.ts) and a free model id (D52) */
-.dropdown {
-  position: relative;
-}
-
-.dd-button {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  min-width: 210px;
-  border: 6px solid transparent;
-  border-image: url('../assets/ui/well-dark.png') 3 fill / 6px / 0 stretch;
-  image-rendering: pixelated;
-  background: none;
-  color: var(--text);
-  padding: 3px 8px 5px;
-  cursor: pointer;
-  line-height: 1;
-  white-space: nowrap;
-}
-
-.dd-button:hover,
-.dd-button[aria-expanded='true'] {
-  border-image-source: url('../assets/ui/well.png');
-}
-
-/* A pixel arrow, turned up while the list is open */
-.dd-caret {
-  width: 0;
-  height: 0;
-  border-left: 5px solid transparent;
-  border-right: 5px solid transparent;
-  border-top: 6px solid var(--wood-light);
-}
-
-.dd-button[aria-expanded='true'] .dd-caret {
-  transform: rotate(180deg);
-}
-
-.dd-list {
-  position: absolute;
-  z-index: 30;
-  top: calc(100% + 4px);
-  left: 0;
-  min-width: 100%;
-  max-height: 248px;
-  overflow-y: auto;
-  border: 6px solid transparent;
-  border-image: url('../assets/ui/well-dark.png') 3 fill / 6px / 0 stretch;
-  image-rendering: pixelated;
-  box-shadow: 4px 4px 0 #00000088;
-  padding: 2px 0 4px;
-}
-
-.dd-list.up {
-  top: auto;
-  bottom: calc(100% + 4px);
-}
-
-.dd-list:focus {
-  outline: none;
-}
-
-.dd-group {
-  padding: 7px 10px 3px;
-  color: var(--text-faint);
-}
-
-.dd-item {
-  padding: 4px 12px 5px 18px;
-  color: var(--text-dim);
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-.dd-item.active {
-  background: var(--well);
-  color: var(--text);
-}
-
-.dd-item.selected {
-  background: var(--wood);
-  color: #fff;
-  text-shadow: 2px 2px 0 var(--wood-dark);
-}
-
-.dd-item.selected.active {
-  background: var(--wood-mid);
-}
-
-.router-id {
-  width: 210px;
-  max-width: 100%;
-  background: var(--well-dark);
-  border: 2px solid var(--ink);
-  box-shadow: inset 2px 2px 0 #00000055;
-  color: var(--text);
-  padding: 4px 8px;
-}
-
-.router-id::placeholder {
-  color: var(--text-faint);
 }
 
 /* Buttons in a side section's heading (Replay, Log) */
