@@ -2,11 +2,13 @@ import {
   SimConfig,
   BATTLE_CONFIG,
   TerrainDensity,
+  TerrainType,
   SideAI,
   LlmModel,
   TacticalModel,
   Objective,
 } from '../types/types';
+import { generateTerrain, newTerrainSeed, seededRandom } from '../state/TerrainGen';
 import {
   CLAUDE_MODELS,
   cliToolOf,
@@ -31,6 +33,7 @@ import { connection, onConnectionChange } from '../ai/OpenRouterConnect';
 import type { Side } from '../engine/Sides';
 import { Dropdown, DropdownItem } from './Dropdown';
 import { MapChoice } from './MapChoice';
+import { MapPreview } from './MapPreview';
 import { bridgeStatus, ownAiServer, type Connections } from './Connections';
 import { segOffers, segValue, setSeg, wireSeg } from './seg';
 import { SIDE_NAME } from './format';
@@ -43,8 +46,15 @@ import { SIDE_NAME } from './format';
 // What the AI bridge or the page's own AI server says it cannot run is listed too, disabled, with
 // why (its status: BridgeConnect.ts, ServerStatus.ts). A way that cannot run is never preselected:
 // a side starts on the first way that is ready, or on none; nor is a model that cannot. The battle
-// card: objective, map, soldiers, terrain, AI timing (D4), replay. Start's checks say what is wrong
-// next to the control they concern.
+// card: objective with the map preview under it (MapPreview.ts), map, soldiers, terrain, AI timing
+// (D4), replay. Start's checks say what is wrong next to the control they concern.
+//
+// What you preview is what you get: a random map is made here from a seed (one draw of Math.random
+// when Match setup shows Random with none made yet, or "New map"), drawn, and Start hands the run
+// that seed (SimConfig.terrainSeed), so the run makes the very same map through its own path
+// (StateManager, TerrainGen). A run started on it uses the map up: the next showing rolls another,
+// as each Start on Random gave a new map before. The terrain setting makes the map again from the
+// same seed.
 
 // Where a side's LLM runs: the page's own AI server (npm run dev, a tunnel), the visitor's
 // OpenRouter account from the browser, or the AI bridge on this computer
@@ -83,9 +93,17 @@ interface SideState {
 
 export class MatchSetup {
   readonly map = new MapChoice('cfg-map', 'cfg-map-saved');
+  readonly preview = new MapPreview();
   private warriors = $('cfg-warriors') as HTMLInputElement;
   private warriorsNum = $('cfg-warriors-num') as HTMLInputElement;
   private sides = {} as Record<Side, SideState>;
+  // The random map previewed: its seed (null until Match setup first shows it), whether a run was
+  // started on it, and the map made from it for a terrain setting
+  private seed: number | null = null;
+  private seedUsed = false;
+  private made: { key: string; grid: TerrainType[][] } | null = null;
+  // How long the last preview took to make and draw (ms), the tests read it
+  previewMs = 0;
   // Called after any change of the controls (the plain-language lines follow them)
   onChange: () => void = () => {};
 
@@ -101,6 +119,8 @@ export class MatchSetup {
     warriorsNum.addEventListener('change', () => (warriorsNum.value = warriors.value));
     for (const id of ['cfg-objective', 'cfg-terrain', 'cfg-timing', 'cfg-replay'])
       wireSeg(id, () => this.changed());
+    this.map.onChange = () => this.showPreview();
+    $('map-new').addEventListener('click', () => this.newMap());
 
     for (const side of SIDES) {
       const list = new Dropdown($(`cfg-${side}-model`), [], '');
@@ -128,40 +148,12 @@ export class MatchSetup {
     this.refresh();
   }
 
-  // Match setup is shown (FrontEnd): the page's own AI server is asked once what it runs
+  // Match setup is shown (FrontEnd): the page's own AI server is asked once what it runs; the
+  // preview drawn (a random map made for it when there is none yet, or the last one was played)
   opened(): void {
     if (ownAiServer()) void askServerStatus();
     this.refresh();
-  }
-
-  // --- Presets (the title screen's choices) ---
-
-  // Quick battle: the user commands West against the rules, elimination on a random map with
-  // the default army
-  presetPlay(): void {
-    setSeg('cfg-objective', 'elimination');
-    setSeg(SIDE_GROUP.west, 'none');
-    setSeg(SIDE_GROUP.east, 'none');
-    setSeg('cfg-terrain', 'normal');
-    this.map.choice = 'random';
-    this.warriors.value = this.warriorsNum.value = String(BATTLE_CONFIG.warriorCount);
-    this.changed();
-  }
-
-  // AI vs AI: an LLM on both sides (a side that already has one keeps it)
-  presetAiVsAi(): void {
-    for (const side of SIDES)
-      if (!segValue(SIDE_GROUP[side]).includes('llm')) setSeg(SIDE_GROUP[side], 'llm');
-    this.changed();
-  }
-
-  // The first thing to choose: West's way (the one shown active, or the first offered)
-  focusFirst(): void {
-    const group = $('cfg-west-way');
-    const target =
-      group.querySelector<HTMLElement>('button.active') ??
-      Array.from(group.querySelectorAll<HTMLElement>('button')).find((b) => !b.hidden);
-    target?.focus();
+    this.showPreview();
   }
 
   // --- Showing ---
@@ -169,6 +161,82 @@ export class MatchSetup {
   private changed(): void {
     this.clearMessages();
     this.refresh();
+    this.showPreview();
+  }
+
+  // --- The map preview ---
+
+  // The random map's seed: a new one when there is none yet or a run was started on it
+  private ensureSeed(): number {
+    if (this.seed === null || this.seedUsed) {
+      this.seed = newTerrainSeed();
+      this.seedUsed = false;
+    }
+    return this.seed;
+  }
+
+  // "New map": another random map
+  private newMap(): void {
+    this.seed = newTerrainSeed();
+    this.seedUsed = false;
+    this.showPreview();
+  }
+
+  // The seed of the random map shown, while no run has been started on it (kept for the trip to
+  // openrouter.ai), or null
+  previewSeed(): number | null {
+    return this.seedUsed ? null : this.seed;
+  }
+
+  // Puts back the random map shown before the trip to openrouter.ai
+  restoreSeed(seed: number): void {
+    this.seed = seed;
+    this.seedUsed = false;
+  }
+
+  // The random map of the seed for the terrain setting, made as the run will make it (made once
+  // per seed and setting). While Match setup is shown a seed is made when there is none or the
+  // last one was played (so the map shown is the one Start plays); null while it is not shown and
+  // has none to show
+  private randomGrid(): TerrainType[][] | null {
+    const shown = !$('setup-screen').hidden && !$('main-menu').hidden;
+    if (shown) this.ensureSeed();
+    if (this.seed === null || this.seedUsed) return null;
+    const density = segValue('cfg-terrain') as TerrainDensity;
+    const key = `${this.seed}:${density}`;
+    if (this.made?.key !== key)
+      this.made = { key, grid: generateTerrain(density, seededRandom(this.seed)) };
+    return this.made.grid;
+  }
+
+  // Draws the map that Start would play with the objective's places on it, or says why there is
+  // none (a saved map that cannot be read: Start's own message)
+  showPreview(): void {
+    const t0 = performance.now();
+    const choice = this.map.choice;
+    const objective = segValue('cfg-objective') as Objective;
+    const heroes = BATTLE_CONFIG.heroesPerSide;
+    $('map-new').hidden = choice !== 'random';
+    if (choice === 'random') {
+      const grid = this.randomGrid();
+      if (!grid) return; // not shown, nothing to show yet
+      const map = { key: `random:${this.made!.key}`, name: 'a random map' };
+      this.preview.show(grid, objective, heroes, map);
+    } else {
+      const problem = this.map.problem();
+      const grid = problem ? undefined : this.map.grid();
+      if (!grid) {
+        this.preview.none(problem ?? 'This map cannot be shown.');
+        return;
+      }
+      const saved = this.map.savedName();
+      const map =
+        choice === 'fixed'
+          ? { key: 'fixed', name: 'the fixed map' }
+          : { key: `saved:${saved}`, name: `the saved map "${saved}"` };
+      this.preview.show(grid, objective, heroes, map);
+    }
+    this.previewMs = performance.now() - t0;
   }
 
   // Every control follows the choices and the connections
@@ -286,12 +354,15 @@ export class MatchSetup {
         return null;
       }
     }
+    // A random map: the one previewed (its seed), made again by the run
+    const random = this.map.choice === 'random';
     const cfg: SimConfig = {
       ...BATTLE_CONFIG,
       warriorCount: parseInt(this.warriors.value),
       terrainDensity: segValue('cfg-terrain') as TerrainDensity,
       objective: segValue('cfg-objective') as Objective,
       presetGrid: this.map.grid(),
+      ...(random ? { terrainSeed: this.ensureSeed() } : {}),
       friendlyAI: this.sideAi('west'),
       enemyAI: this.sideAi('east'),
       aiTiming: segValue('cfg-timing') === 'paused' ? 'paused' : 'realtime',
@@ -301,6 +372,8 @@ export class MatchSetup {
       friendlyTactical: this.tactical('west'),
       enemyTactical: this.tactical('east'),
     };
+    // The run is started on this map: the next showing of Match setup rolls another
+    if (random) this.seedUsed = true;
     return { cfg, mapChoice: this.map.label() };
   }
 

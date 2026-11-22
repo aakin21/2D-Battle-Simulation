@@ -16,11 +16,22 @@ import {
   TerrainDensity,
   DEFAULT_CONFIG,
 } from '../types/types';
-import { Pathfinder, NO_REGION } from '../engine/Pathfinder';
+import { Pathfinder } from '../engine/Pathfinder';
 import { SpatialGrid } from '../engine/SpatialGrid';
 import { BerserkerPool } from '../engine/BerserkerPool';
 import { FIRST_WAVE_TIME } from '../engine/ClassicWaves';
-import { generateTerrain } from './TerrainGen';
+import { generateTerrain, seededRandom } from './TerrainGen';
+import {
+  EAST_HERO_COLUMN,
+  HERO_SPOT_MAX_RADIUS,
+  HERO_SPOT_RADIUS,
+  WEST_HERO_COLUMN,
+  heroSlotRow,
+  inRegion,
+  mainRegionOf,
+  objectivePlaces,
+  soldierColumns,
+} from './BattleLayout';
 import {
   CHARISMA_RADIUS,
   CHARISMA_BONUS,
@@ -29,22 +40,7 @@ import {
   BASE_HP,
 } from '../engine/Rules';
 
-// Battle mode: the column each side's heroes start on (west = friendly, east = enemy)
-const WEST_HERO_COLUMN = 20;
-const EAST_HERO_COLUMN = 129;
-// Battle mode: soldiers start at random tiles within this many columns of their side's
-// hero column, over the full height of the map.
-const SPAWN_AREA_HALF_WIDTH = 20;
-// Battle mode: a hero starts on a clear tile in a square around its slot on the side's edge,
-// grown from this half-width up to the maximum until it holds one.
-const HERO_SPOT_RADIUS = 3;
-const HERO_SPOT_MAX_RADIUS = 40;
-// D30: where the objectives go (each on the nearest tile of the main walkable region): control
-// points A (north) and B (south) on the centre line, one base per side at its start area
-const CONTROL_POINT_A: Position = { x: 75, y: 45 };
-const CONTROL_POINT_B: Position = { x: 75, y: 105 };
-const WEST_BASE: Position = { x: 14, y: 75 };
-const EAST_BASE: Position = { x: 135, y: 75 };
+// Battle mode's places on the map (hero columns and slots, soldier areas, objectives): BattleLayout.ts
 
 export class StateManager {
   private battlefield: IBattlefield;
@@ -59,7 +55,7 @@ export class StateManager {
   // Classic mode outside the stress test: the only mode that runs berserker waves, and so the
   // only one whose dead berserkers go back into the pool
   private wavesRun: boolean = false;
-  private mainRegion = new Uint8Array(GRID_SIZE * GRID_SIZE);
+  private mainRegion: Uint8Array = new Uint8Array(GRID_SIZE * GRID_SIZE);
 
   constructor() {
     this.battlefield = this.emptyBattlefield();
@@ -70,9 +66,12 @@ export class StateManager {
     this.stressMode = on;
   }
 
-  // Random terrain (TerrainGen.ts)
-  initGrid(density: TerrainDensity = 'normal'): void {
-    this.battlefield.grid = generateTerrain(density);
+  // Random terrain (TerrainGen.ts): a new map from Math.random, or the map of a seed
+  initGrid(density: TerrainDensity = 'normal', seed?: number): void {
+    this.battlefield.grid = generateTerrain(
+      density,
+      seed === undefined ? undefined : seededRandom(seed)
+    );
   }
 
   private spawnInitialUnits(warriorCount: number = 100): void {
@@ -197,7 +196,7 @@ export class StateManager {
     for (const side of sides) {
       const heroTiles = new Set<string>();
       for (let h = 0; h < heroCount; h++) {
-        const cy = Math.round(((h + 1) * GRID_SIZE) / (heroCount + 1));
+        const cy = heroSlotRow(h, heroCount);
         const heroPos = this.heroSpot(side.x, cy);
         if (!heroPos) continue;
 
@@ -212,12 +211,10 @@ export class StateManager {
 
       // Soldiers start at random tiles in their side's area, not around a hero: heroes have
       // to collect the ones out of their sight first.
-      const spots = this.getShuffledPositions(
-        Math.max(1, side.x - SPAWN_AREA_HALF_WIDTH),
-        Math.min(GRID_SIZE - 1, side.x + SPAWN_AREA_HALF_WIDTH + 1),
-        1,
-        GRID_SIZE - 1
-      ).filter((p) => this.isInMainRegion(p.x, p.y) && !heroTiles.has(`${p.x},${p.y}`));
+      const columns = soldierColumns(side.x);
+      const spots = this.getShuffledPositions(columns.from, columns.to, 1, GRID_SIZE - 1).filter(
+        (p) => this.isInMainRegion(p.x, p.y) && !heroTiles.has(`${p.x},${p.y}`)
+      );
       // Exactly the chosen number per side (it used to be rounded down to a multiple of the
       // hero count from when soldiers started around their hero)
       const soldiers = config.warriorCount;
@@ -269,32 +266,12 @@ export class StateManager {
   // True if the tile belongs to the largest connected walkable area of the map.
   // Mountains can enclose small pockets; a unit inside one can never reach the rest.
   public isInMainRegion(x: number, y: number): boolean {
-    const tx = Math.floor(x);
-    const ty = Math.floor(y);
-    if (tx < 0 || ty < 0 || tx >= GRID_SIZE || ty >= GRID_SIZE) return false;
-    return this.mainRegion[ty * GRID_SIZE + tx] === 1;
+    return inRegion(this.mainRegion, x, y);
   }
 
-  // The pathfinder's walkable regions (same flood fill and ids, in scan order); keeps the
-  // largest, the first one scanned on a tie. On a map without a clear tile, best stays
-  // NO_REGION and so every tile is marked.
+  // The largest of the pathfinder's walkable regions (BattleLayout.mainRegionOf)
   private computeMainRegion(): void {
-    const label = Pathfinder.labelRegions(this.battlefield.grid);
-    const sizes: number[] = [];
-    for (let k = 0; k < label.length; k++) {
-      if (label[k] !== NO_REGION) sizes[label[k]] = (sizes[label[k]] ?? 0) + 1;
-    }
-    let best = NO_REGION;
-    let bestSize = 0;
-    for (let id = 0; id < sizes.length; id++) {
-      if (sizes[id] > bestSize) {
-        bestSize = sizes[id];
-        best = id;
-      }
-    }
-
-    this.mainRegion = new Uint8Array(label.length);
-    for (let k = 0; k < label.length; k++) if (label[k] === best) this.mainRegion[k] = 1;
+    this.mainRegion = mainRegionOf(this.battlefield.grid);
   }
 
   // Hot path: no array allocation — calls cb for each unit within radius.
@@ -413,7 +390,7 @@ export class StateManager {
     this.battleMode = config.mode === 'battle' && !this.stressMode;
     this.wavesRun = !this.battleMode && !this.stressMode;
     if (config.presetGrid) this.battlefield.grid = config.presetGrid.map((row) => row.slice());
-    else this.initGrid(config.terrainDensity);
+    else this.initGrid(config.terrainDensity, config.terrainSeed);
     this.computeMainRegion();
     if (this.battleMode) {
       this.setupObjective(config.objective ?? 'elimination');
@@ -439,55 +416,24 @@ export class StateManager {
     };
   }
 
-  // D30: control points A and B, or one base per side (CONTROL_POINT_A ... EAST_BASE)
+  // D30: control points A and B, or one base per side, where BattleLayout places them
   private setupObjective(mode: Objective): void {
     const o = this.battlefield.objective;
     o.mode = mode;
     o.timeLimit = mode === 'control' ? CONTROL_TIME_LIMIT : MATCH_TIME_LIMIT;
-    if (mode === 'control') {
-      o.points = [
-        {
-          name: 'A',
-          position: this.nearestMainTile(CONTROL_POINT_A.x, CONTROL_POINT_A.y),
-          holder: null,
-          leader: null,
-          leaderSince: 0,
-        },
-        {
-          name: 'B',
-          position: this.nearestMainTile(CONTROL_POINT_B.x, CONTROL_POINT_B.y),
-          holder: null,
-          leader: null,
-          leaderSince: 0,
-        },
-      ];
-    } else if (mode === 'base') {
-      o.bases = [
-        {
-          faction: Faction.FRIENDLY,
-          position: this.nearestMainTile(WEST_BASE.x, WEST_BASE.y),
-          hp: BASE_HP,
-          maxHp: BASE_HP,
-        },
-        {
-          faction: Faction.ENEMY,
-          position: this.nearestMainTile(EAST_BASE.x, EAST_BASE.y),
-          hp: BASE_HP,
-          maxHp: BASE_HP,
-        },
-      ];
-    }
-  }
-
-  private nearestMainTile(x: number, y: number): Position {
-    for (let r = 0; r < GRID_SIZE; r++) {
-      for (let dy = -r; dy <= r; dy++) {
-        for (let dx = -r; dx <= r; dx++) {
-          if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
-          if (this.isInMainRegion(x + dx, y + dy)) return { x: x + dx, y: y + dy };
-        }
-      }
-    }
-    return { x, y };
+    const places = objectivePlaces(this.mainRegion, mode);
+    o.points = places.points.map((p) => ({
+      name: p.name,
+      position: p.position,
+      holder: null,
+      leader: null,
+      leaderSince: 0,
+    }));
+    o.bases = places.bases.map((b) => ({
+      faction: b.faction,
+      position: b.position,
+      hp: BASE_HP,
+      maxHp: BASE_HP,
+    }));
   }
 }

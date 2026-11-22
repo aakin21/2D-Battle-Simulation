@@ -165,25 +165,15 @@
                   <span class="choice-desc" id="continue-desc">Back to the battle.</span>
                 </span>
               </button>
-              <button id="title-play" class="choice primary">
-                <span class="choice-icon icon-play" aria-hidden="true"></span>
-                <span class="choice-text">
-                  <span class="choice-title">Quick battle</span>
-                  <span class="choice-desc" id="play-desc"
-                    >You command the West army's heroes against the built-in rules.</span
-                  >
-                </span>
-              </button>
-              <button id="title-ai" class="choice">
-                <span class="choice-icon icon-ai" aria-hidden="true"
+              <button id="title-battle" class="choice primary">
+                <span class="choice-icon icon-battle" aria-hidden="true"
                   ><span class="mini-unit mini-hero-west"></span
                   ><span class="mini-unit mini-hero-east"></span
                 ></span>
                 <span class="choice-text">
-                  <span class="choice-title">AI vs AI</span>
+                  <span class="choice-title">Battle</span>
                   <span class="choice-desc"
-                    >Choose who commands each side: an LLM, the rules or you. Then watch or
-                    play.</span
+                    >Choose who commands each side: you, the built-in rules or an LLM.</span
                   >
                 </span>
               </button>
@@ -541,79 +531,103 @@
 
           <section class="battle-card panel" id="setup-battle" aria-labelledby="battle-title">
             <h2 id="battle-title" class="card-title">Battle</h2>
-            <div class="field">
-              <span class="field-label" id="lbl-objective">Objective</span>
-              <div class="seg" id="cfg-objective" role="group" aria-labelledby="lbl-objective">
-                <button data-val="elimination" class="active">Elimination</button>
-                <button data-val="control">Control A-B</button>
-                <button data-val="base">Base</button>
-              </div>
-              <p class="field-desc" id="desc-objective"></p>
-            </div>
-            <div class="field">
-              <span class="field-label" id="lbl-map">Map</span>
-              <div class="field-row">
-                <div class="seg" id="cfg-map" role="group" aria-labelledby="lbl-map">
-                  <button data-val="random" class="active">Random</button>
-                  <button data-val="fixed">Fixed</button>
-                  <button data-val="saved">Saved</button>
+            <div class="battle-body">
+              <div class="field objective-field" id="objective-field">
+                <span class="field-label" id="lbl-objective">Objective</span>
+                <div class="seg" id="cfg-objective" role="group" aria-labelledby="lbl-objective">
+                  <button data-val="elimination" class="active">Elimination</button>
+                  <button data-val="control">Control A-B</button>
+                  <button data-val="base">Base</button>
                 </div>
-                <select id="cfg-map-saved" aria-label="Saved map" hidden></select>
+                <!-- The map that will be played and what the objective means on it (MapPreview.ts) -->
+                <figure class="map-preview" id="map-preview-box">
+                  <canvas
+                    id="map-preview"
+                    class="map-preview-canvas"
+                    role="img"
+                    width="300"
+                    height="300"
+                  ></canvas>
+                  <p id="map-preview-note" class="map-preview-note" hidden></p>
+                  <figcaption class="map-preview-caption">
+                    <span id="map-preview-legend" class="map-preview-legend"></span>
+                    <button
+                      id="map-new"
+                      class="btn btn-small btn-quiet map-new"
+                      type="button"
+                      title="Another random map: the one shown is the one you play"
+                    >
+                      New map
+                    </button>
+                  </figcaption>
+                </figure>
+                <p class="field-desc" id="desc-objective"></p>
               </div>
-            </div>
-            <div class="field">
-              <label class="field-label" for="cfg-warriors">Soldiers per side</label>
-              <div class="field-row">
-                <input type="range" id="cfg-warriors" min="0" max="2000" step="1" value="150" />
-                <input
-                  type="number"
-                  id="cfg-warriors-num"
-                  min="0"
-                  max="2000"
-                  value="150"
-                  aria-label="Soldiers per side"
-                />
+              <div class="field">
+                <span class="field-label" id="lbl-map">Map</span>
+                <div class="field-row">
+                  <div class="seg" id="cfg-map" role="group" aria-labelledby="lbl-map">
+                    <button data-val="random" class="active">Random</button>
+                    <button data-val="fixed">Fixed</button>
+                    <button data-val="saved">Saved</button>
+                  </div>
+                  <select id="cfg-map-saved" aria-label="Saved map" hidden></select>
+                </div>
               </div>
-            </div>
-            <div class="field">
-              <span class="field-label" id="lbl-terrain">Terrain</span>
-              <div class="seg" id="cfg-terrain" role="group" aria-labelledby="lbl-terrain">
-                <button data-val="light">Light</button>
-                <button data-val="normal" class="active">Normal</button>
-                <button data-val="dense">Dense</button>
+              <div class="field">
+                <label class="field-label" for="cfg-warriors">Soldiers per side</label>
+                <div class="field-row">
+                  <input type="range" id="cfg-warriors" min="0" max="2000" step="1" value="150" />
+                  <input
+                    type="number"
+                    id="cfg-warriors-num"
+                    min="0"
+                    max="2000"
+                    value="150"
+                    aria-label="Soldiers per side"
+                  />
+                </div>
               </div>
-            </div>
-            <div class="field" id="row-timing" hidden>
-              <span class="field-label" id="lbl-timing">AI timing</span>
-              <div class="seg" id="cfg-timing" role="group" aria-labelledby="lbl-timing">
-                <button
-                  data-val="realtime"
-                  class="active"
-                  title="The battle goes on while the AI thinks"
-                >
-                  Real-time
-                </button>
-                <button data-val="paused" title="The battle waits for every AI answer">
-                  Paused
-                </button>
+              <div class="field">
+                <span class="field-label" id="lbl-terrain">Terrain</span>
+                <div class="seg" id="cfg-terrain" role="group" aria-labelledby="lbl-terrain">
+                  <button data-val="light">Light</button>
+                  <button data-val="normal" class="active">Normal</button>
+                  <button data-val="dense">Dense</button>
+                </div>
               </div>
-            </div>
-            <div class="field">
-              <span class="field-label" id="lbl-replay">Replay</span>
-              <div class="seg" id="cfg-replay" role="group" aria-labelledby="lbl-replay">
-                <button
-                  data-val="on"
-                  class="active"
-                  title="Keep a replay of the match to watch again or download at the end"
-                >
-                  Record
-                </button>
-                <button
-                  data-val="off"
-                  title="No replay (saves memory in very long or large matches)"
-                >
-                  Off
-                </button>
+              <div class="field" id="row-timing" hidden>
+                <span class="field-label" id="lbl-timing">AI timing</span>
+                <div class="seg" id="cfg-timing" role="group" aria-labelledby="lbl-timing">
+                  <button
+                    data-val="realtime"
+                    class="active"
+                    title="The battle goes on while the AI thinks"
+                  >
+                    Real-time
+                  </button>
+                  <button data-val="paused" title="The battle waits for every AI answer">
+                    Paused
+                  </button>
+                </div>
+              </div>
+              <div class="field">
+                <span class="field-label" id="lbl-replay">Replay</span>
+                <div class="seg" id="cfg-replay" role="group" aria-labelledby="lbl-replay">
+                  <button
+                    data-val="on"
+                    class="active"
+                    title="Keep a replay of the match to watch again or download at the end"
+                  >
+                    Record
+                  </button>
+                  <button
+                    data-val="off"
+                    title="No replay (saves memory in very long or large matches)"
+                  >
+                    Off
+                  </button>
+                </div>
               </div>
             </div>
             <p id="msg-battle" class="msg" role="alert" hidden></p>

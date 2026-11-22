@@ -8,12 +8,15 @@ import {
   terrainName,
   UNIT_COLORS,
   GRID_SIZE,
+  ObjectiveState,
+  TerrainType,
 } from '../types/types';
 import { CONTROL_RADIUS, BASE_RADIUS } from '../engine/Rules';
 import { SIDE_HEX, SIDE_RGB, hexToRgb } from './SideColors';
 
 // Minimap: terrain and units at one pixel per tile, drawn into a small layer that is scaled
 // up by whole pixels, with control points, bases, heroes and the main view's rectangle on top.
+// Its terrain colours and markers are exported for Match setup's map preview (MapPreview.ts).
 
 // Marker colours by Faction: SIDE_RGB and SIDE_HEX (SideColors.ts); this one for no holder
 const NEUTRAL_RGB = '232, 224, 208';
@@ -83,20 +86,7 @@ export class MinimapRenderer {
       this.terrainPixels = cctx.getImageData(0, 0, GRID_SIZE, GRID_SIZE).data;
     }
     // Build terrain pixel cache once per grid generation
-    if (!this.terrainPixels) {
-      this.terrainPixels = new Uint8ClampedArray(GRID_SIZE * GRID_SIZE * 4);
-      for (let y = 0; y < GRID_SIZE; y++) {
-        for (let x = 0; x < GRID_SIZE; x++) {
-          const type = battlefield.grid[y][x];
-          const [r, g, b] = hexToRgb(TERRAIN_COLORS[terrainName(type)] ?? '#000000');
-          const i = (y * GRID_SIZE + x) * 4;
-          this.terrainPixels[i] = r;
-          this.terrainPixels[i + 1] = g;
-          this.terrainPixels[i + 2] = b;
-          this.terrainPixels[i + 3] = 255;
-        }
-      }
-    }
+    if (!this.terrainPixels) this.terrainPixels = flatTerrainPixels(battlefield.grid);
 
     // Copy terrain into reused ImageData
     const data = this.imageData.data;
@@ -132,43 +122,12 @@ export class MinimapRenderer {
     ctx.drawImage(this.layer, 0, 0, w, h);
 
     // Control points and bases
-    const o = battlefield.objective;
-    ctx.lineWidth = 2;
-    for (const p of o.points) {
-      const c = p.holder === null ? 2 : p.holder;
-      ctx.beginPath();
-      ctx.arc(
-        (p.position.x + 0.5) * s,
-        (p.position.y + 0.5) * s,
-        CONTROL_RADIUS * s,
-        0,
-        Math.PI * 2
-      );
-      ctx.fillStyle = POINT_FILL[c];
-      ctx.fill();
-      ctx.strokeStyle = POINT_LINE[c];
-      ctx.stroke();
-    }
-    for (const b of o.bases) {
-      const half = BASE_RADIUS * s;
-      const cx = (b.position.x + 0.5) * s;
-      const cy = (b.position.y + 0.5) * s;
-      ctx.fillStyle = b.hp > 0 ? BASE_FILL[b.faction] : '#555';
-      ctx.fillRect(cx - half, cy - half, half * 2, half * 2);
-      ctx.strokeStyle = '#131b1b';
-      ctx.strokeRect(cx - half, cy - half, half * 2, half * 2);
-    }
+    drawObjectiveMarkers(ctx, battlefield.objective, s);
 
     // Heroes: outlined squares in their side's colour
     const heroSize = Math.max(5, s * 3);
-    for (const hero of heroes) {
-      const cx = hero.position.x * s;
-      const cy = hero.position.y * s;
-      ctx.fillStyle = '#131b1b';
-      ctx.fillRect(cx - heroSize / 2 - 1, cy - heroSize / 2 - 1, heroSize + 2, heroSize + 2);
-      ctx.fillStyle = SIDE_HEX[hero.faction === Faction.ENEMY ? 1 : 0];
-      ctx.fillRect(cx - heroSize / 2, cy - heroSize / 2, heroSize, heroSize);
-    }
+    for (const hero of heroes)
+      drawHeroMarker(ctx, hero.position.x * s, hero.position.y * s, hero.faction, heroSize);
 
     // Rectangle of the main view, clipped to the map
     const x0 = Math.max(0, camera.x);
@@ -184,4 +143,63 @@ export class MinimapRenderer {
     this.terrainPixels = null;
     // imageData object itself is reused — only terrain cache cleared
   }
+}
+
+// The terrain at one RGBA pixel per tile in the flat terrain colours
+export function flatTerrainPixels(grid: TerrainType[][]): Uint8ClampedArray {
+  const pixels = new Uint8ClampedArray(GRID_SIZE * GRID_SIZE * 4);
+  for (let y = 0; y < GRID_SIZE; y++) {
+    for (let x = 0; x < GRID_SIZE; x++) {
+      const type = grid[y][x];
+      const [r, g, b] = hexToRgb(TERRAIN_COLORS[terrainName(type)] ?? '#000000');
+      const i = (y * GRID_SIZE + x) * 4;
+      pixels[i] = r;
+      pixels[i + 1] = g;
+      pixels[i + 2] = b;
+      pixels[i + 3] = 255;
+    }
+  }
+  return pixels;
+}
+
+// Control points (a circle of their capture radius in the holder's colour, neutral without one)
+// and bases (a square in their side's colour, grey once destroyed), `s` canvas pixels per tile
+export function drawObjectiveMarkers(
+  ctx: CanvasRenderingContext2D,
+  o: Pick<ObjectiveState, 'points' | 'bases'>,
+  s: number
+): void {
+  ctx.lineWidth = 2;
+  for (const p of o.points) {
+    const c = p.holder === null ? 2 : p.holder;
+    ctx.beginPath();
+    ctx.arc((p.position.x + 0.5) * s, (p.position.y + 0.5) * s, CONTROL_RADIUS * s, 0, Math.PI * 2);
+    ctx.fillStyle = POINT_FILL[c];
+    ctx.fill();
+    ctx.strokeStyle = POINT_LINE[c];
+    ctx.stroke();
+  }
+  for (const b of o.bases) {
+    const half = BASE_RADIUS * s;
+    const cx = (b.position.x + 0.5) * s;
+    const cy = (b.position.y + 0.5) * s;
+    ctx.fillStyle = b.hp > 0 ? BASE_FILL[b.faction] : '#555';
+    ctx.fillRect(cx - half, cy - half, half * 2, half * 2);
+    ctx.strokeStyle = '#131b1b';
+    ctx.strokeRect(cx - half, cy - half, half * 2, half * 2);
+  }
+}
+
+// A hero: a square of `size` in its side's colour with a dark outline, centred on (cx, cy)
+export function drawHeroMarker(
+  ctx: CanvasRenderingContext2D,
+  cx: number,
+  cy: number,
+  faction: Faction,
+  size: number
+): void {
+  ctx.fillStyle = '#131b1b';
+  ctx.fillRect(cx - size / 2 - 1, cy - size / 2 - 1, size + 2, size + 2);
+  ctx.fillStyle = SIDE_HEX[faction === Faction.ENEMY ? 1 : 0];
+  ctx.fillRect(cx - size / 2, cy - size / 2, size, size);
 }
