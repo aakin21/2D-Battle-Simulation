@@ -5,4 +5,9 @@ DEFENSE.md
 .claude/worktrees/
 .env*.local
 .vercel
+# Wrangler's local state and local secrets (proxy/)
+.wrangler/
+.dev.vars*
 dist-bridge/
+dist-experiments/
+experiments/results/

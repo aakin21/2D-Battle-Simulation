@@ -1,0 +1,42 @@
+{
+  "$comment": "The first pilot (experiments/README.md, 'A pilot'): the rules baseline, Sonnet alone, Sonnet with Jev, and Sonnet with Jev against Sonnet; control on the fixed map, 3 seeds, sides swapped, paused AI timing. Estimates from R20, R14 and D50.",
+  "name": "pilot",
+  "aiServer": "http://127.0.0.1:5173",
+  "conditions": [
+    {
+      "name": "rules vs rules",
+      "subject": { "commander": "rules" },
+      "opponent": { "commander": "rules" }
+    },
+    {
+      "name": "sonnet vs rules",
+      "subject": { "commander": "llm", "model": "sonnet" },
+      "opponent": { "commander": "rules" }
+    },
+    {
+      "name": "sonnet+jev vs rules",
+      "subject": { "commander": "llm+jev", "model": "sonnet" },
+      "opponent": { "commander": "rules" }
+    },
+    {
+      "name": "sonnet+jev vs sonnet",
+      "subject": { "commander": "llm+jev", "model": "sonnet" },
+      "opponent": { "commander": "llm", "model": "sonnet" }
+    }
+  ],
+  "objectives": ["control"],
+  "maps": ["fixed"],
+  "soldiers": 150,
+  "timing": "paused",
+  "seeds": { "count": 3, "base": 1 },
+  "swapSides": true,
+  "parallel": 2,
+  "spendCapUsd": 25,
+  "out": "../results/pilot",
+  "estimates": {
+    "llmRequestUsd": 0.0435,
+    "tacticalRequestUsd": 0.00001,
+    "llmAnswerSeconds": 4,
+    "tacticalAnswerSeconds": 0.55
+  }
+}
