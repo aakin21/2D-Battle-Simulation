@@ -280,7 +280,8 @@
               >
                 <h3 id="bridge-title" class="conn-title">This computer</h3>
                 <p class="conn-desc">
-                  One command in a terminal connects this page to what you have on your computer.
+                  One command in a terminal connects this page to the AI tools on your computer:
+                  Ollama, Claude Code and Codex.
                 </p>
                 <div class="conn-row">
                   <span id="bridge-status" class="conn-status">Bridge not connected</span>
@@ -730,8 +731,8 @@
       <div id="bridge-help" class="bridge-help">
         <div id="bridge-help-start" class="bridge-help-part">
           <p>
-            Run this in a terminal. It connects this page to what you have on your computer: Ollama
-            (or another local model server), Claude Code, Codex.
+            Run this command in a terminal. It connects this page to the AI tools on your computer:
+            Ollama, Claude Code and Codex.
           </p>
           <div class="bridge-command">
             <pre class="bridge-commands">
@@ -804,8 +805,17 @@ npx https://aakin21.github.io/2D-Battle-Simulation/ai-bridge.tgz</pre
       </div>
     </div>
 
-    <!-- The match intro (shown after Start): who fights whom and for what (LoadingScreen.ts) -->
-    <div id="loading-overlay" class="overlay intro">
+    <!-- The match intro (shown after Start): who fights whom and for what; it waits for the player
+         to start the battle (LoadingScreen.ts) -->
+    <div
+      id="loading-overlay"
+      class="overlay intro"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Match intro"
+      aria-describedby="intro-west-name intro-west-who intro-east-name intro-east-who intro-line intro-hint"
+      tabindex="-1"
+    >
       <div class="intro-board">
         <div class="intro-side intro-west">
           <div class="intro-units" id="intro-west-units"></div>
@@ -820,7 +830,7 @@ npx https://aakin21.github.io/2D-Battle-Simulation/ai-bridge.tgz</pre
         </div>
       </div>
       <div class="intro-line" id="intro-line"></div>
-      <div class="intro-hint faint">click or press Enter to skip</div>
+      <div class="intro-hint" id="intro-hint">Press Enter or click to start</div>
     </div>
 
     <!-- Controls -->
