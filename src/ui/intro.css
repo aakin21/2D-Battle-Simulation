@@ -1,5 +1,6 @@
 /* The match intro shown after Start (LoadingScreen.ts): the two sides come in from their own
-   side, "VS" between them, the objective under them. Pixel motion as in menu-fx.css: whole
+   side, "VS" between them, the objective under them, then the call to action, which stays until
+   the player starts the battle. Pixel motion as in menu-fx.css: whole
    steps, transform and opacity only; prefers-reduced-motion cuts it (theme.css). */
 
 #loading-overlay.intro {
@@ -13,6 +14,12 @@
 
 #loading-overlay.intro.fading {
   opacity: 0;
+}
+
+/* It has the focus while shown (LoadingScreen.ts); a ring around the whole window says nothing
+   the call to action does not */
+#loading-overlay.intro:focus {
+  outline: none;
 }
 
 .intro-board {
@@ -106,8 +113,22 @@
   animation: fx-rise-in 260ms steps(5, end) 420ms both;
 }
 
+/* The call to action: the battle starts when the player says so. It comes in once the sides, VS
+   and the line have, then blinks slowly in whole steps, still readable when dimmed (none with
+   prefers-reduced-motion) */
 .intro-hint {
-  animation: fx-appear 200ms steps(3, end) 700ms both;
+  font-size: 24px;
+  color: var(--wood-light);
+  text-shadow: 2px 3px 0 var(--ink);
+  animation:
+    fx-appear 200ms steps(3, end) 700ms both,
+    intro-blink 1200ms steps(1, end) 900ms infinite;
+}
+
+@keyframes intro-blink {
+  50% {
+    opacity: 0.6;
+  }
 }
 
 @keyframes intro-walk {
@@ -170,5 +191,9 @@
   .intro-who,
   .intro-line {
     font-size: 16px;
+  }
+
+  .intro-hint {
+    font-size: 18px;
   }
 }

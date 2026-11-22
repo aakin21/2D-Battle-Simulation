@@ -53,7 +53,7 @@ The live demo runs the battle in your browser; its AI commander (the LLM) can ru
 npx https://aakin21.github.io/2D-Battle-Simulation/ai-bridge.tgz
 ```
 
-It starts the AI bridge, a small program that connects the demo to what you have on your computer, and opens the demo connected to it. It finds what is on your computer: a local model server (Ollama, LM Studio), Claude Code and Codex if you are signed in to them. The first time, the browser asks whether the site may reach your computer: allow it. Later visits connect by themselves while the bridge runs (press **Disconnect** to forget it).
+It starts the AI bridge, a small program that connects the demo to the AI tools on your computer, and opens the demo connected to it. It finds Ollama, and Claude Code and Codex if you are signed in to them. Any other OpenAI-compatible local server (LM Studio, llama.cpp) works too: see `LOCAL_LLM_URL` below. The first time, the browser asks whether the site may reach your computer: allow it. Later visits connect by themselves while the bridge runs (press **Disconnect** to forget it).
 
 Gemini works too: put `GEMINI_API_KEY=…` (a key from [Google AI Studio](https://aistudio.google.com)) in a `.env.local` file in the folder you run the command from.
 

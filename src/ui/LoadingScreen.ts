@@ -2,14 +2,13 @@ import { Faction, SimConfig } from '../types/types';
 import { heroSpriteUrls, UNIT_SPRITE_URLS } from '../rendering/UnitSprites';
 import { sideCommander } from './Hud';
 
-// The match intro shown after Start: who fights whom and for what, for about two seconds. The
-// run is already set up and waits paused behind it, so nothing is loaded here and no progress is
-// faked; a click, Enter or Space ends it at once. It shows what the run is, never changes it.
+// The match intro shown after Start: who fights whom and for what. The run is already set up and
+// waits paused behind it, so nothing is loaded here and no progress is faked. It stays until the
+// player starts the battle: a click on it, Enter or Space (2026-11-22: it ended by itself after
+// about two seconds). It shows what the run is, never changes it.
 
 export type LoadingKind = 'classic' | 'stress' | 'battle';
 
-const DURATION_MS = 2000;
-const REDUCED_MS = 900; // prefers-reduced-motion: no entrances to wait for
 const FADE_MS = 250; // matches the CSS opacity transition
 
 const OBJECTIVE_LINE: Record<string, string> = {
@@ -75,19 +74,27 @@ function introFor(kind: LoadingKind, cfg: SimConfig): Intro {
 export class LoadingScreen {
   private el: HTMLElement;
   private active: boolean = false;
-  private skip: (() => void) | null = null;
+  private begin: (() => void) | null = null;
 
   constructor() {
     this.el = document.getElementById('loading-overlay')!;
-    this.el.addEventListener('click', () => this.skip?.());
-    // Enter or Space ends the intro; the key goes no further (Space would pause the run)
+    this.el.addEventListener('click', () => this.begin?.());
+    // While it is shown it has the keyboard. Enter or Space starts the battle and goes no further
+    // (Space would also pause the run); a held key's repeats start nothing (Enter held from
+    // pressing Start). Tab stays on it: nothing behind it is reachable. Other keys go on to the
+    // page, which ignores them while it is shown.
     window.addEventListener(
       'keydown',
       (e) => {
-        if (!this.skip || (e.key !== 'Enter' && e.key !== ' ')) return;
+        if (!this.active) return;
+        if (e.key === 'Tab') {
+          e.preventDefault();
+          return;
+        }
+        if (e.key !== 'Enter' && e.key !== ' ') return;
         e.preventDefault();
         e.stopPropagation();
-        this.skip();
+        if (!e.repeat) this.begin?.();
       },
       true
     );
@@ -97,25 +104,33 @@ export class LoadingScreen {
     return this.active;
   }
 
-  // Shows the intro of a run, then fades out. Resolves when it is hidden.
+  // Shows the intro of a run until the player starts the battle, then fades out. Resolves when it
+  // is hidden. No timer: however long it waits, the run behind it stays paused.
   async run(kind: LoadingKind, cfg: SimConfig): Promise<void> {
     this.fill(introFor(kind, cfg));
+    const back = document.activeElement as HTMLElement | null;
     this.active = true;
     this.el.dataset.kind = kind;
     this.el.classList.remove('fading');
     this.el.style.display = 'flex';
+    // The focus on it (a modal dialog with its label, index.html): Enter works at once and a
+    // screen reader says what it is
+    this.el.focus();
 
-    const skipped = new Promise<void>((resolve) => {
-      this.skip = resolve;
+    await new Promise<void>((resolve) => {
+      this.begin = resolve;
     });
-    const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-    await Promise.race([wait(reduced ? REDUCED_MS : DURATION_MS), skipped]);
-    this.skip = null;
+    this.begin = null;
 
     this.el.classList.add('fading');
     await wait(FADE_MS);
     this.el.style.display = 'none';
     this.active = false;
+    // The focus back where it was while that is still on screen (Start's button went with the
+    // menu: then the page has it)
+    if (back && back !== document.body && back.isConnected && back.getClientRects().length > 0)
+      back.focus();
+    else if (document.activeElement === this.el) this.el.blur();
   }
 
   private fill(intro: Intro): void {

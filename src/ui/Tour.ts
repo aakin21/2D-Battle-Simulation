@@ -56,7 +56,7 @@ const TOURS: Record<TourName, Step[]> = {
     {
       target: ['#conn-bridge', '#conn-own'],
       title: 'Or your own computer',
-      text: 'What you have on your own computer: Ollama (or another local model server), Claude Code, Codex. One command in a terminal starts the AI bridge, which connects this page to them.',
+      text: 'The AI tools on your own computer: Ollama, Claude Code and Codex. One command in a terminal connects this page to them.',
     },
     {
       target: ['.title-links'],
